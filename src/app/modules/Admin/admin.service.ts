@@ -1,13 +1,17 @@
+import Auth from '../Auth/auth.model';
 import Donation from '../Donation/donation.model';
 import Organization from '../Organization/organization.model';
+import { Connection, Model } from 'mongoose';
 
-const getAdminStatesFromDb = async () => {
+const getAdminStatesFromDb = async (time?: string) => {
   // if(!user?.roles?.includes('admin')){
   //     throw new Error('Unauthorized access');
   // }
 
   const formatPct = (pct: number | null) =>
-    pct === null ? null : `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% vs last month`;
+    pct === null
+      ? null
+      : `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% vs last month`;
 
   const calcPct = (prev: number | null, curr: number) => {
     if (prev === null) return null;
@@ -35,7 +39,7 @@ const getAdminStatesFromDb = async () => {
   const previousMonthEnd = new Date(previousMonthYear, previousMonth + 1, 1);
 
   // total active organizations (current snapshot)
-  const totalActiveOrganizations = await Organization.countDocuments({ });
+  const totalActiveOrganizations = await Organization.countDocuments({});
 
   // active organizations created this month vs previous month (growth)
   const currentMonthActiveOrgs = await Organization.countDocuments({
@@ -63,12 +67,21 @@ const getAdminStatesFromDb = async () => {
     { $group: { _id: null, totalAmount: { $sum: '$amount' } } },
   ]);
   const previousMonthAmountAgg = await Donation.aggregate([
-    { $match: { createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd } } },
+    {
+      $match: {
+        createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd },
+      },
+    },
     { $group: { _id: null, totalAmount: { $sum: '$amount' } } },
   ]);
-  const currentMonthAmount = (currentMonthAmountAgg[0]?.totalAmount ?? 0) as number;
-  const previousMonthAmount = (previousMonthAmountAgg[0]?.totalAmount ?? 0) as number;
-  const donationAmountChangePct = calcPct(previousMonthAmount, currentMonthAmount);
+  const currentMonthAmount = (currentMonthAmountAgg[0]?.totalAmount ??
+    0) as number;
+  const previousMonthAmount = (previousMonthAmountAgg[0]?.totalAmount ??
+    0) as number;
+  const donationAmountChangePct = calcPct(
+    previousMonthAmount,
+    currentMonthAmount
+  );
   const donationAmountChangeText = formatPct(donationAmountChangePct);
 
   // donations for the selected year (Jan-Dec) with month-over-month growth %
@@ -100,7 +113,8 @@ const getAdminStatesFromDb = async () => {
     return months.map((interval, idx) => {
       const count = counts[idx];
       const prev = idx === 0 ? null : counts[idx - 1];
-      const growth = prev === null ? null : prev === 0 ? 100 : ((count - prev) / prev) * 100;
+      const growth =
+        prev === null ? null : prev === 0 ? 100 : ((count - prev) / prev) * 100;
       return {
         year: interval.year,
         month: interval.month, // 0-11
@@ -129,7 +143,8 @@ const getAdminStatesFromDb = async () => {
     return months.map((interval, idx) => {
       const count = counts[idx];
       const prev = idx === 0 ? null : counts[idx - 1];
-      const growth = prev === null ? null : prev === 0 ? 100 : ((count - prev) / prev) * 100;
+      const growth =
+        prev === null ? null : prev === 0 ? 100 : ((count - prev) / prev) * 100;
       return {
         year: interval.year,
         month: interval.month, // 0-11
@@ -151,7 +166,14 @@ const getAdminStatesFromDb = async () => {
       },
     },
     { $unwind: '$causeDetails' },
-    { $project: { _id: 0, causeId: '$_id', cause: '$causeDetails.name', totalAmount: 1 } },
+    {
+      $project: {
+        _id: 0,
+        causeId: '$_id',
+        cause: '$causeDetails.name',
+        totalAmount: 1,
+      },
+    },
   ]);
 
   const currentByCauseAgg = await Donation.aggregate([
@@ -170,7 +192,11 @@ const getAdminStatesFromDb = async () => {
   ]);
 
   const previousByCauseAgg = await Donation.aggregate([
-    { $match: { createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd } } },
+    {
+      $match: {
+        createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd },
+      },
+    },
     { $group: { _id: '$cause', totalAmount: { $sum: '$amount' } } },
     {
       $lookup: {
@@ -184,14 +210,20 @@ const getAdminStatesFromDb = async () => {
     { $project: { _id: 0, cause: '$causeDetails.name', totalAmount: 1 } },
   ]);
 
-  const currentByCauseMap = new Map<string, number>();
-  currentByCauseAgg.forEach((d: any) => currentByCauseMap.set(d.cause, d.totalAmount ?? 0));
-  const previousByCauseMap = new Map<string, number>();
-  previousByCauseAgg.forEach((d: any) => previousByCauseMap.set(d.cause, d.totalAmount ?? 0));
+  type CauseAgg = { cause?: string; totalAmount?: number };
 
-  const donationsByCauseWithChange = donationsByCause.map((c: any) => {
-    const curr = currentByCauseMap.get(c.cause) ?? 0;
-    const prev = previousByCauseMap.get(c.cause) ?? 0;
+  const currentByCauseMap = new Map<string, number>();
+  currentByCauseAgg.forEach((d: CauseAgg) =>
+    currentByCauseMap.set(d.cause ?? '', d.totalAmount ?? 0)
+  );
+  const previousByCauseMap = new Map<string, number>();
+  previousByCauseAgg.forEach((d: CauseAgg) =>
+    previousByCauseMap.set(d.cause ?? '', d.totalAmount ?? 0)
+  );
+
+  const donationsByCauseWithChange = donationsByCause.map((c: CauseAgg) => {
+    const curr = currentByCauseMap.get(c.cause as string) ?? 0;
+    const prev = previousByCauseMap.get(c.cause as string) ?? 0;
     const pct = calcPct(prev, curr);
     return {
       cause: c.cause,
@@ -215,7 +247,15 @@ const getAdminStatesFromDb = async () => {
       },
     },
     { $unwind: '$donorDetails' },
-    { $project: { _id: 0, donorId: '$_id', donor: '$donorDetails.name', totalAmount: 1, since: '$clients.createdAt' } },
+    {
+      $project: {
+        _id: 0,
+        donorId: '$_id',
+        donor: '$donorDetails.name',
+        totalAmount: 1,
+        since: '$clients.createdAt',
+      },
+    },
     { $sort: { totalAmount: -1 } },
     { $limit: 5 },
   ]);
@@ -232,11 +272,22 @@ const getAdminStatesFromDb = async () => {
       },
     },
     { $unwind: { path: '$donorDetails', preserveNullAndEmptyArrays: true } },
-    { $project: { _id: 0, donor: '$donorDetails.name', totalAmount: 1, since: '$donorDetails.createdAt' } },
+    {
+      $project: {
+        _id: 0,
+        donor: '$donorDetails.name',
+        totalAmount: 1,
+        since: '$donorDetails.createdAt',
+      },
+    },
   ]);
 
   const previousDonorAgg = await Donation.aggregate([
-    { $match: { createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd } } },
+    {
+      $match: {
+        createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd },
+      },
+    },
     { $group: { _id: '$donor', totalAmount: { $sum: '$amount' } } },
     {
       $lookup: {
@@ -247,30 +298,59 @@ const getAdminStatesFromDb = async () => {
       },
     },
     { $unwind: { path: '$donorDetails', preserveNullAndEmptyArrays: true } },
-    { $project: { _id: 0, donor: '$donorDetails.name', totalAmount: 1, since: '$donorDetails.createdAt'  } },
+    {
+      $project: {
+        _id: 0,
+        donor: '$donorDetails.name',
+        totalAmount: 1,
+        since: '$donorDetails.createdAt',
+      },
+    },
   ]);
 
-  const currentDonorMap = new Map<string, { totalAmount: number; since?: any }>();
-  currentDonorAgg.forEach((d: any) =>
-    currentDonorMap.set(d.donor, { totalAmount: d.totalAmount ?? 0, since: d.since })
+  // typed shape for aggregate result documents
+  type DonorAgg = {
+    donor?: string;
+    totalAmount?: number;
+    since?: Date | string | null;
+  };
+
+  const currentDonorMap = new Map<
+    string,
+    { totalAmount: number; since?: Date | string | null }
+  >();
+  currentDonorAgg.forEach((d: DonorAgg) =>
+    currentDonorMap.set(d.donor ?? '', {
+      totalAmount: d.totalAmount ?? 0,
+      since: d.since,
+    })
   );
   const previousDonorMap = new Map<string, number>();
-  previousDonorAgg.forEach((d: any) => previousDonorMap.set(d.donor, d.totalAmount ?? 0));
+  previousDonorAgg.forEach((d: DonorAgg) =>
+    previousDonorMap.set(d.donor ?? '', d.totalAmount ?? 0)
+  );
 
-  const topDonorsWithChange = topDonors.map((d: any) => {
-    const curr = currentDonorMap.get(d.donor)?.totalAmount ?? 0;
-    const prev = previousDonorMap.get(d.donor) ?? 0;
-    const pct = calcPct(prev, curr);
-    return {
-      donor: d.donor,
-      totalAmount: d.totalAmount,
-      currentMonthAmount: curr,
-      previousMonthAmount: prev,
-      changePct: pct,
-      changeText: formatPct(pct),
-      since: d.since ?? currentDonorMap.get(d.donor)?.since,
-    };
-  });
+  const topDonorsWithChange = topDonors.map(
+    (d: {
+      donor?: string;
+      totalAmount?: number;
+      since?: Date | string | null;
+    }) => {
+      const key = d.donor ?? '';
+      const curr = currentDonorMap.get(key)?.totalAmount ?? 0;
+      const prev = previousDonorMap.get(key) ?? 0;
+      const pct = calcPct(prev, curr);
+      return {
+        donor: d.donor,
+        totalAmount: d.totalAmount,
+        currentMonthAmount: curr,
+        previousMonthAmount: prev,
+        changePct: pct,
+        changeText: formatPct(pct),
+        since: d.since ?? currentDonorMap.get(key)?.since,
+      };
+    }
+  );
 
   // recent donors (unchanged)
   const recentDonorDocs = await Donation.aggregate([
@@ -336,6 +416,740 @@ const getAdminStatesFromDb = async () => {
   };
 };
 
+type DonationsReportParams = {
+  page?: number;
+  limit?: number;
+  search?: string;
+  donationType?: string;
+  startDate?: string;
+  endDate?: string;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+};
+
+const getDonationsReportFromDb = async (params?: DonationsReportParams) => {
+  const {
+    page = 1,
+    limit = 10,
+    search = '',
+    donationType,
+    startDate,
+    endDate,
+    sortBy = 'createdAt',
+    sortOrder = 'desc',
+  } = params || {};
+
+  // Build filter object
+  const filter: Record<string, unknown> = {};
+
+  if (donationType) {
+    filter.donationType = donationType;
+  }
+
+  if (startDate || endDate) {
+    filter.createdAt = {};
+    if (startDate) (filter.createdAt as Record<string, Date>).$gte = new Date(startDate);
+    if (endDate) (filter.createdAt as Record<string, Date>).$lte = new Date(endDate);
+  }
+
+  // total donations (all time)
+  const totalDonationAgg = await Donation.aggregate([
+    { $match: { amount: { $gt: 0 } } },
+    { $group: { _id: null, totalAmount: { $sum: '$amount' } } },
+  ]);
+  const totalDonation = (totalDonationAgg[0]?.totalAmount ?? 0) as number;
+
+  // average donation amount
+  const avgDonationAgg = await Donation.aggregate([
+    { $match: { amount: { $gt: 0 } } },
+    { $group: { _id: null, avgAmount: { $avg: '$amount' } } },
+  ]);
+  const avgDonationAmount = (avgDonationAgg[0]?.avgAmount ?? 0) as number;
+
+  // total number of donors
+  const totalDonors = await Donation.distinct('donor').then(
+    (donors) => donors.length
+  );
+
+  // Build search pipeline for donation history
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const searchPipeline: any[] = [];
+
+  if (Object.keys(filter).length > 0) {
+    searchPipeline.push({ $match: filter });
+  }
+
+  // Populate donor and organization for search
+  searchPipeline.push(
+    {
+      $lookup: {
+        from: 'clients',
+        localField: 'donor',
+        foreignField: '_id',
+        as: 'donorDetails',
+      },
+    },
+    {
+      $lookup: {
+        from: 'organizations',
+        localField: 'organization',
+        foreignField: '_id',
+        as: 'organizationDetails',
+      },
+    },
+    {
+      $addFields: {
+        donorName: { $arrayElemAt: ['$donorDetails.name', 0] },
+        organizationName: { $arrayElemAt: ['$organizationDetails.name', 0] },
+      },
+    }
+  );
+
+  // Search filter
+  if (search) {
+    searchPipeline.push({
+      $match: {
+        $or: [
+          { donorName: { $regex: search, $options: 'i' } },
+          { organizationName: { $regex: search, $options: 'i' } },
+          { name: { $regex: search, $options: 'i' } },
+          { specialMessage: { $regex: search, $options: 'i' } },
+        ],
+      },
+    });
+  }
+
+  // Get total count for pagination
+  const countPipeline = [...searchPipeline, { $count: 'total' }];
+  const countResult = await Donation.aggregate(countPipeline);
+  const totalRecords = countResult[0]?.total ?? 0;
+
+  // Sort
+  const sortField = sortBy || 'createdAt';
+  const sortDirection = sortOrder === 'asc' ? 1 : -1;
+  searchPipeline.push({ $sort: { [sortField]: sortDirection } });
+
+  // Pagination
+  const skip = (page - 1) * limit;
+  searchPipeline.push({ $skip: skip }, { $limit: limit });
+
+  // Project final fields
+  searchPipeline.push({
+    $project: {
+      _id: 0,
+      name: 1,
+      amount: 1,
+      cause: 1,
+      donationType: 1,
+      createdAt: 1,
+      donor: { name: '$donorName' },
+      organization: { name: '$organizationName' },
+      specialMessage: 1,
+    },
+  });
+
+  const donationHistory = await Donation.aggregate(searchPipeline);
+
+  return {
+    totalDonation,
+    avgDonationAmount,
+    totalDonors,
+    donationHistory,
+    pagination: {
+      total: totalRecords,
+      page,
+      limit,
+      totalPages: Math.ceil(totalRecords / limit),
+    },
+  };
+};
+
+type SubscriptionsReportParams = {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: string;
+  startDate?: string;
+  endDate?: string;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+};
+
+const getSubscriptionsReportFromDb = async (params?: SubscriptionsReportParams) => {
+  const {
+    page = 1,
+    limit = 10,
+    search = '',
+    status,
+    startDate,
+    endDate,
+    sortBy = 'createdAt',
+    sortOrder = 'desc',
+  } = params || {};
+
+  // total active subscriptions
+  const totalActiveSubscriptions = await Donation.countDocuments({
+    donationType: 'recurring',
+    status: 'completed',
+  });
+  // total cancelled subscription
+
+  const totalCancelledSubscriptions = await Donation.countDocuments({
+    donationType: 'recurring',
+    status: 'canceled',
+  });
+
+  // monthly recurring renewal rate
+  const totalRenewals = await Donation.countDocuments({
+    donationType: 'recurring',
+    status: 'renewed',
+  });
+  const monthlyRenewalRate =
+    totalActiveSubscriptions + totalCancelledSubscriptions === 0
+      ? 0
+      : (totalRenewals /
+          (totalActiveSubscriptions + totalCancelledSubscriptions)) *
+        100;
+
+  // Build filter for subscription history
+  const filter: Record<string, unknown> = { donationType: 'recurring' };
+
+  if (status) {
+    filter.status = status;
+  }
+
+  if (startDate || endDate) {
+    filter.createdAt = {};
+    if (startDate) (filter.createdAt as Record<string, Date>).$gte = new Date(startDate);
+    if (endDate) (filter.createdAt as Record<string, Date>).$lte = new Date(endDate);
+  }
+
+  // Build search pipeline
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const searchPipeline: any[] = [{ $match: filter }];
+
+  // Populate donor and organization for search
+  searchPipeline.push(
+    {
+      $lookup: {
+        from: 'clients',
+        localField: 'donor',
+        foreignField: '_id',
+        as: 'donorDetails',
+      },
+    },
+    {
+      $lookup: {
+        from: 'organizations',
+        localField: 'organization',
+        foreignField: '_id',
+        as: 'organizationDetails',
+      },
+    },
+    {
+      $addFields: {
+        donorName: { $arrayElemAt: ['$donorDetails.name', 0] },
+        organizationName: { $arrayElemAt: ['$organizationDetails.name', 0] },
+      },
+    }
+  );
+
+  // Search filter
+  if (search) {
+    searchPipeline.push({
+      $match: {
+        $or: [
+          { donorName: { $regex: search, $options: 'i' } },
+          { organizationName: { $regex: search, $options: 'i' } },
+          { name: { $regex: search, $options: 'i' } },
+          { specialMessage: { $regex: search, $options: 'i' } },
+        ],
+      },
+    });
+  }
+
+  // Get total count
+  const countPipeline = [...searchPipeline, { $count: 'total' }];
+  const countResult = await Donation.aggregate(countPipeline);
+  const totalRecords = countResult[0]?.total ?? 0;
+
+  // Sort
+  const sortField = sortBy || 'createdAt';
+  const sortDirection = sortOrder === 'asc' ? 1 : -1;
+  searchPipeline.push({ $sort: { [sortField]: sortDirection } });
+
+  // Pagination
+  const skip = (page - 1) * limit;
+  searchPipeline.push({ $skip: skip }, { $limit: limit });
+
+  // Project final fields
+  searchPipeline.push({
+    $project: {
+      _id: 0,
+      name: 1,
+      amount: 1,
+      cause: 1,
+      donationType: 1,
+      createdAt: 1,
+      donor: { name: '$donorName' },
+      organization: { name: '$organizationName' },
+      specialMessage: 1,
+      status: 1,
+    },
+  });
+
+  const subscriptionDonationHistory = await Donation.aggregate(searchPipeline);
+
+  return {
+    totalActiveSubscriptions,
+    totalCancelledSubscriptions,
+    monthlyRenewalRate,
+    subscriptionDonationHistory,
+    pagination: {
+      total: totalRecords,
+      page,
+      limit,
+      totalPages: Math.ceil(totalRecords / limit),
+    },
+  };
+};
+
+
+
+const getRewardsReportFromDb = async () => {
+  // Placeholder implementation for rewards report
+  // You can replace this with actual logic to fetch rewards data from the database
+  const totalRewardsIssued = 5000; // Example static data
+  const totalActiveRewardUsers = 150; // Example static data
+  return {
+    totalRewardsIssued,
+    totalActiveRewardUsers,
+  };
+}
+
+type UsersReportParams = {
+  page?: number;
+  limit?: number;
+  search?: string;
+  role?: string;
+  status?: string;
+  isActive?: boolean;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+};
+
+const getUsersStatesReportFromDb = async () => {
+  // total clients
+  const totalClients = await Auth.countDocuments({ role: 'CLIENT' });
+  // total organizations
+  const totalOrganizations = await Auth.countDocuments({ role: 'ORGANIZATION' });
+  // total businesses
+  const totalBusinesses = await Auth.countDocuments({ role: 'BUSINESS' });
+  // pending approvals
+  const pendingApprovals = await Auth.countDocuments({ status: 'pending' });
+  return {
+    totalClients,
+    totalOrganizations,
+    totalBusinesses,
+    pendingApprovals
+  };
+};
+
+const getUsersReportFromDb = async (params?: UsersReportParams) => {
+  const {
+    page = 1,
+    limit = 10,
+    search = '',
+    role,
+    status,
+    isActive,
+    sortBy = 'createdAt',
+    sortOrder = 'desc',
+  } = params || {};
+
+
+  // Build filter for users
+  const userFilter: Record<string, unknown> = { roles: { $ne: 'ADMIN' } };
+
+  if (role) {
+    userFilter.roles = role.toUpperCase();
+  }
+
+  if (status) {
+    userFilter.status = status;
+  }
+
+  if (isActive !== undefined) {
+    userFilter.isActive = isActive;
+  }
+
+  // Build users pipeline
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const usersPipeline: any[] = [{ $match: userFilter }];
+
+  // lookup possible role-specific profile documents
+  usersPipeline.push(
+    {
+      $lookup: {
+        from: 'clients',
+        localField: '_id',
+        foreignField: 'auth',
+        as: 'clientProfile',
+      },
+    },
+    {
+      $lookup: {
+        from: 'organizations',
+        localField: '_id',
+        foreignField: 'auth',
+        as: 'organizationProfile',
+      },
+    },
+    {
+      $lookup: {
+        from: 'businesses',
+        localField: '_id',
+        foreignField: 'auth',
+        as: 'businessProfile',
+      },
+    },
+    {
+      $addFields: {
+        image: {
+          $ifNull: [
+            { $arrayElemAt: ['$clientProfile.image', 0] },
+            {
+              $ifNull: [
+                { $arrayElemAt: ['$organizationProfile.image', 0] },
+                { $arrayElemAt: ['$businessProfile.image', 0] },
+              ],
+            },
+          ],
+        },
+      },
+    }
+  );
+
+  // Search filter
+  if (search) {
+    usersPipeline.push({
+      $match: {
+        $or: [
+          { name: { $regex: search, $options: 'i' } },
+          { email: { $regex: search, $options: 'i' } },
+        ],
+      },
+    });
+  }
+
+  // Get total count
+  const countPipeline = [...usersPipeline, { $count: 'total' }];
+  const countResult = await Auth.aggregate(countPipeline);
+  const totalRecords = countResult[0]?.total ?? 0;
+
+  // Sort
+  const sortField = sortBy || 'createdAt';
+  const sortDirection = sortOrder === 'asc' ? 1 : -1;
+  usersPipeline.push({ $sort: { [sortField]: sortDirection } });
+
+  // Pagination
+  const skip = (page - 1) * limit;
+  usersPipeline.push({ $skip: skip }, { $limit: limit });
+
+  // Project final fields
+  usersPipeline.push({
+    $project: {
+      _id: 1,
+      name: 1,
+      email: 1,
+      roles: 1,
+      status: 1,
+      isActive: 1,
+      isVerifiedByOTP: 1,
+      createdAt: 1,
+      image: 1,
+    },
+  });
+
+  const users = await Auth.aggregate(usersPipeline).exec();
+
+  return {
+
+    users,
+    pagination: {
+      total: totalRecords,
+      page,
+      limit,
+      totalPages: Math.ceil(totalRecords / limit),
+    },
+  };
+};
+
+type PendingUsersReportParams = {
+  page?: number;
+  limit?: number;
+  search?: string;
+  role?: string;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+};
+
+const getPendingUsersReportFromDb = async (params?: PendingUsersReportParams) => {
+  const {
+    page = 1,
+    limit = 10,
+    search = '',
+    role,
+    sortBy = 'createdAt',
+    sortOrder = 'desc',
+  } = params || {};
+
+
+  // Build filter for pending users
+  const pendingFilter: Record<string, unknown> = { status: 'pending' };
+
+  if (role) {
+    pendingFilter.roles = role.toUpperCase();
+  }
+
+  // Build pending users pipeline
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pendingPipeline: any[] = [{ $match: pendingFilter }];
+
+  // lookup possible role-specific profile documents
+  pendingPipeline.push(
+    {
+      $lookup: {
+        from: 'clients',
+        localField: '_id',
+        foreignField: 'auth',
+        as: 'clientProfile',
+      },
+    },
+    {
+      $lookup: {
+        from: 'organizations',
+        localField: '_id',
+        foreignField: 'auth',
+        as: 'organizationProfile',
+      },
+    },
+    {
+      $lookup: {
+        from: 'businesses',
+        localField: '_id',
+        foreignField: 'auth',
+        as: 'businessProfile',
+      },
+    },
+    {
+      $addFields: {
+        image: {
+          $ifNull: [
+            { $arrayElemAt: ['$clientProfile.image', 0] },
+            {
+              $ifNull: [
+                { $arrayElemAt: ['$organizationProfile.image', 0] },
+                { $arrayElemAt: ['$businessProfile.image', 0] },
+              ],
+            },
+          ],
+        },
+      },
+    }
+  );
+
+  // Search filter
+  if (search) {
+    pendingPipeline.push({
+      $match: {
+        $or: [
+          { name: { $regex: search, $options: 'i' } },
+          { email: { $regex: search, $options: 'i' } },
+        ],
+      },
+    });
+  }
+
+  // Get total count
+  const countPipeline = [...pendingPipeline, { $count: 'total' }];
+  const countResult = await Auth.aggregate(countPipeline);
+  const totalRecords = countResult[0]?.total ?? 0;
+
+  // Sort
+  const sortField = sortBy || 'createdAt';
+  const sortDirection = sortOrder === 'asc' ? 1 : -1;
+  pendingPipeline.push({ $sort: { [sortField]: sortDirection } });
+
+  // Pagination
+  const skip = (page - 1) * limit;
+  pendingPipeline.push({ $skip: skip }, { $limit: limit });
+
+  // Project final fields
+  pendingPipeline.push({
+    $project: {
+      _id: 1,
+      name: 1,
+      email: 1,
+      roles: 1,
+      status: 1,
+      isActive: 1,
+      isVerifiedByOTP: 1,
+      createdAt: 1,
+      image: 1,
+    },
+  });
+
+  const pendingUsers = await Auth.aggregate(pendingPipeline).exec();
+
+  return {
+    pendingUsers,
+    pagination: {
+      total: totalRecords,
+      page,
+      limit,
+      totalPages: Math.ceil(totalRecords / limit),
+    },
+  };
+};
+
+type AdminUpdate = {
+  name?: string;
+  email?: string;
+  image?: string;
+  mobile?: string;
+  password?: string;
+};
+
+const updateAdminProfileInDb = async (
+  id: string,
+  updateData: Partial<AdminUpdate>
+) => {
+  // fields that live on Auth vs role-specific profile collections
+  const authAllowed = ['email', 'password'] as const;
+  const profileAllowed = ['name', 'image', 'mobile'] as const;
+
+  const authPayload: Partial<AdminUpdate> = {};
+  const profilePayload: Partial<AdminUpdate> = {};
+
+  for (const k of authAllowed) {
+    if (Object.prototype.hasOwnProperty.call(updateData, k)) {
+      authPayload[k] = updateData[k];
+    }
+  }
+  for (const k of profileAllowed) {
+    if (Object.prototype.hasOwnProperty.call(updateData, k)) {
+      profilePayload[k] = updateData[k];
+    }
+  }
+
+  if (
+    Object.keys(authPayload).length === 0 &&
+    Object.keys(profilePayload).length === 0
+  ) {
+    throw new Error('No updatable fields provided');
+  }
+
+  // load Auth doc to determine roles and to run pre-save hooks for password
+  const authDoc = await Auth.findById(id);
+  if (!authDoc) return null;
+
+  // update auth fields (email/password) on authDoc and save to trigger hooks
+  let authChanged = false;
+  for (const key of Object.keys(authPayload) as (keyof AdminUpdate)[]) {
+    // assign dynamically
+    (authDoc as unknown as Record<string, unknown>)[key] = authPayload[key];
+    authChanged = true;
+  }
+  if (authChanged) {
+    await authDoc.save();
+  }
+  // update role-specific profile document: clients, organizations, businesses
+  // access mongoose connection from the Auth model in a typed manner
+  const db: Connection = (Auth as unknown as { db: Connection }).db; // access mongoose connection
+  // try to get models if registered
+  const ClientModel = db.models.clients ?? db.models.Client ?? db.model('clients');
+  const BusinessModel = db.models.businesses ?? db.models.Business ?? db.model('businesses');
+  const OrganizationModel = Organization; // imported at top
+
+  let profileResult: Record<string, unknown> | null = null;
+
+  if (Object.keys(profilePayload).length > 0) {
+    // prefer updating profile based on roles indicated on authDoc
+    // Auth may expose either 'role' (string) or 'roles' (string[]); normalize to string[]
+    type AuthRoleFields = { roles?: string[]; role?: string | string[] };
+    const authFields = authDoc as unknown as AuthRoleFields;
+    const rawRole = authFields.roles ?? authFields.role ?? [];
+    const roles = Array.isArray(rawRole)
+      ? rawRole.map(String)
+      : rawRole
+      ? [String(rawRole)]
+      : [];
+    const roleLower = roles.map((r) => String(r).toLowerCase());
+
+    const tryUpdate = async (model?: Model<any>): Promise<Record<string, unknown> | null> => {
+      if (!model) return null;
+      try {
+        const res = await model
+          .findOneAndUpdate(
+            { auth: authDoc._id },
+            { $set: profilePayload },
+            { new: true }
+          )
+          .lean()
+          .exec();
+
+        if (!res) return null;
+        // findOneAndUpdate with lean() can sometimes be typed as an array or a single doc; normalize to a Record
+        if (Array.isArray(res)) {
+          return (res[0] ?? null) as Record<string, unknown> | null;
+        }
+        return res as Record<string, unknown>;
+      } catch {
+        return null;
+      }
+    };
+
+    // attempt role-directed update first
+    if (roleLower.includes('organization')) {
+      profileResult = await tryUpdate(OrganizationModel);
+    }
+    if (!profileResult && roleLower.includes('client')) {
+      profileResult = await tryUpdate(ClientModel);
+    }
+    if (!profileResult && roleLower.includes('business')) {
+      profileResult = await tryUpdate(BusinessModel);
+    }
+
+    // fallback: try all profiles if role wasn't explicit or previous attempts failed
+    if (!profileResult) {
+      profileResult = (await tryUpdate(ClientModel)) || (await tryUpdate(OrganizationModel)) || (await tryUpdate(BusinessModel));
+    }
+  }
+
+  // build return object: auth (without sensitive fields) + merged profile values if any
+  type AuthLean = Record<string, unknown> | null;
+  const authObj = (await Auth.findById(authDoc._id)
+    .select({ password: 0, otp: 0, otpExpiry: 0 })
+    .lean()
+    .exec()) as AuthLean;
+
+  const result = {
+    ...(authObj ?? {}),
+    ...(profileResult ? { profile: profileResult } : {}),
+  };
+
+  return result;
+};
+
+
 export const AdminService = {
   getAdminStatesFromDb,
+  getDonationsReportFromDb,
+  getSubscriptionsReportFromDb,
+  getRewardsReportFromDb,
+  getUsersStatesReportFromDb,
+  getUsersReportFromDb,
+  getPendingUsersReportFromDb,
+  updateAdminProfileInDb
 };
