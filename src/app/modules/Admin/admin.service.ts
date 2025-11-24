@@ -438,8 +438,6 @@ const getDonationsReportFromDb = async (params?: DonationsReportParams) => {
     donationType,
     startDate,
     endDate,
-    name,
-    email,
     sortBy = 'createdAt',
     sortOrder = 'desc',
   } = params || {};
@@ -590,10 +588,36 @@ const getDonationsReportFromDb = async (params?: DonationsReportParams) => {
         as: 'organizationDetails',
       },
     },
+    // lookup auth email for donor (clients.auth -> auths._id)
+    {
+      $lookup: {
+        from: 'auths',
+        let: { donorAuthId: { $arrayElemAt: ['$donorDetails.auth', 0] } },
+        pipeline: [
+          { $match: { $expr: { $eq: ['$_id', '$$donorAuthId'] } } },
+          { $project: { email: 1, _id: 0 } },
+        ],
+        as: 'donorAuth',
+      },
+    },
+    // lookup auth email for organization (organizationDetails.auth -> auths._id)
+    {
+      $lookup: {
+        from: 'auths',
+        let: { orgAuthId: { $arrayElemAt: ['$organizationDetails.auth', 0] } },
+        pipeline: [
+          { $match: { $expr: { $eq: ['$_id', '$$orgAuthId'] } } },
+          { $project: { email: 1, _id: 0 } },
+        ],
+        as: 'organizationAuth',
+      },
+    },
     {
       $addFields: {
         donorName: { $arrayElemAt: ['$donorDetails.name', 0] },
+        donorEmail: { $arrayElemAt: ['$donorAuth.email', 0] },
         organizationName: { $arrayElemAt: ['$organizationDetails.name', 0] },
+        organizationEmail: { $arrayElemAt: ['$organizationAuth.email', 0] },
       },
     }
   );
@@ -605,7 +629,8 @@ const getDonationsReportFromDb = async (params?: DonationsReportParams) => {
         $or: [
           { donorName: { $regex: search, $options: 'i' } },
           { organizationName: { $regex: search, $options: 'i' } },
-          { donorName: { $regex: search, $options: 'i' } },
+          { donorEmail: { $regex: search, $options: 'i' } },
+          { organizationEmail: { $regex: search, $options: 'i' } },
           { specialMessage: { $regex: search, $options: 'i' } },
         ],
       },
@@ -635,8 +660,8 @@ const getDonationsReportFromDb = async (params?: DonationsReportParams) => {
       cause: 1,
       donationType: 1,
       createdAt: 1,
-      donor: { name: '$donorName' },
-      organization: { name: '$organizationName' },
+      donor: { name: '$donorName', email: '$donorEmail' },
+      organization: { name: '$organizationName', email: '$organizationEmail' },
       specialMessage: 1,
     },
   });
