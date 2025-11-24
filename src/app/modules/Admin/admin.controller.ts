@@ -1,72 +1,139 @@
-// import httpStatus from 'http-status';
-// import { asyncHandler } from '../../utils';
-// import {sendResponse} from '../../utils';
-// import { AdminService } from './admin.service';
+import httpStatus from 'http-status';
+import { asyncHandler, sendResponse } from '../../utils';
+import { AdminService } from './admin.service';
 
-// // verifyArtistByAdmin
-// const verifyArtistByAdmin = asyncHandler(async (req, res) => {
-//   const artistId = req.params.artistId;
-//   const result = await AdminService.verifyArtistByAdminIntoDB(artistId);
+const getAdminStates = asyncHandler(async (req, res) => {
+  // Implementation for fetching admin states goes here
+//   const user = req.user as IAuth;
+  const result = await AdminService.getAdminStatesFromDb(req.query.time as string );
+  
+    sendResponse(res, {
+      statusCode: httpStatus.CREATED,
+      message: 'Cause created successfully!',
+      data: result,
+    });
+});
 
-//   sendResponse(res, {
-//     statusCode: httpStatus.OK,
-//     message: 'Artist verified successfully!',
-//     data: result,
-//   });
-// });
+const getDonationsReport = asyncHandler(async (req, res) => {
+  const { page, limit, search, donationType, startDate, endDate, sortBy, sortOrder } = req.query;
+  
+  const result = await AdminService.getDonationsReportFromDb({
+    page: page ? Number(page) : undefined,
+    limit: limit ? Number(limit) : undefined,
+    search: search as string,
+    donationType: donationType as string,
+    startDate: startDate as string,
+    endDate: endDate as string,
+    sortBy: sortBy as string,
+    sortOrder: sortOrder as 'asc' | 'desc',
+  });
+  
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Donations report fetched successfully!',
+    data: result,
+  });
+});
 
-// // verifyBusinessByAdmin
-// const verifyBusinessByAdmin = asyncHandler(async (req, res) => {
-//   const businessId = req.params.businessId;
-//   const result = await AdminService.verifyBusinessByAdminIntoDB(businessId);
+const getSubscriptionsReport = asyncHandler(async (req, res) => {
+  const { page, limit, search, status, startDate, endDate, sortBy, sortOrder } = req.query;
+  
+  const result = await AdminService.getSubscriptionsReportFromDb({
+    page: page ? Number(page) : undefined,
+    limit: limit ? Number(limit) : undefined,
+    search: search as string,
+    status: status as string,
+    startDate: startDate as string,
+    endDate: endDate as string,
+    sortBy: sortBy as string,
+    sortOrder: sortOrder as 'asc' | 'desc',
+  });
+  
+  sendResponse(res, { 
+    statusCode: httpStatus.OK,
+    message: 'Subscriptions report fetched successfully!',
+    data: result,
+  });
+});
 
-//   sendResponse(res, {
-//     statusCode: httpStatus.OK,
-//     message: 'Business verified successfully!',
-//     data: result,
-//   });
-// });
+const getRewardsReport = asyncHandler(async (req, res) => {
+  const result = await AdminService.getRewardsReportFromDb();
+  
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Rewards report fetched successfully!',
+    data: result,
+  });
+});
 
-// // fetchAllArtists
-// const fetchAllArtists = asyncHandler(async (req, res) => {
-//   const result = await AdminService.fetchAllArtistsFromDB(req.query);
+const getUsersStatesReport = asyncHandler(async (req, res) => {
+  const result = await AdminService.getUsersStatesReportFromDb();
 
-//   sendResponse(res, {
-//     statusCode: httpStatus.OK,
-//     message: 'Artists retrieved successFully!',
-//     data: result.data,
-//     meta: result.meta,
-//   });
-// });
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Users states report fetched successfully!',
+    data: result,
+  });
+});
 
-// // fetchAllBusinesses
-// const fetchAllBusinesses = asyncHandler(async (req, res) => {
-//   const result = await AdminService.fetchAllBusinessesFromDB(req.query);
+const getUsersReport = asyncHandler(async (req, res) => {
+  const { page, limit, search, role, status, isActive, sortBy, sortOrder } = req.query;
+  
+  const result = await AdminService.getUsersReportFromDb({
+    page: page ? Number(page) : undefined,
+    limit: limit ? Number(limit) : undefined,
+    search: search as string,
+    role: role as string,
+    status: status as string,
+    isActive: isActive === 'true' ? true : isActive === 'false' ? false : undefined,
+    sortBy: sortBy as string,
+    sortOrder: sortOrder as 'asc' | 'desc',
+  });
+  
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Users report fetched successfully!',
+    data: result,
+  });
+});
 
-//   sendResponse(res, {
-//     statusCode: httpStatus.OK,
-//     message: 'Business retrieved successFully!',
-//     data: result.data,
-//     meta: result.meta,
-//   });
-// });
+const getPendingUsersReport = asyncHandler(async (req, res) => {
+  const { page, limit, search, role, sortBy, sortOrder } = req.query;
+  
+  const result = await AdminService.getPendingUsersReportFromDb({
+    page: page ? Number(page) : undefined,
+    limit: limit ? Number(limit) : undefined,
+    search: search as string,
+    role: role as string,
+    sortBy: sortBy as string,
+    sortOrder: sortOrder as 'asc' | 'desc',
+  });
+  
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Pending users report fetched successfully!',
+    data: result,
+  });
+});
 
-// // fetchAllClients
-// const fetchAllClients = asyncHandler(async (req, res) => {
-//   const result = await AdminService.fetchAllClientsFromDB(req.query);
+const updateAdminProfile = asyncHandler(async (req, res) => {
 
-//   sendResponse(res, {
-//     statusCode: httpStatus.OK,
-//     message: 'Clients retrieved successFully!',
-//     data: result.data,
-//     meta: result.meta,
-//   });
-// });
+  const result = await AdminService.updateAdminProfileInDb(req.params.id, req.body );
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      message: 'Admin profile updated successfully!',
+      data: result,
+    });
+});
 
-// export const AdminController = {
-//   verifyArtistByAdmin,
-//   verifyBusinessByAdmin,
-//   fetchAllArtists,
-//   fetchAllBusinesses,
-//   fetchAllClients,
-// };
+
+export const AdminController = {
+    getAdminStates,
+    getDonationsReport,
+    getSubscriptionsReport,
+    getRewardsReport,
+    getUsersStatesReport,
+    getUsersReport,
+    getPendingUsersReport,
+    updateAdminProfile
+};

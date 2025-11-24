@@ -1,42 +1,25 @@
-// import { Router } from 'express';
-// import { ROLE } from '../Auth/auth.constant';
-// import { AdminController } from './admin.controller';
-// import { auth } from '../../middlewares';
+import { Router } from 'express';
+import { auth } from '../../middlewares';
+import { ROLE } from '../Auth/auth.constant';
+import { AdminController } from './admin.controller';
 
-// const router = Router();
+const router = Router();
 
-// // // changeStatusOnFolder
-// // router
-// //   .route('/folders/:id')
-// //   .patch(
-// //     auth(ROLE.SUPER_ADMIN, ROLE.ADMIN),
-// //     AdminController.changeStatusOnFolder
-// //   );
+// all states for dashboard home page
+router.get('/states', auth(ROLE.ADMIN), AdminController.getAdminStates);
 
-// // router
-// //   .route('/dashboard/yearly-revenue')
-// //   .get(
-// //     auth(ROLE.SUPER_ADMIN, ROLE.ADMIN, ROLE.ARTIST),
-// //     AdminController.getYearlyRevenueStats
-// //   );
+router.get('/donations', auth(ROLE.ADMIN), AdminController.getDonationsReport);
 
-// // verifyArtistByAdmin
-// router
-//   .route('/verify-a/:Id')
-//   .patch(auth(ROLE.ADMIN), AdminController.verifyArtistByAdmin);
+router.get('/subscriptions', auth(ROLE.ADMIN), AdminController.getSubscriptionsReport);
 
-// // verifyBusinessByAdmin
-// router
-//   .route('/verify-b/:Id')
-//   .patch(auth(ROLE.ADMIN), AdminController.verifyBusinessByAdmin);
+router.get('/rewards', auth(ROLE.ADMIN), AdminController.getRewardsReport);
 
-// // fetchAllArtists
-// router.route('/fetch-artists').get(AdminController.fetchAllArtists);
+router.get('/user-states', auth(ROLE.ADMIN), AdminController.getUsersStatesReport);
 
-// // fetchAllBusinesses
-// router.route('/fetch-businesses').get(AdminController.fetchAllBusinesses);
+router.get('/users', auth(ROLE.ADMIN), AdminController.getUsersReport);
 
-// // fetchAllClients
-// router.route('/fetch-clients').get(AdminController.fetchAllClients);
+router.get('/pending-users', auth(ROLE.ADMIN), AdminController.getPendingUsersReport);
 
-// export const AdminRoutes = router;
+router.patch('/:id', auth(ROLE.ADMIN), AdminController.updateAdminProfile);
+
+export const AdminRoutes = router;
