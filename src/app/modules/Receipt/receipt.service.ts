@@ -13,7 +13,7 @@ import {
   MAX_EMAIL_ATTEMPTS,
 } from './receipt.constant';
 
-import { AppError, sendReceiptEmail } from '../../utils';
+import { AppError } from '../../utils';
 import httpStatus from 'http-status';
 
 // ✅ Import S3 utils
@@ -22,12 +22,14 @@ import { uploadToS3, getSignedS3Url } from '../../utils/s3.utils';
 // ✅ Import PDF utils
 import { generateReceiptPDF } from '../../utils/pdf.utils';
 
+// ✅ Import email utility
+import sendReceiptEmail from '../../utils/sendReceiptEmail';
+
 import {
   IReceiptEmailPayload,
   IReceiptGenerationPayload,
   IReceiptPDFData,
 } from './receipt.interface';
-import sendEmail from '../../utils/sendOtpEmail';
 
 /* ----------------------------------------------
    HELPER FUNCTIONS
@@ -75,10 +77,10 @@ const generateReceipt = async (payload: IReceiptGenerationPayload) => {
     const pdfData: IReceiptPDFData = {
       receiptNumber,
       donorName: donor.name,
-      donorEmail: donor.auth.email,
-      organizationName: organization.name || 'Unknown Organization',
+      donorEmail: (donor.auth as any).email, // Type assertion since auth is populated
+      organizationName: organization.name,
       organizationAddress: organization.address,
-      organizationEmail: organization.auth.email,
+      organizationEmail: (organization.auth as any).email, // Type assertion since auth is populated
       abnNumber: organization.tfnOrAbnNumber,
       taxDeductible: true,
       zakatEligible: !!organization.zakatLicenseHolderNumber,
@@ -140,8 +142,8 @@ const generateReceipt = async (payload: IReceiptGenerationPayload) => {
       receiptId: receipt._id,
     });
 
-    // Send email asynchronously
-    sendReceiptEmail({
+    // Send email asynchronously using the email service function
+    sendReceiptEmailService({
       receiptId: receipt._id,
       donorEmail: pdfData.donorEmail,
       donorName: pdfData.donorName,
@@ -150,6 +152,9 @@ const generateReceipt = async (payload: IReceiptGenerationPayload) => {
       amount: payload.amount,
       currency: payload.currency,
       donationDate: payload.donationDate,
+      receiptNumber: receipt.receiptNumber,
+      donationType: receipt.donationType,
+      specialMessage: receipt.specialMessage,
     }).catch(console.error);
 
     return receipt;
@@ -165,7 +170,7 @@ const generateReceipt = async (payload: IReceiptGenerationPayload) => {
 };
 
 /* ----------------------------------------------
-   SEND EMAIL
+   SEND EMAIL SERVICE FUNCTION
 ------------------------------------------------- */
 const sendReceiptEmailService = async (payload: {
   receiptId: Types.ObjectId | string;
@@ -191,18 +196,18 @@ const sendReceiptEmailService = async (payload: {
         'Maximum email attempts reached'
       );
 
-    // ✅ Use the new receipt email utility
+    // ✅ Use the receipt email utility
     await sendReceiptEmail({
       donorEmail: payload.donorEmail,
       donorName: payload.donorName,
       organizationName: payload.organizationName,
-      receiptNumber: receipt.receiptNumber,
+      receiptNumber: payload.receiptNumber || receipt.receiptNumber,
       amount: payload.amount,
       currency: payload.currency,
       donationDate: payload.donationDate,
       pdfUrl: payload.pdfUrl,
-      donationType: receipt.donationType,
-      specialMessage: receipt.specialMessage,
+      donationType: payload.donationType || receipt.donationType,
+      specialMessage: payload.specialMessage || receipt.specialMessage,
     });
 
     // Update receipt status
@@ -231,6 +236,7 @@ const sendReceiptEmailService = async (payload: {
     );
   }
 };
+
 /* ----------------------------------------------
    OTHER FUNCTIONS
 ------------------------------------------------- */
@@ -240,7 +246,7 @@ const resendReceiptEmail = async (receiptId: string) => {
   if (!receipt)
     throw new AppError(httpStatus.NOT_FOUND, RECEIPT_MESSAGES.NOT_FOUND);
 
-  return sendReceiptEmail({    
+  return sendReceiptEmailService({
     receiptId: receipt._id,
     donorEmail: receipt.donorEmail,
     donorName: receipt.donorName,
@@ -249,6 +255,9 @@ const resendReceiptEmail = async (receiptId: string) => {
     amount: receipt.amount,
     currency: receipt.currency,
     donationDate: receipt.donationDate,
+    receiptNumber: receipt.receiptNumber,
+    donationType: receipt.donationType,
+    specialMessage: receipt.specialMessage,
   });
 };
 
@@ -339,7 +348,6 @@ const regenerateReceiptURL = async (receiptId: string): Promise<string> => {
 
 export const receiptServices = {
   generateReceipt,
-  sendReceiptEmail,
   resendReceiptEmail,
   getReceiptById,
   getReceiptsByDonor,
