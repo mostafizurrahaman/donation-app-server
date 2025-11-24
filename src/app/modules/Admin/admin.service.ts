@@ -1,3 +1,4 @@
+import { email } from 'zod';
 import Auth from '../Auth/auth.model';
 import Donation from '../Donation/donation.model';
 import Organization from '../Organization/organization.model';
@@ -424,6 +425,8 @@ type DonationsReportParams = {
   startDate?: string;
   endDate?: string;
   sortBy?: string;
+  name?: string;
+  email?: string;
   sortOrder?: 'asc' | 'desc';
 };
 
@@ -435,9 +438,34 @@ const getDonationsReportFromDb = async (params?: DonationsReportParams) => {
     donationType,
     startDate,
     endDate,
+    name,
+    email,
     sortBy = 'createdAt',
     sortOrder = 'desc',
   } = params || {};
+
+  // time windows for month-over-month comparison
+  const now = new Date();
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
+  const previousMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+  const previousMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+
+  const currentMonthStart = new Date(currentYear, currentMonth, 1);
+  const nextMonthStart = new Date(currentYear, currentMonth + 1, 1);
+  const previousMonthStart = new Date(previousMonthYear, previousMonth, 1);
+  const previousMonthEnd = new Date(previousMonthYear, previousMonth + 1, 1);
+
+  const formatPct = (pct: number | null) =>
+    pct === null
+      ? null
+      : `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% vs last month`;
+
+  const calcPct = (prev: number | null, curr: number) => {
+    if (prev === null) return null;
+    if (prev === 0) return curr === 0 ? 0 : 100;
+    return ((curr - prev) / prev) * 100;
+  };
 
   // Build filter object
   const filter: Record<string, unknown> = {};
@@ -448,8 +476,10 @@ const getDonationsReportFromDb = async (params?: DonationsReportParams) => {
 
   if (startDate || endDate) {
     filter.createdAt = {};
-    if (startDate) (filter.createdAt as Record<string, Date>).$gte = new Date(startDate);
-    if (endDate) (filter.createdAt as Record<string, Date>).$lte = new Date(endDate);
+    if (startDate)
+      (filter.createdAt as Record<string, Date>).$gte = new Date(startDate);
+    if (endDate)
+      (filter.createdAt as Record<string, Date>).$lte = new Date(endDate);
   }
 
   // total donations (all time)
@@ -459,6 +489,35 @@ const getDonationsReportFromDb = async (params?: DonationsReportParams) => {
   ]);
   const totalDonation = (totalDonationAgg[0]?.totalAmount ?? 0) as number;
 
+  // total donations this month vs previous month
+  const currentMonthDonationAgg = await Donation.aggregate([
+    {
+      $match: {
+        amount: { $gt: 0 },
+        createdAt: { $gte: currentMonthStart, $lt: nextMonthStart },
+      },
+    },
+    { $group: { _id: null, totalAmount: { $sum: '$amount' } } },
+  ]);
+  const previousMonthDonationAgg = await Donation.aggregate([
+    {
+      $match: {
+        amount: { $gt: 0 },
+        createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd },
+      },
+    },
+    { $group: { _id: null, totalAmount: { $sum: '$amount' } } },
+  ]);
+  const currentMonthDonation = (currentMonthDonationAgg[0]?.totalAmount ??
+    0) as number;
+  const previousMonthDonation = (previousMonthDonationAgg[0]?.totalAmount ??
+    0) as number;
+  const totalDonationChangePct = calcPct(
+    previousMonthDonation,
+    currentMonthDonation
+  );
+  const totalDonationChangeText = formatPct(totalDonationChangePct);
+
   // average donation amount
   const avgDonationAgg = await Donation.aggregate([
     { $match: { amount: { $gt: 0 } } },
@@ -466,10 +525,44 @@ const getDonationsReportFromDb = async (params?: DonationsReportParams) => {
   ]);
   const avgDonationAmount = (avgDonationAgg[0]?.avgAmount ?? 0) as number;
 
+  // average donation amount this month vs previous month
+  const currentMonthAvgAgg = await Donation.aggregate([
+    {
+      $match: {
+        amount: { $gt: 0 },
+        createdAt: { $gte: currentMonthStart, $lt: nextMonthStart },
+      },
+    },
+    { $group: { _id: null, avgAmount: { $avg: '$amount' } } },
+  ]);
+  const previousMonthAvgAgg = await Donation.aggregate([
+    {
+      $match: {
+        amount: { $gt: 0 },
+        createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd },
+      },
+    },
+    { $group: { _id: null, avgAmount: { $avg: '$amount' } } },
+  ]);
+  const currentMonthAvg = (currentMonthAvgAgg[0]?.avgAmount ?? 0) as number;
+  const previousMonthAvg = (previousMonthAvgAgg[0]?.avgAmount ?? 0) as number;
+  const avgDonationChangePct = calcPct(previousMonthAvg, currentMonthAvg);
+  const avgDonationChangeText = formatPct(avgDonationChangePct);
+
   // total number of donors
   const totalDonors = await Donation.distinct('donor').then(
     (donors) => donors.length
   );
+
+  // total donors this month vs previous month
+  const currentMonthDonors = await Donation.distinct('donor', {
+    createdAt: { $gte: currentMonthStart, $lt: nextMonthStart },
+  }).then((donors) => donors.length);
+  const previousMonthDonors = await Donation.distinct('donor', {
+    createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd },
+  }).then((donors) => donors.length);
+  const totalDonorsChangePct = calcPct(previousMonthDonors, currentMonthDonors);
+  const totalDonorsChangeText = formatPct(totalDonorsChangePct);
 
   // Build search pipeline for donation history
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -512,7 +605,7 @@ const getDonationsReportFromDb = async (params?: DonationsReportParams) => {
         $or: [
           { donorName: { $regex: search, $options: 'i' } },
           { organizationName: { $regex: search, $options: 'i' } },
-          { name: { $regex: search, $options: 'i' } },
+          { donorName: { $regex: search, $options: 'i' } },
           { specialMessage: { $regex: search, $options: 'i' } },
         ],
       },
@@ -552,8 +645,11 @@ const getDonationsReportFromDb = async (params?: DonationsReportParams) => {
 
   return {
     totalDonation,
+    totalDonationChangeText,
     avgDonationAmount,
+    avgDonationChangeText,
     totalDonors,
+    totalDonorsChangeText,
     donationHistory,
     pagination: {
       total: totalRecords,
@@ -575,7 +671,9 @@ type SubscriptionsReportParams = {
   sortOrder?: 'asc' | 'desc';
 };
 
-const getSubscriptionsReportFromDb = async (params?: SubscriptionsReportParams) => {
+const getSubscriptionsReportFromDb = async (
+  params?: SubscriptionsReportParams
+) => {
   const {
     page = 1,
     limit = 10,
@@ -620,8 +718,10 @@ const getSubscriptionsReportFromDb = async (params?: SubscriptionsReportParams) 
 
   if (startDate || endDate) {
     filter.createdAt = {};
-    if (startDate) (filter.createdAt as Record<string, Date>).$gte = new Date(startDate);
-    if (endDate) (filter.createdAt as Record<string, Date>).$lte = new Date(endDate);
+    if (startDate)
+      (filter.createdAt as Record<string, Date>).$gte = new Date(startDate);
+    if (endDate)
+      (filter.createdAt as Record<string, Date>).$lte = new Date(endDate);
   }
 
   // Build search pipeline
@@ -714,8 +814,6 @@ const getSubscriptionsReportFromDb = async (params?: SubscriptionsReportParams) 
   };
 };
 
-
-
 const getRewardsReportFromDb = async () => {
   // Placeholder implementation for rewards report
   // You can replace this with actual logic to fetch rewards data from the database
@@ -725,7 +823,7 @@ const getRewardsReportFromDb = async () => {
     totalRewardsIssued,
     totalActiveRewardUsers,
   };
-}
+};
 
 type UsersReportParams = {
   page?: number;
@@ -734,24 +832,135 @@ type UsersReportParams = {
   role?: string;
   status?: string;
   isActive?: boolean;
+  startDate?: string;
+  endDate?: string;
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
 };
 
 const getUsersStatesReportFromDb = async () => {
+  // time windows
+  const now = new Date();
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
+  const previousMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+  const previousMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+
+  const currentMonthStart = new Date(currentYear, currentMonth, 1);
+  const nextMonthStart = new Date(currentYear, currentMonth + 1, 1);
+  const previousMonthStart = new Date(previousMonthYear, previousMonth, 1);
+  const previousMonthEnd = new Date(previousMonthYear, previousMonth + 1, 1);
+
+  const formatPct = (pct: number | null) =>
+    pct === null
+      ? null
+      : `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% vs last month`;
+
+  const calcPct = (prev: number | null, curr: number) => {
+    if (prev === null) return null;
+    if (prev === 0) return curr === 0 ? 0 : 100;
+    return ((curr - prev) / prev) * 100;
+  };
+
+  // total users by all roles
+  const totalUsers = await Auth.countDocuments({
+    status: 'verified',
+    role: { $ne: 'ADMIN' },
+  });
+
+  // total users created this month vs previous month
+  const currentMonthUsers = await Auth.countDocuments({
+    status: 'verified',
+    role: { $ne: 'ADMIN' },
+    createdAt: { $gte: currentMonthStart, $lt: nextMonthStart },
+  });
+  const previousMonthUsers = await Auth.countDocuments({
+    status: 'verified',
+    role: { $ne: 'ADMIN' },
+    createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd },
+  });
+  const usersChangePct = calcPct(previousMonthUsers, currentMonthUsers);
+  const usersChangeText = formatPct(usersChangePct);
+
   // total clients
   const totalClients = await Auth.countDocuments({ role: 'CLIENT' });
+
+  // clients created this month vs previous month
+  const currentMonthClients = await Auth.countDocuments({
+    role: 'CLIENT',
+    createdAt: { $gte: currentMonthStart, $lt: nextMonthStart },
+  });
+  const previousMonthClients = await Auth.countDocuments({
+    role: 'CLIENT',
+    createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd },
+  });
+  const clientsChangePct = calcPct(previousMonthClients, currentMonthClients);
+  const clientsChangeText = formatPct(clientsChangePct);
+
   // total organizations
-  const totalOrganizations = await Auth.countDocuments({ role: 'ORGANIZATION' });
+  const totalOrganizations = await Auth.countDocuments({
+    role: 'ORGANIZATION',
+  });
+
+  // organizations created this month vs previous month
+  const currentMonthOrganizations = await Auth.countDocuments({
+    role: 'ORGANIZATION',
+    createdAt: { $gte: currentMonthStart, $lt: nextMonthStart },
+  });
+  const previousMonthOrganizations = await Auth.countDocuments({
+    role: 'ORGANIZATION',
+    createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd },
+  });
+  const organizationsChangePct = calcPct(
+    previousMonthOrganizations,
+    currentMonthOrganizations
+  );
+  const organizationsChangeText = formatPct(organizationsChangePct);
+
   // total businesses
   const totalBusinesses = await Auth.countDocuments({ role: 'BUSINESS' });
+
+  // businesses created this month vs previous month
+  const currentMonthBusinesses = await Auth.countDocuments({
+    role: 'BUSINESS',
+    createdAt: { $gte: currentMonthStart, $lt: nextMonthStart },
+  });
+  const previousMonthBusinesses = await Auth.countDocuments({
+    role: 'BUSINESS',
+    createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd },
+  });
+  const businessesChangePct = calcPct(
+    previousMonthBusinesses,
+    currentMonthBusinesses
+  );
+  const businessesChangeText = formatPct(businessesChangePct);
+
   // pending approvals
   const pendingApprovals = await Auth.countDocuments({ status: 'pending' });
+
+  // pending approvals this month vs previous month
+  const currentMonthPending = await Auth.countDocuments({
+    status: 'pending',
+    createdAt: { $gte: currentMonthStart, $lt: nextMonthStart },
+  });
+  const previousMonthPending = await Auth.countDocuments({
+    status: 'pending',
+    createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd },
+  });
+  const pendingChangePct = calcPct(previousMonthPending, currentMonthPending);
+  const pendingChangeText = formatPct(pendingChangePct);
+
   return {
+    totalUsers,
+    usersChangeText,
     totalClients,
+    clientsChangeText,
     totalOrganizations,
+    organizationsChangeText,
     totalBusinesses,
-    pendingApprovals
+    businessesChangeText,
+    pendingApprovals,
+    pendingChangeText,
   };
 };
 
@@ -763,10 +972,11 @@ const getUsersReportFromDb = async (params?: UsersReportParams) => {
     role,
     status,
     isActive,
+    startDate,
+    endDate,
     sortBy = 'createdAt',
     sortOrder = 'desc',
   } = params || {};
-
 
   // Build filter for users
   const userFilter: Record<string, unknown> = { roles: { $ne: 'ADMIN' } };
@@ -781,6 +991,14 @@ const getUsersReportFromDb = async (params?: UsersReportParams) => {
 
   if (isActive !== undefined) {
     userFilter.isActive = isActive;
+  }
+
+  if (startDate || endDate) {
+    userFilter.createdAt = {};
+    if (startDate)
+      (userFilter.createdAt as Record<string, Date>).$gte = new Date(startDate);
+    if (endDate)
+      (userFilter.createdAt as Record<string, Date>).$lte = new Date(endDate);
   }
 
   // Build users pipeline
@@ -874,7 +1092,6 @@ const getUsersReportFromDb = async (params?: UsersReportParams) => {
   const users = await Auth.aggregate(usersPipeline).exec();
 
   return {
-
     users,
     pagination: {
       total: totalRecords,
@@ -890,26 +1107,43 @@ type PendingUsersReportParams = {
   limit?: number;
   search?: string;
   role?: string;
+  startDate?: string;
+  endDate?: string;
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
 };
 
-const getPendingUsersReportFromDb = async (params?: PendingUsersReportParams) => {
+const getPendingUsersReportFromDb = async (
+  params?: PendingUsersReportParams
+) => {
   const {
     page = 1,
     limit = 10,
     search = '',
     role,
+    startDate,
+    endDate,
     sortBy = 'createdAt',
     sortOrder = 'desc',
   } = params || {};
-
 
   // Build filter for pending users
   const pendingFilter: Record<string, unknown> = { status: 'pending' };
 
   if (role) {
     pendingFilter.roles = role.toUpperCase();
+  }
+
+  if (startDate || endDate) {
+    pendingFilter.createdAt = {};
+    if (startDate)
+      (pendingFilter.createdAt as Record<string, Date>).$gte = new Date(
+        startDate
+      );
+    if (endDate)
+      (pendingFilter.createdAt as Record<string, Date>).$lte = new Date(
+        endDate
+      );
   }
 
   // Build pending users pipeline
@@ -1068,8 +1302,10 @@ const updateAdminProfileInDb = async (
   // access mongoose connection from the Auth model in a typed manner
   const db: Connection = (Auth as unknown as { db: Connection }).db; // access mongoose connection
   // try to get models if registered
-  const ClientModel = db.models.clients ?? db.models.Client ?? db.model('clients');
-  const BusinessModel = db.models.businesses ?? db.models.Business ?? db.model('businesses');
+  const ClientModel =
+    db.models.clients ?? db.models.Client ?? db.model('clients');
+  const BusinessModel =
+    db.models.businesses ?? db.models.Business ?? db.model('businesses');
   const OrganizationModel = Organization; // imported at top
 
   let profileResult: Record<string, unknown> | null = null;
@@ -1087,7 +1323,9 @@ const updateAdminProfileInDb = async (
       : [];
     const roleLower = roles.map((r) => String(r).toLowerCase());
 
-    const tryUpdate = async (model?: Model<any>): Promise<Record<string, unknown> | null> => {
+    const tryUpdate = async (
+      model?: Model<any>
+    ): Promise<Record<string, unknown> | null> => {
       if (!model) return null;
       try {
         const res = await model
@@ -1123,7 +1361,10 @@ const updateAdminProfileInDb = async (
 
     // fallback: try all profiles if role wasn't explicit or previous attempts failed
     if (!profileResult) {
-      profileResult = (await tryUpdate(ClientModel)) || (await tryUpdate(OrganizationModel)) || (await tryUpdate(BusinessModel));
+      profileResult =
+        (await tryUpdate(ClientModel)) ||
+        (await tryUpdate(OrganizationModel)) ||
+        (await tryUpdate(BusinessModel));
     }
   }
 
@@ -1142,7 +1383,6 @@ const updateAdminProfileInDb = async (
   return result;
 };
 
-
 export const AdminService = {
   getAdminStatesFromDb,
   getDonationsReportFromDb,
@@ -1151,5 +1391,5 @@ export const AdminService = {
   getUsersStatesReportFromDb,
   getUsersReportFromDb,
   getPendingUsersReportFromDb,
-  updateAdminProfileInDb
+  updateAdminProfileInDb,
 };

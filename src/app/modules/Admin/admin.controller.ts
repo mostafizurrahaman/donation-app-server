@@ -77,7 +77,7 @@ const getUsersStatesReport = asyncHandler(async (req, res) => {
 });
 
 const getUsersReport = asyncHandler(async (req, res) => {
-  const { page, limit, search, role, status, isActive, sortBy, sortOrder } = req.query;
+  const { page, limit, search, role, status, isActive, startDate, endDate, sortBy, sortOrder } = req.query;
   
   const result = await AdminService.getUsersReportFromDb({
     page: page ? Number(page) : undefined,
@@ -86,6 +86,8 @@ const getUsersReport = asyncHandler(async (req, res) => {
     role: role as string,
     status: status as string,
     isActive: isActive === 'true' ? true : isActive === 'false' ? false : undefined,
+    startDate: startDate as string,
+    endDate: endDate as string,
     sortBy: sortBy as string,
     sortOrder: sortOrder as 'asc' | 'desc',
   });
@@ -98,13 +100,15 @@ const getUsersReport = asyncHandler(async (req, res) => {
 });
 
 const getPendingUsersReport = asyncHandler(async (req, res) => {
-  const { page, limit, search, role, sortBy, sortOrder } = req.query;
+  const { page, limit, search, role, startDate, endDate, sortBy, sortOrder } = req.query;
   
   const result = await AdminService.getPendingUsersReportFromDb({
     page: page ? Number(page) : undefined,
     limit: limit ? Number(limit) : undefined,
     search: search as string,
     role: role as string,
+    startDate: startDate as string,
+    endDate: endDate as string,
     sortBy: sortBy as string,
     sortOrder: sortOrder as 'asc' | 'desc',
   });
