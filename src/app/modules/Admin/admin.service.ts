@@ -3,6 +3,8 @@ import Auth from '../Auth/auth.model';
 import Donation from '../Donation/donation.model';
 import Organization from '../Organization/organization.model';
 import { Connection, Model } from 'mongoose';
+import Cause from '../Causes/causes.model';
+import Business from '../Business/business.model';
 
 const getAdminStatesFromDb = async (time?: string) => {
   // if(!user?.roles?.includes('admin')){
@@ -1272,6 +1274,346 @@ const getPendingUsersReportFromDb = async (
   };
 };
 
+const getUsersEngagementReportFromDb = async () => {
+  // total active users
+  const totalActiveUsers = await Auth.countDocuments({
+    status: 'verified',
+    isActive: true,
+    role: { $ne: 'ADMIN' },
+  });
+
+  // totalActiveUsers this month vs previous month
+  const now = new Date();
+  const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const previousMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const previousMonthEnd = new Date(now.getFullYear(), now.getMonth(), 1);
+  const currentMonthActiveUsers = await Auth.countDocuments({
+    status: 'verified',
+    isActive: true,
+    role: { $ne: 'ADMIN' },
+    createdAt: { $gte: currentMonthStart, $lt: nextMonthStart },
+  });
+  const previousMonthActiveUsers = await Auth.countDocuments({
+    status: 'verified',
+    isActive: true,
+    role: { $ne: 'ADMIN' },
+    createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd },
+  });
+  const activeUsersChangePct = previousMonthActiveUsers
+    ? ((currentMonthActiveUsers - previousMonthActiveUsers) /
+        previousMonthActiveUsers) *
+      100
+    : null;
+  const activeUsersChangeText = activeUsersChangePct
+    ? `${activeUsersChangePct >= 0 ? '+' : ''}${activeUsersChangePct.toFixed(
+        1
+      )}% vs last month`
+    : null;
+
+  // new users
+  const totalNewUsers = await Auth.countDocuments({
+    status: 'verified',
+    role: { $ne: 'ADMIN' },
+    createdAt: {
+      $gte: new Date(new Date().setMonth(new Date().getMonth() - 1)),
+    },
+  });
+
+  // new users this month vs previous month
+  const currentMonthNewUsers = await Auth.countDocuments({
+    status: 'verified',
+    role: { $ne: 'ADMIN' },
+    createdAt: { $gte: currentMonthStart, $lt: nextMonthStart },
+  });
+  const previousMonthNewUsers = await Auth.countDocuments({
+    status: 'verified',
+    role: { $ne: 'ADMIN' },
+    createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd },
+  });
+  const newUsersChangePct = previousMonthNewUsers
+    ? ((currentMonthNewUsers - previousMonthNewUsers) / previousMonthNewUsers) *
+      100
+    : null;
+  const newUsersChangeText = newUsersChangePct
+    ? `${newUsersChangePct >= 0 ? '+' : ''}${newUsersChangePct.toFixed(
+        1
+      )}% vs last month`
+    : null;
+
+  // total returning users
+  const totalReturningUsers = await Auth.countDocuments({
+    status: 'verified',
+    isDeleted: true,
+    role: { $ne: 'ADMIN' },
+  });
+
+  // returning users this month vs previous month
+  const currentMonthReturningUsers = await Auth.countDocuments({
+    status: 'verified',
+    isDeleted: true,
+    role: { $ne: 'ADMIN' },
+    createdAt: { $gte: currentMonthStart, $lt: nextMonthStart },
+  });
+  const previousMonthReturningUsers = await Auth.countDocuments({
+    status: 'verified',
+    isDeleted: true,
+    role: { $ne: 'ADMIN' },
+    createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd },
+  });
+  const returningUsersChangePct = previousMonthReturningUsers
+    ? ((currentMonthReturningUsers - previousMonthReturningUsers) /
+        previousMonthReturningUsers) *
+      100
+    : null;
+  const returningUsersChangeText = returningUsersChangePct
+    ? `${
+        returningUsersChangePct >= 0 ? '+' : ''
+      }${returningUsersChangePct.toFixed(1)}% vs last month`
+    : null;
+  return {
+    totalActiveUsers,
+    activeUsersChangeText,
+    totalNewUsers,
+    newUsersChangeText,
+    totalReturningUsers,
+    returningUsersChangeText,
+  };
+};
+
+const getDonationsEngagementReportFromDb = async () => {
+  // total donations for a full calendar year (always 12 months Jan-Dec).
+  // Change targetYear to (new Date()).getFullYear() - 1 if you want the previous calendar year.
+  const now = new Date();
+  const targetYear = now.getFullYear(); // use current year; set to currentYear-1 for previous year
+  const yearStart = new Date(targetYear, 0, 1);
+  const yearEnd = new Date(targetYear + 1, 0, 1);
+
+  // Aggregate by donationType and month (1-12)
+  const agg = await Donation.aggregate([
+    {
+      $match: {
+        createdAt: { $gte: yearStart, $lt: yearEnd },
+        amount: { $gt: 0 },
+      },
+    },
+    {
+      $group: {
+        _id: { donationType: '$donationType', month: { $month: '$createdAt' } },
+        totalAmount: { $sum: '$amount' },
+      },
+    },
+  ]);
+
+  type AggItem = {
+    _id: { donationType?: string | null; month?: number };
+    totalAmount?: number | null;
+  };
+
+  // Build a map: donationType -> (month -> totalAmount)
+  const typeMonthMap = new Map<string, Map<number, number>>();
+  (agg as AggItem[]).forEach((d) => {
+    const donationType = d._id.donationType ?? 'unknown';
+    const month = d._id.month ?? 1; // 1-12
+    const inner = typeMonthMap.get(donationType) ?? new Map<number, number>();
+    inner.set(month, d.totalAmount ?? 0);
+    typeMonthMap.set(donationType, inner);
+  });
+
+  // Build result: for each donationType, include 12 months (1-12) filling missing months with 0
+  const monthlyDonations: {
+    donationType: string;
+    year: number;
+    month: number; // 1-12
+    totalAmount: number;
+  }[] = [];
+
+  for (const [donationType, monthMap] of typeMonthMap.entries()) {
+    for (let m = 1; m <= 12; m++) {
+      monthlyDonations.push({
+        donationType,
+        year: targetYear,
+        month: m,
+        totalAmount: monthMap.get(m) ?? 0,
+      });
+    }
+  }
+
+  return {
+    monthlyDonations,
+  };
+};
+
+const getClauseWisePercentagesReportFromDb = async () => {
+  // percentages of donations of each cause wise (lookup cause details)
+  const clauseAgg = await Donation.aggregate([
+    { $match: { amount: { $gt: 0 } } },
+    { $group: { _id: '$cause', totalAmount: { $sum: '$amount' } } },
+    {
+      $lookup: {
+        from: 'causes',
+        localField: '_id',
+        foreignField: '_id',
+        as: 'causeDetails',
+      },
+    },
+    { $unwind: { path: '$causeDetails', preserveNullAndEmptyArrays: true } },
+    {
+      $project: {
+        _id: 0,
+        causeId: '$_id',
+        causeName: { $ifNull: ['$causeDetails.name', 'Unspecified'] },
+        totalAmount: 1,
+        // use the cause document's createdAt (not the donation's)
+        createdAt: '$causeDetails.createdAt',
+      },
+    },
+  ]);
+
+  type ClauseAggItem = {
+    causeId?: unknown;
+    causeName?: string | null;
+    totalAmount?: number | null;
+    createdAt?: Date | string | null;
+  };
+
+  // compute grand total to derive percentages
+  const grandTotal = clauseAgg.reduce(
+    (sum: number, it: ClauseAggItem) => sum + (it.totalAmount ?? 0),
+    0
+  );
+
+  const clauseWisePercentages: {
+    clause: string;
+    totalAmount: number;
+    percentage: number; // numeric percentage (e.g. 40.5)
+    percentageText: string; // formatted (e.g. "40.5%")
+    createdAt?: Date | string | null;
+  }[] = clauseAgg.map((item: ClauseAggItem) => {
+    const amt = item.totalAmount ?? 0;
+    const pct = grandTotal > 0 ? Math.round((amt / grandTotal) * 1000) / 10 : 0; // one decimal
+    return {
+      clause: item.causeName ?? 'Unspecified',
+      totalAmount: amt,
+      percentage: pct,
+      percentageText: `${pct}%`,
+      createdAt: item.createdAt,
+    };
+  });
+
+  return {
+    clauseWisePercentages,
+  };
+};
+
+const getOrganizationsReportFromDb = async () => {
+  try {
+    const organizations = await Organization.aggregate([
+      // Lookup auth data with filtering
+      {
+        $lookup: {
+          from: 'auths', // Make sure this matches your Auth collection name
+          localField: 'auth',
+          foreignField: '_id',
+          as: 'authData',
+          pipeline: [
+            {
+              $match: {
+                isDeleted: { $ne: true },
+              },
+            },
+            {
+              $project: {
+                email: 1,
+                status: 1,
+                isActive: 1,
+                createdAt: 1,
+              },
+            },
+          ],
+        },
+      },
+      // Filter organizations that have valid auth data
+      {
+        $match: {
+          'authData.0': { $exists: true }, // Ensure at least one auth record exists
+        },
+      },
+      // Lookup causes data
+      {
+        $lookup: {
+          from: 'causes', // Make sure this matches your Cause collection name
+          localField: '_id',
+          foreignField: 'organization',
+          as: 'causes',
+          pipeline: [
+            {
+              $project: {
+                name: 1,
+                description: 1,
+                createdAt: 1,
+                category: 1,
+                status: 1,
+              },
+            },
+          ],
+        },
+      },
+      // Transform the structure - convert authData array to single object
+      {
+        $addFields: {
+          auth: { $arrayElemAt: ['$authData', 0] },
+        },
+      },
+      // Remove the temporary authData field
+      {
+        $project: {
+          authData: 0,
+        },
+      },
+      // Add any additional fields you want to include
+      {
+        $project: {
+          name: 1,
+          serviceType: 1,
+          address: 1,
+          state: 1,
+          postalCode: 1,
+          website: 1,
+          phoneNumber: 1,
+          coverImage: 1,
+          logoImage: 1,
+
+          isProfileVisible: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          auth: 1,
+          causes: 1,
+        },
+      },
+    ]);
+
+    return organizations;
+  } catch (error) {
+    console.error('Error in getOrganizationsReportFromDb:', error);
+    return {
+      success: false,
+      error: 'Error retrieving organizations',
+      details: error instanceof Error ? error.message : String(error),
+    };
+  }
+};
+
+const getCausesReportFromDb = async () => {
+  const causes = await Cause.find().populate('organization', 'name email');
+  return causes;
+};
+
+const getBusinessesReportFromDb = async () => {
+  const businesses = await Business.find().populate('auth', 'email status');
+  return businesses;
+}
+
 type AdminUpdate = {
   name?: string;
   email?: string;
@@ -1416,5 +1758,11 @@ export const AdminService = {
   getUsersStatesReportFromDb,
   getUsersReportFromDb,
   getPendingUsersReportFromDb,
+  getUsersEngagementReportFromDb,
+  getDonationsEngagementReportFromDb,
+  getClauseWisePercentagesReportFromDb,
+  getOrganizationsReportFromDb,
+  getCausesReportFromDb,
+  getBusinessesReportFromDb,
   updateAdminProfileInDb,
 };
