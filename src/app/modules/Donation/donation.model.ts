@@ -98,7 +98,7 @@ const donationSchema = new Schema<IDonationModel>(
     },
     receiptId: {
       type: Schema.Types.ObjectId,
-      ref: 'DonationReceipt',
+      ref: 'Receipt',
     },
     // New fields for idempotency and payment tracking
     idempotencyKey: {
