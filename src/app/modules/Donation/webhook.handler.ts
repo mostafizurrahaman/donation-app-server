@@ -10,6 +10,8 @@ import { Types } from 'mongoose';
 import { ScheduledDonation } from '../ScheduledDonation/scheduledDonation.model';
 import { RoundUpModel } from '../RoundUp/roundUp.model';
 import { RoundUpTransactionModel } from '../RoundUpTransaction/roundUpTransaction.model';
+import { receiptServices } from './../Receipt/receipt.service';
+import { Receipt } from '../Receipt/receipt.model';
 
 // Helper function to calculate next donation date for recurring donations
 const calculateNextDonationDate = (
@@ -100,6 +102,56 @@ const updateScheduledDonationAfterSuccess = async (
   }
 };
 
+// ✅ NEW HELPER FUNCTION: Generate Receipt After Successful Payment
+const generateReceiptAfterPayment = async (
+  donation: any,
+  paymentIntent: Stripe.PaymentIntent
+) => {
+  try {
+    console.log(`📄 Generating receipt for donation: ${donation._id}`);
+
+    // Check if receipt already exists
+    const existingReceipt = await Receipt.findOne({
+      donation: donation._id,
+    });
+
+    if (existingReceipt) {
+      console.log(`📄 Receipt already exists for donation: ${donation._id}`);
+      return existingReceipt;
+    }
+
+    // Prepare receipt generation payload
+    const receiptPayload = {
+      donationId: donation._id,
+      donorId: donation.user._id || donation.user,
+      organizationId: donation.organization._id || donation.organization,
+      causeId: donation.cause?._id || donation.cause,
+      amount: paymentIntent.amount / 100, // Convert from cents
+      currency: paymentIntent.currency.toUpperCase(),
+      donationType: donation.donationType || 'one-time',
+      donationDate: new Date(),
+      paymentMethod: 'Stripe',
+      specialMessage: donation.specialMessage,
+    };
+
+    // Generate receipt
+    const receipt = await receiptServices.generateReceipt(receiptPayload);
+
+    console.log(`✅ Receipt generated successfully: ${receipt.receiptNumber}`);
+    console.log(`   Receipt ID: ${receipt._id}`);
+    console.log(`   Donation ID: ${donation._id}`);
+    console.log(`   PDF URL: ${receipt.pdfUrl}`);
+    console.log(`   Email sent: ${receipt.emailSent}`);
+
+    return receipt;
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error(`❌ Error generating receipt: ${err.message}`);
+    console.error(err.stack);
+    // Don't throw - receipt generation failure shouldn't break payment processing
+  }
+};
+
 // Handle RoundUp donation success
 // ✅ MODIFIED: Now UPDATES existing Donation record instead of creating it
 const handleRoundUpDonationSuccess = async (
@@ -155,7 +207,7 @@ const handleRoundUpDonationSuccess = async (
       {
         status: 'donated',
         donatedAt: new Date(),
-        stripeChargeId: paymentIntentId, // We can get actual chargeId from paymentIntent if needed
+        stripeChargeId: paymentIntentId,
       }
     );
 
@@ -233,8 +285,8 @@ const handleRoundUpDonationFailure = async (
         stripePaymentIntentId: paymentIntentId,
       },
       {
-        status: 'processed', // Back to processed to allow retry
-        stripePaymentIntentId: undefined, // Clear payment intent ID
+        status: 'processed',
+        stripePaymentIntentId: undefined,
         donationAttemptedAt: undefined,
         lastPaymentFailure: new Date(),
         lastPaymentFailureReason: errorMessage || 'Unknown error',
@@ -285,7 +337,7 @@ const handleCheckoutSessionCompleted = async (
         },
         {
           stripePaymentIntentId: session.payment_intent as string,
-          status: 'processing', // Now processing payment
+          status: 'processing',
         }
       );
 
@@ -330,10 +382,13 @@ const handlePaymentIntentSucceeded = async (
       {
         status: 'completed',
         stripeChargeId: paymentIntent.latest_charge as string,
-        pointsEarned: Math.floor((paymentIntent.amount / 100) * 100), // Award points now
+        pointsEarned: Math.floor((paymentIntent.amount / 100) * 100),
       },
       { new: true }
-    );
+    )
+      .populate('user')
+      .populate('organization')
+      .populate('cause');
 
     console.log({ PaymentIndentInside: donation });
 
@@ -354,7 +409,10 @@ const handlePaymentIntentSucceeded = async (
           pointsEarned: Math.floor((paymentIntent.amount / 100) * 100),
         },
         { new: true }
-      );
+      )
+        .populate('user')
+        .populate('organization')
+        .populate('cause');
 
       if (!fallbackUpdate) {
         console.error(
@@ -364,6 +422,9 @@ const handlePaymentIntentSucceeded = async (
       }
 
       console.log(`✅ Payment succeeded for donation: ${fallbackUpdate._id}`);
+
+      // ✅ GENERATE RECEIPT AFTER SUCCESSFUL PAYMENT
+      await generateReceiptAfterPayment(fallbackUpdate, paymentIntent);
 
       // ✅ Handle recurring donations - update scheduled donation
       if (
@@ -385,6 +446,9 @@ const handlePaymentIntentSucceeded = async (
     }
 
     console.log(`✅ Payment succeeded for donation: ${donation._id}`);
+
+    // ✅ GENERATE RECEIPT AFTER SUCCESSFUL PAYMENT
+    await generateReceiptAfterPayment(donation, paymentIntent);
 
     // ✅ Handle RoundUp donations - update RoundUp transactions and configuration
     if (metadata?.donationType === 'roundup' && metadata?.roundUpId) {
@@ -612,7 +676,7 @@ const handleChargeRefunded = async (charge: Stripe.Charge) => {
     const donation = await Donation.findOneAndUpdate(
       {
         stripePaymentIntentId: paymentIntentId,
-        status: 'refunding', // <-- Ensure we only update donations awaiting refund confirmation
+        status: 'refunding',
       },
       {
         status: 'refunded',
@@ -630,7 +694,6 @@ const handleChargeRefunded = async (charge: Stripe.Charge) => {
     console.log(
       `Donation for payment intent ${paymentIntentId} successfully marked as refunded.`
     );
-    // Here you could also add logic to deduct points that were earned from this donation.
   } catch (error) {
     console.error(
       `Failed to update donation status to refunded for payment intent ${paymentIntentId}:`,
@@ -662,6 +725,7 @@ const handleStripeWebhook = async (
     );
 
     console.log({ obj: event.data?.object }, { depth: Infinity });
+
     // Handle different event types
     switch (event.type) {
       case 'checkout.session.completed':
@@ -687,10 +751,11 @@ const handleStripeWebhook = async (
           event.data.object as Stripe.PaymentIntent
         );
         break;
+
       case 'charge.refunded':
         await handleChargeRefunded(event.data.object as Stripe.Charge);
         break;
-      // Add other event handlers as needed
+
       case 'account.updated':
       case 'customer.created':
         console.log(`Webhook received: ${event.type}`);

@@ -26,9 +26,9 @@ import { generateReceiptPDF } from '../../utils/pdf.utils';
 import sendReceiptEmail from '../../utils/sendReceiptEmail';
 
 import {
-  IReceiptEmailPayload,
   IReceiptGenerationPayload,
   IReceiptPDFData,
+  IReceiptFilterQuery,
 } from './receipt.interface';
 
 /* ----------------------------------------------
@@ -42,6 +42,23 @@ const generateReceiptNumber = (): string => {
     .padStart(4, '0');
   return `${RECEIPT_NUMBER_PREFIX}-${timestamp}-${random}`;
 };
+
+/* ----------------------------------------------
+   INTERFACE FOR SEND EMAIL SERVICE
+------------------------------------------------- */
+interface ISendReceiptEmailServicePayload {
+  receiptId: Types.ObjectId | string;
+  donorEmail: string;
+  donorName: string;
+  organizationName: string;
+  pdfUrl: string;
+  amount: number;
+  currency: string;
+  donationDate: Date;
+  receiptNumber?: string;
+  donationType?: string;
+  specialMessage?: string;
+}
 
 /* ----------------------------------------------
    MAIN FUNCTION: GENERATE RECEIPT
@@ -65,10 +82,9 @@ const generateReceipt = async (payload: IReceiptGenerationPayload) => {
     if (!organization)
       throw new AppError(httpStatus.NOT_FOUND, 'Organization not found');
 
-    // Fetch cause (optional)
-    let cause = null;
+    // Fetch cause (optional) - not used but kept for potential future use
     if (payload.causeId) {
-      cause = await Cause.findById(payload.causeId);
+      await Cause.findById(payload.causeId);
     }
 
     const receiptNumber = generateReceiptNumber();
@@ -77,10 +93,10 @@ const generateReceipt = async (payload: IReceiptGenerationPayload) => {
     const pdfData: IReceiptPDFData = {
       receiptNumber,
       donorName: donor.name,
-      donorEmail: (donor.auth as any).email, // Type assertion since auth is populated
+      donorEmail: (donor.auth as unknown as { email: string }).email,
       organizationName: organization.name,
       organizationAddress: organization.address,
-      organizationEmail: (organization.auth as any).email, // Type assertion since auth is populated
+      organizationEmail: (organization.auth as unknown as { email: string }).email,
       abnNumber: organization.tfnOrAbnNumber,
       taxDeductible: true,
       zakatEligible: !!organization.zakatLicenseHolderNumber,
@@ -144,7 +160,7 @@ const generateReceipt = async (payload: IReceiptGenerationPayload) => {
 
     // Send email asynchronously using the email service function
     sendReceiptEmailService({
-      receiptId: receipt._id,
+      receiptId: receipt._id as Types.ObjectId,
       donorEmail: pdfData.donorEmail,
       donorName: pdfData.donorName,
       organizationName: pdfData.organizationName,
@@ -155,10 +171,14 @@ const generateReceipt = async (payload: IReceiptGenerationPayload) => {
       receiptNumber: receipt.receiptNumber,
       donationType: receipt.donationType,
       specialMessage: receipt.specialMessage,
-    }).catch(console.error);
+    }).catch((error: Error) => {
+      // eslint-disable-next-line no-console
+      console.error('Email sending failed:', error);
+    });
 
     return receipt;
   } catch (error) {
+    // eslint-disable-next-line no-console
     console.error('Receipt generation error:', error);
     if (error instanceof AppError) throw error;
 
@@ -172,19 +192,9 @@ const generateReceipt = async (payload: IReceiptGenerationPayload) => {
 /* ----------------------------------------------
    SEND EMAIL SERVICE FUNCTION
 ------------------------------------------------- */
-const sendReceiptEmailService = async (payload: {
-  receiptId: Types.ObjectId | string;
-  donorEmail: string;
-  donorName: string;
-  organizationName: string;
-  pdfUrl: string;
-  amount: number;
-  currency: string;
-  donationDate: Date;
-  receiptNumber?: string;
-  donationType?: string;
-  specialMessage?: string;
-}) => {
+const sendReceiptEmailService = async (
+  payload: ISendReceiptEmailServicePayload
+) => {
   try {
     const receipt = await Receipt.findById(payload.receiptId);
     if (!receipt)
@@ -218,10 +228,12 @@ const sendReceiptEmailService = async (payload: {
       $inc: { emailAttempts: 1 },
     });
 
+    // eslint-disable-next-line no-console
     console.log(
       `✅ Receipt email sent successfully for: ${receipt.receiptNumber}`
     );
   } catch (error) {
+    // eslint-disable-next-line no-console
     console.error('❌ Email sending error:', error);
 
     await Receipt.findByIdAndUpdate(payload.receiptId, {
@@ -247,7 +259,7 @@ const resendReceiptEmail = async (receiptId: string) => {
     throw new AppError(httpStatus.NOT_FOUND, RECEIPT_MESSAGES.NOT_FOUND);
 
   return sendReceiptEmailService({
-    receiptId: receipt._id,
+    receiptId: receipt._id as Types.ObjectId,
     donorEmail: receipt.donorEmail,
     donorName: receipt.donorName,
     organizationName: receipt.organizationName,
@@ -273,7 +285,10 @@ const getReceiptById = async (receiptId: string) => {
   return receipt;
 };
 
-const getReceiptsByDonor = async (donorId: string, query: any) => {
+const getReceiptsByDonor = async (
+  donorId: string,
+  query: IReceiptFilterQuery
+) => {
   const {
     page = 1,
     limit = 10,
@@ -282,11 +297,14 @@ const getReceiptsByDonor = async (donorId: string, query: any) => {
   } = query;
 
   const skip = (Number(page) - 1) * Number(limit);
-  const sort = { [sortBy]: sortOrder === 'asc' ? 1 : -1 };
+  const sortDirection = sortOrder === 'asc' ? 1 : -1;
+  const sortOptions: Record<string, 1 | -1> = {
+    [sortBy]: sortDirection,
+  };
 
   const [receipts, total] = await Promise.all([
     Receipt.find({ donor: donorId })
-      .sort(sort)
+      .sort(sortOptions)
       .skip(skip)
       .limit(Number(limit))
       .populate('organization', 'name logoImage')
@@ -299,15 +317,18 @@ const getReceiptsByDonor = async (donorId: string, query: any) => {
 
 const getReceiptsByOrganization = async (
   organizationId: string,
-  query: any
+  query: IReceiptFilterQuery
 ) => {
   const { page = 1, limit = 10, startDate, endDate, status } = query;
 
-  const filter: any = { organization: organizationId };
+  const filter: Record<string, unknown> = { organization: organizationId };
+
   if (startDate || endDate) {
-    filter.donationDate = {};
-    if (startDate) filter.donationDate.$gte = new Date(startDate);
-    if (endDate) filter.donationDate.$lte = new Date(endDate);
+    filter.donationDate = {} as Record<string, Date>;
+    if (startDate)
+      (filter.donationDate as Record<string, Date>).$gte = new Date(startDate);
+    if (endDate)
+      (filter.donationDate as Record<string, Date>).$lte = new Date(endDate);
   }
 
   if (status) filter.status = status;
