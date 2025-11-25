@@ -123,7 +123,7 @@ const generateReceiptAfterPayment = async (
     // Prepare receipt generation payload
     const receiptPayload = {
       donationId: donation._id,
-      donorId: donation.user._id || donation.user,
+      donorId: donation.donor._id || donation.donor,
       organizationId: donation.organization._id || donation.organization,
       causeId: donation.cause?._id || donation.cause,
       amount: paymentIntent.amount / 100, // Convert from cents
@@ -386,7 +386,7 @@ const handlePaymentIntentSucceeded = async (
       },
       { new: true }
     )
-      .populate('user')
+      .populate('donor')
       .populate('organization')
       .populate('cause');
 
@@ -410,7 +410,7 @@ const handlePaymentIntentSucceeded = async (
         },
         { new: true }
       )
-        .populate('user')
+        .populate('donor')
         .populate('organization')
         .populate('cause');
 
