@@ -6,15 +6,109 @@ import { Connection, Model } from 'mongoose';
 import Cause from '../Causes/causes.model';
 import Business from '../Business/business.model';
 
-const getAdminStatesFromDb = async (time?: string) => {
-  // if(!user?.roles?.includes('admin')){
-  //     throw new Error('Unauthorized access');
-  // }
+// Utility function to get date ranges based on filter type
+const getDateRange = (filter?: 'today' | 'week' | 'month') => {
+  const now = new Date();
+  let startDate: Date;
+  const endDate: Date = now;
+
+  switch (filter) {
+    case 'today': {
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      break;
+    }
+    case 'week': {
+      const dayOfWeek = now.getDay();
+      const diff = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Monday as start of week
+      startDate = new Date(now);
+      startDate.setDate(now.getDate() - diff);
+      startDate.setHours(0, 0, 0, 0);
+      break;
+    }
+    case 'month': {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      break;
+    }
+    default:
+      // If no filter, return null to indicate no date filtering
+      return null;
+  }
+
+  return { startDate, endDate };
+};
+
+// Utility function to get previous period date range for comparison
+const getPreviousPeriodRange = (filter?: 'today' | 'week' | 'month') => {
+  const now = new Date();
+  let startDate: Date;
+  let endDate: Date;
+
+  switch (filter) {
+    case 'today': {
+      // Yesterday
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+      endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      endDate.setMilliseconds(-1); // End of yesterday
+      break;
+    }
+    case 'week': {
+      // Previous week (same day range)
+      const dayOfWeek = now.getDay();
+      const diff = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      startDate = new Date(now);
+      startDate.setDate(now.getDate() - diff - 7); // Previous week start
+      startDate.setHours(0, 0, 0, 0);
+      endDate = new Date(now);
+      endDate.setDate(now.getDate() - 7); // Previous week same day
+      break;
+    }
+    case 'month': {
+      // Previous month
+      startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      endDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      endDate.setMilliseconds(-1); // End of previous month
+      break;
+    }
+    default:
+      // Default to previous month for comparison
+      startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      endDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      endDate.setMilliseconds(-1);
+  }
+
+  return { startDate, endDate };
+};
+
+type AdminStatesParams = {
+  timeFilter?: 'today' | 'week' | 'month';
+};
+
+const getAdminStatesFromDb = async (params?: AdminStatesParams) => {
+  const { timeFilter } = params || {};
+
+  // Get date range based on filter
+  const dateRange = getDateRange(timeFilter);
+  const previousDateRange = getPreviousPeriodRange(timeFilter);
+
+  // Determine comparison label based on filter
+  const getComparisonLabel = () => {
+    switch (timeFilter) {
+      case 'today':
+        return 'vs yesterday';
+      case 'week':
+        return 'vs last week';
+      case 'month':
+        return 'vs last month';
+      default:
+        return 'vs last month';
+    }
+  };
+  const comparisonLabel = getComparisonLabel();
 
   const formatPct = (pct: number | null) =>
     pct === null
       ? null
-      : `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% vs last month`;
+      : `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% ${comparisonLabel}`;
 
   const calcPct = (prev: number | null, curr: number) => {
     if (prev === null) return null;
@@ -22,72 +116,73 @@ const getAdminStatesFromDb = async (time?: string) => {
     return ((curr - prev) / prev) * 100;
   };
 
-  // total donations (all time)
-  const totalDonationAgg = await Donation.aggregate([
-    { $match: { amount: { $gt: 0 } } },
-    { $group: { _id: null, totalAmount: { $sum: '$amount' } } },
-  ]);
-  const totalDonation = (totalDonationAgg[0]?.totalAmount ?? 0) as number;
-
-  // time windows
+  // Build filter for donations (all time total)
+  // time windows for comparison
   const now = new Date();
-  const currentMonth = now.getMonth();
-  const currentYear = now.getFullYear();
-  const previousMonth = currentMonth === 0 ? 11 : currentMonth - 1;
-  const previousMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
 
-  const currentMonthStart = new Date(currentYear, currentMonth, 1);
-  const nextMonthStart = new Date(currentYear, currentMonth + 1, 1);
-  const previousMonthStart = new Date(previousMonthYear, previousMonth, 1);
-  const previousMonthEnd = new Date(previousMonthYear, previousMonth + 1, 1);
+  // Get current and previous period dates
+  let currentPeriodStart: Date;
+  let currentPeriodEnd: Date;
+  let previousPeriodStart: Date;
+  let previousPeriodEnd: Date;
+
+  if (dateRange) {
+    currentPeriodStart = dateRange.startDate;
+    currentPeriodEnd = dateRange.endDate;
+    previousPeriodStart = previousDateRange.startDate;
+    previousPeriodEnd = previousDateRange.endDate;
+  } else {
+    // Default to month comparison
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    const previousMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+    const previousMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+
+    currentPeriodStart = new Date(currentYear, currentMonth, 1);
+    currentPeriodEnd = new Date(currentYear, currentMonth + 1, 1);
+    previousPeriodStart = new Date(previousMonthYear, previousMonth, 1);
+    previousPeriodEnd = new Date(previousMonthYear, previousMonth + 1, 1);
+  }
 
   // total active organizations (current snapshot)
   const totalActiveOrganizations = await Organization.countDocuments({});
 
-  // active organizations created this month vs previous month (growth)
-  const currentMonthActiveOrgs = await Organization.countDocuments({
-    // status: 'active',
-    createdAt: { $gte: currentMonthStart, $lt: nextMonthStart },
+  // active organizations created in current vs previous period
+  const currentPeriodActiveOrgs = await Organization.countDocuments({
+    createdAt: { $gte: currentPeriodStart, $lt: currentPeriodEnd },
   });
-  const previousMonthActiveOrgs = await Organization.countDocuments({
-    // status: 'active',
-    createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd },
+  const previousPeriodActiveOrgs = await Organization.countDocuments({
+    createdAt: { $gte: previousPeriodStart, $lt: previousPeriodEnd },
   });
-  const orgChangePct = calcPct(previousMonthActiveOrgs, currentMonthActiveOrgs);
+  const orgChangePct = calcPct(previousPeriodActiveOrgs, currentPeriodActiveOrgs);
   const orgChangeText = formatPct(orgChangePct);
 
-  // donation counts for month-over-month (already present)
-  // const currentMonthDonations = await Donation.countDocuments({
-  //   createdAt: { $gte: currentMonthStart, $lt: nextMonthStart },
-  // });
-  // const previousMonthDonations = await Donation.countDocuments({
-  //   createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd },
-  // });
-
-  // donation amounts for month-over-month (amount change)
-  const currentMonthAmountAgg = await Donation.aggregate([
-    { $match: { createdAt: { $gte: currentMonthStart, $lt: nextMonthStart } } },
+  // donation amounts for current vs previous period
+  const currentPeriodAmountAgg = await Donation.aggregate([
+    { $match: { createdAt: { $gte: currentPeriodStart, $lt: currentPeriodEnd } } },
     { $group: { _id: null, totalAmount: { $sum: '$amount' } } },
   ]);
-  const previousMonthAmountAgg = await Donation.aggregate([
+  const previousPeriodAmountAgg = await Donation.aggregate([
     {
       $match: {
-        createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd },
+        createdAt: { $gte: previousPeriodStart, $lt: previousPeriodEnd },
       },
     },
     { $group: { _id: null, totalAmount: { $sum: '$amount' } } },
   ]);
-  const currentMonthAmount = (currentMonthAmountAgg[0]?.totalAmount ??
+  const currentPeriodAmount = (currentPeriodAmountAgg[0]?.totalAmount ??
     0) as number;
-  const previousMonthAmount = (previousMonthAmountAgg[0]?.totalAmount ??
+  const previousPeriodAmount = (previousPeriodAmountAgg[0]?.totalAmount ??
     0) as number;
+  const totalDonation = currentPeriodAmount;
   const donationAmountChangePct = calcPct(
-    previousMonthAmount,
-    currentMonthAmount
+    previousPeriodAmount,
+    currentPeriodAmount
   );
   const donationAmountChangeText = formatPct(donationAmountChangePct);
 
   // donations for the selected year (Jan-Dec) with month-over-month growth %
+  const currentYear = now.getFullYear();
   const targetYear = currentYear; // change this to filter a different year
   // const donationYearFilter = {
   //   createdAt: {
@@ -180,7 +275,7 @@ const getAdminStatesFromDb = async (time?: string) => {
   ]);
 
   const currentByCauseAgg = await Donation.aggregate([
-    { $match: { createdAt: { $gte: currentMonthStart, $lt: nextMonthStart } } },
+    { $match: { createdAt: { $gte: currentPeriodStart, $lt: currentPeriodEnd } } },
     { $group: { _id: '$cause', totalAmount: { $sum: '$amount' } } },
     {
       $lookup: {
@@ -197,7 +292,7 @@ const getAdminStatesFromDb = async (time?: string) => {
   const previousByCauseAgg = await Donation.aggregate([
     {
       $match: {
-        createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd },
+        createdAt: { $gte: previousPeriodStart, $lt: previousPeriodEnd },
       },
     },
     { $group: { _id: '$cause', totalAmount: { $sum: '$amount' } } },
@@ -264,7 +359,7 @@ const getAdminStatesFromDb = async (time?: string) => {
   ]);
 
   const currentDonorAgg = await Donation.aggregate([
-    { $match: { createdAt: { $gte: currentMonthStart, $lt: nextMonthStart } } },
+    { $match: { createdAt: { $gte: currentPeriodStart, $lt: currentPeriodEnd } } },
     { $group: { _id: '$donor', totalAmount: { $sum: '$amount' } } },
     {
       $lookup: {
@@ -288,7 +383,7 @@ const getAdminStatesFromDb = async (time?: string) => {
   const previousDonorAgg = await Donation.aggregate([
     {
       $match: {
-        createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd },
+        createdAt: { $gte: previousPeriodStart, $lt: previousPeriodEnd },
       },
     },
     { $group: { _id: '$donor', totalAmount: { $sum: '$amount' } } },
@@ -395,21 +490,15 @@ const getAdminStatesFromDb = async (time?: string) => {
   ]);
 
   return {
+    timeFilter: timeFilter || 'all',
     totalDonation,
-    // donation amount month-over-month change
-    // currentMonthAmount,
-    // previousMonthAmount,
-    // donationAmountChangePct,
     donationAmountChangeText,
 
     totalActiveOrganizations,
-    currentMonthActiveOrgs,
-    previousMonthActiveOrgs,
+    currentPeriodActiveOrgs,
+    previousPeriodActiveOrgs,
     organizationChangePct: orgChangePct,
     organizationChangeText: orgChangeText,
-
-    // donationCountCurrentMonth: currentMonthDonations,
-    // donationCountPreviousMonth: previousMonthDonations,
 
     donationGrowthMonthly, // per-month counts + growth
     subscriptionDonationGrowthMonthly,
@@ -430,6 +519,7 @@ type DonationsReportParams = {
   name?: string;
   email?: string;
   sortOrder?: 'asc' | 'desc';
+  timeFilter?: 'today' | 'week' | 'month';
 };
 
 const getDonationsReportFromDb = async (params?: DonationsReportParams) => {
@@ -442,24 +532,29 @@ const getDonationsReportFromDb = async (params?: DonationsReportParams) => {
     endDate,
     sortBy = 'createdAt',
     sortOrder = 'desc',
+    timeFilter,
   } = params || {};
 
-  // time windows for month-over-month comparison
-  const now = new Date();
-  const currentMonth = now.getMonth();
-  const currentYear = now.getFullYear();
-  const previousMonth = currentMonth === 0 ? 11 : currentMonth - 1;
-  const previousMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+  // time windows for period comparison
+  const currentPeriod = getDateRange(timeFilter);
+  const previousPeriod = getPreviousPeriodRange(timeFilter);
+  const currentPeriodStart = currentPeriod?.startDate ?? new Date();
+  const currentPeriodEnd = currentPeriod?.endDate ?? new Date();
+  const previousPeriodStart = previousPeriod?.startDate ?? new Date();
+  const previousPeriodEnd = previousPeriod?.endDate ?? new Date();
 
-  const currentMonthStart = new Date(currentYear, currentMonth, 1);
-  const nextMonthStart = new Date(currentYear, currentMonth + 1, 1);
-  const previousMonthStart = new Date(previousMonthYear, previousMonth, 1);
-  const previousMonthEnd = new Date(previousMonthYear, previousMonth + 1, 1);
+  const comparisonLabel = timeFilter
+    ? timeFilter === 'today'
+      ? 'vs yesterday'
+      : timeFilter === 'week'
+        ? 'vs last week'
+        : 'vs last month'
+    : 'vs last month';
 
   const formatPct = (pct: number | null) =>
     pct === null
       ? null
-      : `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% vs last month`;
+      : `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% ${comparisonLabel}`;
 
   const calcPct = (prev: number | null, curr: number) => {
     if (prev === null) return null;
@@ -482,19 +577,12 @@ const getDonationsReportFromDb = async (params?: DonationsReportParams) => {
       (filter.createdAt as Record<string, Date>).$lte = new Date(endDate);
   }
 
-  // total donations (all time)
-  const totalDonationAgg = await Donation.aggregate([
-    { $match: { amount: { $gt: 0 } } },
-    { $group: { _id: null, totalAmount: { $sum: '$amount' } } },
-  ]);
-  const totalDonation = (totalDonationAgg[0]?.totalAmount ?? 0) as number;
-
-  // total donations this month vs previous month
+  // total donations for current period vs previous period
   const currentMonthDonationAgg = await Donation.aggregate([
     {
       $match: {
         amount: { $gt: 0 },
-        createdAt: { $gte: currentMonthStart, $lt: nextMonthStart },
+        createdAt: { $gte: currentPeriodStart, $lt: currentPeriodEnd },
       },
     },
     { $group: { _id: null, totalAmount: { $sum: '$amount' } } },
@@ -503,7 +591,7 @@ const getDonationsReportFromDb = async (params?: DonationsReportParams) => {
     {
       $match: {
         amount: { $gt: 0 },
-        createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd },
+        createdAt: { $gte: previousPeriodStart, $lt: previousPeriodEnd },
       },
     },
     { $group: { _id: null, totalAmount: { $sum: '$amount' } } },
@@ -512,6 +600,7 @@ const getDonationsReportFromDb = async (params?: DonationsReportParams) => {
     0) as number;
   const previousMonthDonation = (previousMonthDonationAgg[0]?.totalAmount ??
     0) as number;
+  const totalDonation = currentMonthDonation;
   const totalDonationChangePct = calcPct(
     previousMonthDonation,
     currentMonthDonation
@@ -525,12 +614,12 @@ const getDonationsReportFromDb = async (params?: DonationsReportParams) => {
   ]);
   const avgDonationAmount = (avgDonationAgg[0]?.avgAmount ?? 0) as number;
 
-  // average donation amount this month vs previous month
+  // average donation amount for current period vs previous period
   const currentMonthAvgAgg = await Donation.aggregate([
     {
       $match: {
         amount: { $gt: 0 },
-        createdAt: { $gte: currentMonthStart, $lt: nextMonthStart },
+        createdAt: { $gte: currentPeriodStart, $lt: currentPeriodEnd },
       },
     },
     { $group: { _id: null, avgAmount: { $avg: '$amount' } } },
@@ -539,7 +628,7 @@ const getDonationsReportFromDb = async (params?: DonationsReportParams) => {
     {
       $match: {
         amount: { $gt: 0 },
-        createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd },
+        createdAt: { $gte: previousPeriodStart, $lt: previousPeriodEnd },
       },
     },
     { $group: { _id: null, avgAmount: { $avg: '$amount' } } },
@@ -554,12 +643,12 @@ const getDonationsReportFromDb = async (params?: DonationsReportParams) => {
     (donors) => donors.length
   );
 
-  // total donors this month vs previous month
+  // total donors for current period vs previous period
   const currentMonthDonors = await Donation.distinct('donor', {
-    createdAt: { $gte: currentMonthStart, $lt: nextMonthStart },
+    createdAt: { $gte: currentPeriodStart, $lt: currentPeriodEnd },
   }).then((donors) => donors.length);
   const previousMonthDonors = await Donation.distinct('donor', {
-    createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd },
+    createdAt: { $gte: previousPeriodStart, $lt: previousPeriodEnd },
   }).then((donors) => donors.length);
   const totalDonorsChangePct = calcPct(previousMonthDonors, currentMonthDonors);
   const totalDonorsChangeText = formatPct(totalDonorsChangePct);
@@ -671,6 +760,7 @@ const getDonationsReportFromDb = async (params?: DonationsReportParams) => {
   const donationHistory = await Donation.aggregate(searchPipeline);
 
   return {
+    timeFilter: timeFilter || 'month',
     totalDonation,
     totalDonationChangeText,
     avgDonationAmount,
@@ -1274,104 +1364,104 @@ const getPendingUsersReportFromDb = async (
   };
 };
 
-const getUsersEngagementReportFromDb = async () => {
-  // total active users
+type UsersEngagementReportParams = {
+  timeFilter?: 'today' | 'week' | 'month';
+  role?: 'CLIENT' | 'BUSINESS' | 'ORGANIZATION';
+};
+
+const getUsersEngagementReportFromDb = async (params?: UsersEngagementReportParams) => {
+  const { timeFilter, role } = params || {};
+
+  // Get date range based on filter
+  const dateRange = getDateRange(timeFilter);
+  const previousDateRange = getPreviousPeriodRange(timeFilter);
+  
+  // Build base filter for the selected period
+  const baseFilter: Record<string, unknown> = {
+    status: 'verified',
+    role: role ? role : { $ne: 'ADMIN' },
+  };
+
+  if (dateRange) {
+    baseFilter.createdAt = { $gte: dateRange.startDate, $lte: dateRange.endDate };
+  }
+
+  // Build previous period filter
+  const previousFilter: Record<string, unknown> = {
+    status: 'verified',
+    role: role ? role : { $ne: 'ADMIN' },
+    createdAt: { $gte: previousDateRange.startDate, $lte: previousDateRange.endDate },
+  };
+
+  // Determine comparison label based on filter
+  const getComparisonLabel = () => {
+    switch (timeFilter) {
+      case 'today':
+        return 'vs yesterday';
+      case 'week':
+        return 'vs last week';
+      case 'month':
+        return 'vs last month';
+      default:
+        return 'vs last month';
+    }
+  };
+  const comparisonLabel = getComparisonLabel();
+
+  // total active users (current period)
   const totalActiveUsers = await Auth.countDocuments({
-    status: 'verified',
+    ...baseFilter,
     isActive: true,
-    role: { $ne: 'ADMIN' },
   });
 
-  // totalActiveUsers this month vs previous month
-  const now = new Date();
-  const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-  const previousMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const previousMonthEnd = new Date(now.getFullYear(), now.getMonth(), 1);
-  const currentMonthActiveUsers = await Auth.countDocuments({
-    status: 'verified',
+  // total active users (previous period for comparison)
+  const previousActiveUsers = await Auth.countDocuments({
+    ...previousFilter,
     isActive: true,
-    role: { $ne: 'ADMIN' },
-    createdAt: { $gte: currentMonthStart, $lt: nextMonthStart },
-  });
-  const previousMonthActiveUsers = await Auth.countDocuments({
-    status: 'verified',
-    isActive: true,
-    role: { $ne: 'ADMIN' },
-    createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd },
-  });
-  const activeUsersChangePct = previousMonthActiveUsers
-    ? ((currentMonthActiveUsers - previousMonthActiveUsers) /
-        previousMonthActiveUsers) *
-      100
-    : null;
-  const activeUsersChangeText = activeUsersChangePct
-    ? `${activeUsersChangePct >= 0 ? '+' : ''}${activeUsersChangePct.toFixed(
-        1
-      )}% vs last month`
-    : null;
-
-  // new users
-  const totalNewUsers = await Auth.countDocuments({
-    status: 'verified',
-    role: { $ne: 'ADMIN' },
-    createdAt: {
-      $gte: new Date(new Date().setMonth(new Date().getMonth() - 1)),
-    },
   });
 
-  // new users this month vs previous month
-  const currentMonthNewUsers = await Auth.countDocuments({
-    status: 'verified',
-    role: { $ne: 'ADMIN' },
-    createdAt: { $gte: currentMonthStart, $lt: nextMonthStart },
-  });
-  const previousMonthNewUsers = await Auth.countDocuments({
-    status: 'verified',
-    role: { $ne: 'ADMIN' },
-    createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd },
-  });
-  const newUsersChangePct = previousMonthNewUsers
-    ? ((currentMonthNewUsers - previousMonthNewUsers) / previousMonthNewUsers) *
-      100
+  const activeUsersChangePct = previousActiveUsers
+    ? ((totalActiveUsers - previousActiveUsers) / previousActiveUsers) * 100
     : null;
-  const newUsersChangeText = newUsersChangePct
-    ? `${newUsersChangePct >= 0 ? '+' : ''}${newUsersChangePct.toFixed(
-        1
-      )}% vs last month`
+  const activeUsersChangeText = activeUsersChangePct !== null
+    ? `${activeUsersChangePct >= 0 ? '+' : ''}${activeUsersChangePct.toFixed(1)}% ${comparisonLabel}`
     : null;
 
-  // total returning users
+  // new users (current period)
+  const totalNewUsers = await Auth.countDocuments(baseFilter);
+
+  // new users (previous period for comparison)
+  const previousNewUsers = await Auth.countDocuments(previousFilter);
+
+  const newUsersChangePct = previousNewUsers
+    ? ((totalNewUsers - previousNewUsers) / previousNewUsers) * 100
+    : null;
+  const newUsersChangeText = newUsersChangePct !== null
+    ? `${newUsersChangePct >= 0 ? '+' : ''}${newUsersChangePct.toFixed(1)}% ${comparisonLabel}`
+    : null;
+
+  // total returning users (current period)
   const totalReturningUsers = await Auth.countDocuments({
-    status: 'verified',
+    ...baseFilter,
     isDeleted: true,
-    role: { $ne: 'ADMIN' },
   });
 
-  // returning users this month vs previous month
-  const currentMonthReturningUsers = await Auth.countDocuments({
-    status: 'verified',
+  // returning users (previous period for comparison)
+  const previousReturningUsers = await Auth.countDocuments({
+    ...previousFilter,
     isDeleted: true,
-    role: { $ne: 'ADMIN' },
-    createdAt: { $gte: currentMonthStart, $lt: nextMonthStart },
   });
-  const previousMonthReturningUsers = await Auth.countDocuments({
-    status: 'verified',
-    isDeleted: true,
-    role: { $ne: 'ADMIN' },
-    createdAt: { $gte: previousMonthStart, $lt: previousMonthEnd },
-  });
-  const returningUsersChangePct = previousMonthReturningUsers
-    ? ((currentMonthReturningUsers - previousMonthReturningUsers) /
-        previousMonthReturningUsers) *
-      100
+
+  const returningUsersChangePct = previousReturningUsers
+    ? ((totalReturningUsers - previousReturningUsers) / previousReturningUsers) * 100
     : null;
-  const returningUsersChangeText = returningUsersChangePct
-    ? `${
-        returningUsersChangePct >= 0 ? '+' : ''
-      }${returningUsersChangePct.toFixed(1)}% vs last month`
+  const returningUsersChangeText = returningUsersChangePct !== null
+    ? `${returningUsersChangePct >= 0 ? '+' : ''}${returningUsersChangePct.toFixed(1)}% ${comparisonLabel}`
     : null;
+
   return {
+    timeFilter: timeFilter || 'all',
+    role: role || 'all',
     totalActiveUsers,
     activeUsersChangeText,
     totalNewUsers,
@@ -1381,26 +1471,41 @@ const getUsersEngagementReportFromDb = async () => {
   };
 };
 
-const getDonationsEngagementReportFromDb = async () => {
+type DonationsEngagementReportParams = {
+  donationType?: 'one-time' | 'recurring';
+  year?: number;
+};
+
+const getDonationsEngagementReportFromDb = async (params?: DonationsEngagementReportParams) => {
+  const { donationType, year } = params || {};
+
   // total donations for a full calendar year (always 12 months Jan-Dec).
-  // Change targetYear to (new Date()).getFullYear() - 1 if you want the previous calendar year.
   const now = new Date();
-  const targetYear = now.getFullYear(); // use current year; set to currentYear-1 for previous year
+  const targetYear = year || now.getFullYear(); // use provided year or current year
   const yearStart = new Date(targetYear, 0, 1);
   const yearEnd = new Date(targetYear + 1, 0, 1);
+
+  // Build match filter
+  const matchFilter: Record<string, unknown> = {
+    createdAt: { $gte: yearStart, $lt: yearEnd },
+    amount: { $gt: 0 },
+  };
+
+  // Add donationType filter if provided
+  if (donationType) {
+    matchFilter.donationType = donationType;
+  }
 
   // Aggregate by donationType and month (1-12)
   const agg = await Donation.aggregate([
     {
-      $match: {
-        createdAt: { $gte: yearStart, $lt: yearEnd },
-        amount: { $gt: 0 },
-      },
+      $match: matchFilter,
     },
     {
       $group: {
         _id: { donationType: '$donationType', month: { $month: '$createdAt' } },
         totalAmount: { $sum: '$amount' },
+        count: { $sum: 1 },
       },
     },
   ]);
@@ -1408,16 +1513,20 @@ const getDonationsEngagementReportFromDb = async () => {
   type AggItem = {
     _id: { donationType?: string | null; month?: number };
     totalAmount?: number | null;
+    count?: number | null;
   };
 
-  // Build a map: donationType -> (month -> totalAmount)
-  const typeMonthMap = new Map<string, Map<number, number>>();
+  // Build a map: donationType -> (month -> {totalAmount, count})
+  const typeMonthMap = new Map<string, Map<number, { totalAmount: number; count: number }>>();
   (agg as AggItem[]).forEach((d) => {
-    const donationType = d._id.donationType ?? 'unknown';
+    const type = d._id.donationType ?? 'unknown';
     const month = d._id.month ?? 1; // 1-12
-    const inner = typeMonthMap.get(donationType) ?? new Map<number, number>();
-    inner.set(month, d.totalAmount ?? 0);
-    typeMonthMap.set(donationType, inner);
+    const inner = typeMonthMap.get(type) ?? new Map<number, { totalAmount: number; count: number }>();
+    inner.set(month, {
+      totalAmount: d.totalAmount ?? 0,
+      count: d.count ?? 0,
+    });
+    typeMonthMap.set(type, inner);
   });
 
   // Build result: for each donationType, include 12 months (1-12) filling missing months with 0
@@ -1426,20 +1535,31 @@ const getDonationsEngagementReportFromDb = async () => {
     year: number;
     month: number; // 1-12
     totalAmount: number;
+    count: number;
   }[] = [];
 
-  for (const [donationType, monthMap] of typeMonthMap.entries()) {
+  // If donationType filter is specified, only include that type
+  const typesToInclude = donationType
+    ? [donationType]
+    : Array.from(typeMonthMap.keys());
+
+  for (const type of typesToInclude) {
+    const monthMap = typeMonthMap.get(type);
     for (let m = 1; m <= 12; m++) {
+      const data = monthMap?.get(m);
       monthlyDonations.push({
-        donationType,
+        donationType: type,
         year: targetYear,
         month: m,
-        totalAmount: monthMap.get(m) ?? 0,
+        totalAmount: data?.totalAmount ?? 0,
+        count: data?.count ?? 0,
       });
     }
   }
 
   return {
+    year: targetYear,
+    donationType: donationType || 'all',
     monthlyDonations,
   };
 };
@@ -1506,112 +1626,471 @@ const getClauseWisePercentagesReportFromDb = async () => {
   };
 };
 
-const getOrganizationsReportFromDb = async () => {
-  try {
-    const organizations = await Organization.aggregate([
-      // Lookup auth data with filtering
-      {
-        $lookup: {
-          from: 'auths', // Make sure this matches your Auth collection name
-          localField: 'auth',
-          foreignField: '_id',
-          as: 'authData',
-          pipeline: [
-            {
-              $match: {
-                isDeleted: { $ne: true },
-              },
-            },
-            {
-              $project: {
-                email: 1,
-                status: 1,
-                isActive: 1,
-                createdAt: 1,
-              },
-            },
-          ],
-        },
-      },
-      // Filter organizations that have valid auth data
-      {
-        $match: {
-          'authData.0': { $exists: true }, // Ensure at least one auth record exists
-        },
-      },
-      // Lookup causes data
-      {
-        $lookup: {
-          from: 'causes', // Make sure this matches your Cause collection name
-          localField: '_id',
-          foreignField: 'organization',
-          as: 'causes',
-          pipeline: [
-            {
-              $project: {
-                name: 1,
-                description: 1,
-                createdAt: 1,
-                category: 1,
-                status: 1,
-              },
-            },
-          ],
-        },
-      },
-      // Transform the structure - convert authData array to single object
-      {
-        $addFields: {
-          auth: { $arrayElemAt: ['$authData', 0] },
-        },
-      },
-      // Remove the temporary authData field
-      {
-        $project: {
-          authData: 0,
-        },
-      },
-      // Add any additional fields you want to include
-      {
-        $project: {
-          name: 1,
-          serviceType: 1,
-          address: 1,
-          state: 1,
-          postalCode: 1,
-          website: 1,
-          phoneNumber: 1,
-          coverImage: 1,
-          logoImage: 1,
+type OrganizationsReportParams = {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: string;
+  isActive?: boolean;
+  serviceType?: string;
+  startDate?: string;
+  endDate?: string;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+};
 
-          isProfileVisible: 1,
-          createdAt: 1,
-          updatedAt: 1,
-          auth: 1,
-          causes: 1,
-        },
-      },
-    ]);
+const getOrganizationsReportFromDb = async (params?: OrganizationsReportParams) => {
+  const {
+    page = 1,
+    limit = 10,
+    search = '',
+    status,
+    isActive,
+    serviceType,
+    startDate,
+    endDate,
+    sortBy = 'createdAt',
+    sortOrder = 'desc',
+  } = params || {};
 
-    return organizations;
-  } catch (error) {
-    console.error('Error in getOrganizationsReportFromDb:', error);
-    return {
-      success: false,
-      error: 'Error retrieving organizations',
-      details: error instanceof Error ? error.message : String(error),
-    };
+  // Build filter object
+  const filter: Record<string, unknown> = {};
+
+  if (serviceType) {
+    filter.serviceType = serviceType;
   }
+
+  if (startDate || endDate) {
+    filter.createdAt = {};
+    if (startDate)
+      (filter.createdAt as Record<string, Date>).$gte = new Date(startDate);
+    if (endDate)
+      (filter.createdAt as Record<string, Date>).$lte = new Date(endDate);
+  }
+
+  // Build search pipeline
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const searchPipeline: any[] = [];
+
+  if (Object.keys(filter).length > 0) {
+    searchPipeline.push({ $match: filter });
+  }
+
+  // Lookup auth data with filtering
+  searchPipeline.push(
+    {
+      $lookup: {
+        from: 'auths',
+        localField: 'auth',
+        foreignField: '_id',
+        as: 'authData',
+        pipeline: [
+          {
+            $match: {
+              isDeleted: { $ne: true },
+            },
+          },
+          {
+            $project: {
+              email: 1,
+              status: 1,
+              isActive: 1,
+              createdAt: 1,
+            },
+          },
+        ],
+      },
+    },
+    // Filter organizations that have valid auth data
+    {
+      $match: {
+        'authData.0': { $exists: true },
+      },
+    },
+    // Transform auth data
+    {
+      $addFields: {
+        authEmail: { $arrayElemAt: ['$authData.email', 0] },
+        authStatus: { $arrayElemAt: ['$authData.status', 0] },
+        authIsActive: { $arrayElemAt: ['$authData.isActive', 0] },
+      },
+    }
+  );
+
+  // Filter by auth status and isActive
+  const authFilter: Record<string, unknown> = {};
+  if (status) {
+    authFilter.authStatus = status;
+  }
+  if (isActive !== undefined) {
+    authFilter.authIsActive = isActive;
+  }
+  if (Object.keys(authFilter).length > 0) {
+    searchPipeline.push({ $match: authFilter });
+  }
+
+  // Search filter
+  if (search) {
+    searchPipeline.push({
+      $match: {
+        $or: [
+          { name: { $regex: search, $options: 'i' } },
+          { authEmail: { $regex: search, $options: 'i' } },
+          { address: { $regex: search, $options: 'i' } },
+          { state: { $regex: search, $options: 'i' } },
+          { serviceType: { $regex: search, $options: 'i' } },
+        ],
+      },
+    });
+  }
+
+  // Lookup causes data
+  searchPipeline.push({
+    $lookup: {
+      from: 'causes',
+      localField: '_id',
+      foreignField: 'organization',
+      as: 'causes',
+      pipeline: [
+        {
+          $project: {
+            name: 1,
+            description: 1,
+            createdAt: 1,
+            category: 1,
+            status: 1,
+          },
+        },
+      ],
+    },
+  });
+
+  // Get total count for pagination
+  const countPipeline = [...searchPipeline, { $count: 'total' }];
+  const countResult = await Organization.aggregate(countPipeline);
+  const totalRecords = countResult[0]?.total ?? 0;
+
+  // Sort
+  const sortField = sortBy || 'createdAt';
+  const sortDirection = sortOrder === 'asc' ? 1 : -1;
+  searchPipeline.push({ $sort: { [sortField]: sortDirection } });
+
+  // Pagination
+  const skip = (page - 1) * limit;
+  searchPipeline.push({ $skip: skip }, { $limit: limit });
+
+  // Project final fields
+  searchPipeline.push({
+    $project: {
+      _id: 1,
+      name: 1,
+      serviceType: 1,
+      address: 1,
+      state: 1,
+      postalCode: 1,
+      website: 1,
+      phoneNumber: 1,
+      coverImage: 1,
+      logoImage: 1,
+      isProfileVisible: 1,
+      createdAt: 1,
+      updatedAt: 1,
+      auth: {
+        email: '$authEmail',
+        status: '$authStatus',
+        isActive: '$authIsActive',
+      },
+      causes: 1,
+    },
+  });
+
+  const organizations = await Organization.aggregate(searchPipeline);
+
+  return {
+    organizations,
+    pagination: {
+      total: totalRecords,
+      page,
+      limit,
+      totalPages: Math.ceil(totalRecords / limit),
+    },
+  };
 };
 
-const getCausesReportFromDb = async () => {
-  const causes = await Cause.find().populate('organization', 'name email');
-  return causes;
+type CausesReportParams = {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: string;
+  category?: string;
+  startDate?: string;
+  endDate?: string;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
 };
 
-const getBusinessesReportFromDb = async () => {
-  const businesses = await Business.find().populate('auth', 'email status');
-  return businesses;
+const getCausesReportFromDb = async (params?: CausesReportParams) => {
+  const {
+    page = 1,
+    limit = 10,
+    search = '',
+    status,
+    category,
+    startDate,
+    endDate,
+    sortBy = 'createdAt',
+    sortOrder = 'desc',
+  } = params || {};
+
+  // Build filter object
+  const filter: Record<string, unknown> = {};
+
+  if (status) {
+    filter.status = status;
+  }
+
+  if (category) {
+    filter.category = category;
+  }
+
+  if (startDate || endDate) {
+    filter.createdAt = {};
+    if (startDate)
+      (filter.createdAt as Record<string, Date>).$gte = new Date(startDate);
+    if (endDate)
+      (filter.createdAt as Record<string, Date>).$lte = new Date(endDate);
+  }
+
+  // Build search pipeline
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const searchPipeline: any[] = [];
+
+  if (Object.keys(filter).length > 0) {
+    searchPipeline.push({ $match: filter });
+  }
+
+  // Populate organization details
+  searchPipeline.push(
+    {
+      $lookup: {
+        from: 'organizations',
+        localField: 'organization',
+        foreignField: '_id',
+        as: 'organizationDetails',
+      },
+    },
+    {
+      $lookup: {
+        from: 'auths',
+        let: { orgAuthId: { $arrayElemAt: ['$organizationDetails.auth', 0] } },
+        pipeline: [
+          { $match: { $expr: { $eq: ['$_id', '$$orgAuthId'] } } },
+          { $project: { email: 1, _id: 0 } },
+        ],
+        as: 'organizationAuth',
+      },
+    },
+    {
+      $addFields: {
+        organizationName: { $arrayElemAt: ['$organizationDetails.name', 0] },
+        organizationEmail: { $arrayElemAt: ['$organizationAuth.email', 0] },
+      },
+    }
+  );
+
+  // Search filter
+  if (search) {
+    searchPipeline.push({
+      $match: {
+        $or: [
+          { name: { $regex: search, $options: 'i' } },
+          { description: { $regex: search, $options: 'i' } },
+          { organizationName: { $regex: search, $options: 'i' } },
+          { organizationEmail: { $regex: search, $options: 'i' } },
+        ],
+      },
+    });
+  }
+
+  // Get total count for pagination
+  const countPipeline = [...searchPipeline, { $count: 'total' }];
+  const countResult = await Cause.aggregate(countPipeline);
+  const totalRecords = countResult[0]?.total ?? 0;
+
+  // Sort
+  const sortField = sortBy || 'createdAt';
+  const sortDirection = sortOrder === 'asc' ? 1 : -1;
+  searchPipeline.push({ $sort: { [sortField]: sortDirection } });
+
+  // Pagination
+  const skip = (page - 1) * limit;
+  searchPipeline.push({ $skip: skip }, { $limit: limit });
+
+  // Project final fields
+  searchPipeline.push({
+    $project: {
+      _id: 1,
+      name: 1,
+      description: 1,
+      category: 1,
+      status: 1,
+      createdAt: 1,
+      updatedAt: 1,
+      organization: {
+        name: '$organizationName',
+        email: '$organizationEmail',
+      },
+    },
+  });
+
+  const causes = await Cause.aggregate(searchPipeline);
+
+  return {
+    causes,
+    pagination: {
+      total: totalRecords,
+      page,
+      limit,
+      totalPages: Math.ceil(totalRecords / limit),
+    },
+  };
+};
+
+type BusinessesReportParams = {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: string;
+  isActive?: boolean;
+  startDate?: string;
+  endDate?: string;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+};
+
+const getBusinessesReportFromDb = async (params?: BusinessesReportParams) => {
+  const {
+    page = 1,
+    limit = 10,
+    search = '',
+    status,
+    isActive,
+    startDate,
+    endDate,
+    sortBy = 'createdAt',
+    sortOrder = 'desc',
+  } = params || {};
+
+  // Build filter object
+  const filter: Record<string, unknown> = {};
+
+  if (startDate || endDate) {
+    filter.createdAt = {};
+    if (startDate)
+      (filter.createdAt as Record<string, Date>).$gte = new Date(startDate);
+    if (endDate)
+      (filter.createdAt as Record<string, Date>).$lte = new Date(endDate);
+  }
+
+  // Build search pipeline
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const searchPipeline: any[] = [];
+
+  if (Object.keys(filter).length > 0) {
+    searchPipeline.push({ $match: filter });
+  }
+
+  // Populate auth details
+  searchPipeline.push(
+    {
+      $lookup: {
+        from: 'auths',
+        localField: 'auth',
+        foreignField: '_id',
+        as: 'authDetails',
+      },
+    },
+    {
+      $addFields: {
+        authEmail: { $arrayElemAt: ['$authDetails.email', 0] },
+        authStatus: { $arrayElemAt: ['$authDetails.status', 0] },
+        authIsActive: { $arrayElemAt: ['$authDetails.isActive', 0] },
+      },
+    }
+  );
+
+  // Filter by auth status and isActive
+  const authFilter: Record<string, unknown> = {};
+  if (status) {
+    authFilter.authStatus = status;
+  }
+  if (isActive !== undefined) {
+    authFilter.authIsActive = isActive;
+  }
+  if (Object.keys(authFilter).length > 0) {
+    searchPipeline.push({ $match: authFilter });
+  }
+
+  // Search filter
+  if (search) {
+    searchPipeline.push({
+      $match: {
+        $or: [
+          { name: { $regex: search, $options: 'i' } },
+          { authEmail: { $regex: search, $options: 'i' } },
+          { address: { $regex: search, $options: 'i' } },
+          { state: { $regex: search, $options: 'i' } },
+        ],
+      },
+    });
+  }
+
+  // Get total count for pagination
+  const countPipeline = [...searchPipeline, { $count: 'total' }];
+  const countResult = await Business.aggregate(countPipeline);
+  const totalRecords = countResult[0]?.total ?? 0;
+
+  // Sort
+  const sortField = sortBy || 'createdAt';
+  const sortDirection = sortOrder === 'asc' ? 1 : -1;
+  searchPipeline.push({ $sort: { [sortField]: sortDirection } });
+
+  // Pagination
+  const skip = (page - 1) * limit;
+  searchPipeline.push({ $skip: skip }, { $limit: limit });
+
+  // Project final fields
+  searchPipeline.push({
+    $project: {
+      _id: 1,
+      name: 1,
+      address: 1,
+      state: 1,
+      postalCode: 1,
+      website: 1,
+      phoneNumber: 1,
+      image: 1,
+      createdAt: 1,
+      updatedAt: 1,
+      auth: {
+        email: '$authEmail',
+        status: '$authStatus',
+        isActive: '$authIsActive',
+      },
+    },
+  });
+
+  const businesses = await Business.aggregate(searchPipeline);
+
+  return {
+    businesses,
+    pagination: {
+      total: totalRecords,
+      page,
+      limit,
+      totalPages: Math.ceil(totalRecords / limit),
+    },
+  };
 }
 
 type AdminUpdate = {
