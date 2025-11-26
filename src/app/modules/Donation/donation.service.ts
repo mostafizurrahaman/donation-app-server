@@ -35,6 +35,7 @@ import { IAuth } from '../Auth/auth.interface';
 import Cause from '../Causes/causes.model';
 import { CAUSE_STATUS_TYPE } from '../Causes/causes.constant';
 import { monthAbbreviations } from './donation.constant';
+import { path } from 'pdfkit';
 
 // Helper function to generate unique idempotency key
 const generateIdempotencyKey = (): string => {
@@ -373,8 +374,19 @@ const getDonationsByOrganization = async (
 
     // Create base query with only organization filter
     const baseQuery = Donation.find({ organization: organizationId })
-      .populate('donor')
-      .populate('cause', 'name');
+      .populate({
+        path: 'donor',
+        select: '_id name auth image',
+        populate: {
+          path: 'auth',
+          select: 'email',
+        },
+      })
+      .populate('cause', 'name')
+      .populate(
+        'receiptId',
+        'receiptNumber amount currency donationType pdfUrl pdfKey emailSent emailAttempts createdAt updatedAt generatedAt'
+      );
 
     // Define searchable fields for donations
     const donationSearchFields = ['specialMessage', 'status', 'donationType'];

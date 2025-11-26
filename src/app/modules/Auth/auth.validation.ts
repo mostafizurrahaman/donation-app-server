@@ -1,6 +1,12 @@
 import { z } from 'zod';
 import { roleValues, ROLE } from './auth.constant';
 
+// Email regex
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// URL regex
+const urlRegex = /^(https?:\/\/)?([\w\-]+\.)+[a-zA-Z]{2,}(\/.*)?$/;
+
 // Reusable validators
 export const zodEnumFromObject = <T extends Record<string, string>>(obj: T) =>
   z.enum([...Object.values(obj)] as [string, ...string[]]);
@@ -466,6 +472,62 @@ const updateAuthDataSchema = z.object({
   }),
 });
 
+// 14:  BUSINESS ACCOUNT PROFILE AND SINGUP AT A TIME:
+const businessSignupWithProfileSchema = z.object({
+  body: z.object({
+    // Auth fields (Required)
+    email: z
+      .string()
+      .email({ message: 'Invalid email format!' })
+      .transform((email) => email.toLowerCase()),
+
+    password: z
+      .string()
+      .min(8, { message: 'Password must be at least 8 characters long!' })
+      .max(20, { message: 'Password cannot exceed 20 characters!' })
+      .regex(/[A-Z]/, {
+        message: 'Password must contain at least one uppercase letter!',
+      })
+      .regex(/[a-z]/, {
+        message: 'Password must contain at least one lowercase letter!',
+      })
+      .regex(/[0-9]/, { message: 'Password must contain at least one number!' })
+      .regex(/[@$!%*?&#]/, {
+        message: 'Password must contain at least one special character!',
+      }),
+
+    // Business profile fields (Required)
+    category: z.string().min(1, 'Category is required!'),
+    name: z.string().min(1, 'Business name is required!'),
+    tagLine: z.string().min(1, 'Tag line is required!'),
+    description: z.string().min(1, 'Description is required!'),
+
+    // Business profile fields (Optional)
+    businessPhoneNumber: z
+      .string()
+      .transform((val) => (val === '' ? undefined : val))
+      .optional(),
+
+    businessEmail: z
+      .string()
+      .optional()
+      .transform((val) => (val === '' ? undefined : val))
+      .refine((val) => !val || emailRegex.test(val), {
+        message: 'Invalid business email format!',
+      }),
+
+    businessWebsite: z
+      .string()
+      .optional()
+      .transform((val) => (val === '' ? undefined : val))
+      .refine((val) => !val || urlRegex.test(val), {
+        message: 'Invalid website URL format!',
+      }),
+
+    locations: z.array(z.string()).optional(),
+  }),
+});
+
 export type TProfilePayload = z.infer<typeof createProfileSchema.shape.body>;
 
 export const AuthValidation = {
@@ -482,4 +544,5 @@ export const AuthValidation = {
   deactivateUserAccountSchema,
   getNewAccessTokenSchema,
   updateAuthDataSchema,
+  businessSignupWithProfileSchema,
 };

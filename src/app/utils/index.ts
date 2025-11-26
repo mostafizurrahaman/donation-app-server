@@ -6,7 +6,18 @@ import globalErrorHandler from './globalErrorHandler';
 import notFoundHandler from './notFound';
 import sendContactUsEmail from './sendContactUsEmail';
 import sendOtpEmail from './sendOtpEmail';
+import sendReceiptEmail from './sendReceiptEmail';
+
 import sendResponse from './sendResponse';
+import { generateReceiptPDF } from './pdf.utils';
+
+// S3 utils :`
+import {
+  uploadToS3,
+  verifyS3Connection,
+  deleteFromS3,
+  getSignedS3Url,
+} from './s3.utils';
 
 // JWT configuration
 const options = {
@@ -22,9 +33,22 @@ export {
   globalErrorHandler,
   notFoundHandler,
   options,
-  sendOtpEmail,
-  deleteFile,
-  sendContactUsEmail,
   sendResponse,
+  deleteFile,
+
+  // Email utils :
+  sendOtpEmail,
+  sendContactUsEmail,
+  sendReceiptEmail,
+
+  // s3 utils :
+  uploadToS3,
+  verifyS3Connection,
+  deleteFromS3,
+  getSignedS3Url,
+
+  // PDF Utils:
+  generateReceiptPDF,
+
   // Logger
 };

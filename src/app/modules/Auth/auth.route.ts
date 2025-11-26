@@ -146,4 +146,12 @@ router
     AuthController.updateAuthData
   );
 
+// 17. Besiness Profile Create :
+router
+  .route('/business-signup')
+  .post(
+    upload.fields([{ name: 'coverImage', maxCount: 1 }]),
+    validateRequestFromFormData(AuthValidation.businessSignupWithProfileSchema),
+    AuthController.businessSignupWithProfile
+  );
 export const AuthRoutes = router;

@@ -210,6 +210,21 @@ const updateAuthData = asyncHandler(async (req, res) => {
   });
 });
 
+// 17. Besiness Profile Create :
+const businessSignupWithProfile = asyncHandler(async (req, res) => {
+  const files = {
+    coverImage: (req.files as any)?.coverImage || undefined,
+  };
+
+  const result = await AuthService.businessSignupWithProfile(req.body, files);
+
+  sendResponse(res, {
+    statusCode: httpStatus.CREATED,
+    message: result.message,
+    data: result.data,
+  });
+});
+
 export const AuthController = {
   createAuth,
   sendSignupOtpAgain,
@@ -227,4 +242,5 @@ export const AuthController = {
   deleteSpecificUserAccountFromDB,
   getNewAccessToken,
   updateAuthData,
+  businessSignupWithProfile,
 };

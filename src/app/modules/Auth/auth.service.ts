@@ -724,7 +724,7 @@ const forgotPassword = async (email: string) => {
     // await sendOtpEmail(email, user.otp, user.fullName || 'Guest');
 
     throw new AppError(
-      httpStatus.NOT_FOUND,
+      httpStatus.BAD_REQUEST,
       `Last OTP is valid till now, use that in ${remainingMinutes} minutes!`
     );
   } else {
@@ -946,7 +946,6 @@ const verifyOtpForForgotPassword = async (payload: {
     throw new AppError(httpStatus.BAD_REQUEST, 'Invalid OTP!');
   }
 
-  
   // OTP verified → issue reset password token
   const resetPasswordToken = jwt.sign(
     {
@@ -968,8 +967,6 @@ const resetPasswordIntoDB = async (
   if (!resetPasswordToken) {
     throw new AppError(httpStatus.FORBIDDEN, 'Invalid reset password token!');
   }
-
-  
 
   const payload = verifyToken(resetPasswordToken, config.jwt.otpSecret!) as {
     email: string;
@@ -1094,78 +1091,54 @@ const deleteSpecificUserAccountFromDB = async (user: IAuth) => {
   try {
     session.startTransaction();
 
-    const currentUser = await Auth.findById(user._id).session(session);
+    // 1. Find the user to get their email and confirm they exist before deleting.
+    const userToDelete = await Auth.findById(user._id).session(session);
 
-    if (!currentUser) {
+    if (!userToDelete) {
       throw new AppError(httpStatus.NOT_FOUND, 'User not found!');
     }
 
-    currentUser.isDeleted = true;
-    currentUser.isActive = false;
-
-    await currentUser.save({ session });
-
+    // 2. Initialize a default name for the return object.
     let name: string = 'User';
 
+    // 3. Find and delete the associated profile document based on the user's role.
     if (user.role === ROLE.CLIENT) {
-      const client = await Client.findOne({ auth: user._id })
-        .select('_id')
-        .session(session);
-
-      if (client) {
-        name = client?.name || 'User';
-
-        const result = await Client.findByIdAndDelete(client._id, { session });
-
-        if (!result) {
-          throw new AppError(httpStatus.BAD_REQUEST, 'Client deletion failed!');
-        }
+      const deletedClient = await Client.findOneAndDelete(
+        { auth: user._id },
+        { session }
+      );
+      // If a client profile existed and was deleted, use its name.
+      if (deletedClient?.name) {
+        name = deletedClient.name;
       }
     } else if (user.role === ROLE.BUSINESS) {
-      const business = await Business.findOne({ auth: user._id })
-        .select('_id')
-        .session(session);
-
-      if (business) {
-        name = business?.name || 'Business';
-
-        const result = await Business.findByIdAndDelete(business._id, {
-          session,
-        });
-
-        if (!result) {
-          throw new AppError(
-            httpStatus.BAD_REQUEST,
-            'Business deletion failed!'
-          );
-        }
+      const deletedBusiness = await Business.findOneAndDelete(
+        { auth: user._id },
+        { session }
+      );
+      if (deletedBusiness?.name) {
+        name = deletedBusiness.name;
       }
     } else if (user.role === ROLE.ORGANIZATION) {
-      const organization = await Organization.findOne({ auth: user._id })
-        .select('_id')
-        .session(session);
-
-      if (organization) {
-        name = organization?.name || 'Organization';
-
-        const result = await Organization.findByIdAndDelete(organization._id, {
-          session,
-        });
-
-        if (!result) {
-          throw new AppError(
-            httpStatus.BAD_REQUEST,
-            'Organization deletion failed!'
-          );
-        }
+      const deletedOrganization = await Organization.findOneAndDelete(
+        { auth: user._id },
+        { session }
+      );
+      if (deletedOrganization?.name) {
+        name = deletedOrganization.name;
       }
     }
 
+    // 4. Hard delete the main authentication document.
+    await Auth.findByIdAndDelete(user._id, { session });
+
     await session.commitTransaction();
     await session.endSession();
+
+    // 5. Return the details of the deleted user.
     return {
-      email: currentUser.email,
-      id: currentUser._id,
+      email: userToDelete.email,
+      id: userToDelete._id,
       name,
     };
   } catch (error) {
@@ -1334,6 +1307,178 @@ const updateAuthDataIntoDB = async (
   };
 };
 
+// Business Signup with Profile Creation (Single Transaction)
+const businessSignupWithProfile = async (
+  payload: {
+    // Auth fields
+    email: string;
+    password: string;
+
+    // Business profile fields (required)
+    category: string;
+    name: string;
+    tagLine: string;
+    description: string;
+
+    // Business profile fields (optional)
+    businessPhoneNumber?: string;
+    businessEmail?: string;
+    businessWebsite?: string;
+    locations?: string[];
+  },
+  files?: {
+    coverImage?: Express.Multer.File[];
+  }
+) => {
+  // Extract auth and business data
+  const { email, password, ...businessData } = payload;
+
+  // Check if user already exists
+  const existingUser = await Auth.isUserExistsByEmail(email);
+
+  if (existingUser) {
+    // Clean up uploaded files if user exists
+    if (files?.coverImage?.[0]?.path) {
+      try {
+        fs.unlinkSync(files.coverImage[0].path);
+      } catch (err) {
+        console.error('Failed to delete uploaded file:', err);
+      }
+    }
+
+    // Throw error immediately - no OTP sending
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'User with this email already exists!'
+    );
+  }
+
+  // Extract cover image path (optional)
+  const coverImage = files?.coverImage?.[0]?.path.replace(/\\/g, '/') || null;
+
+  // Generate OTP for new user
+  const otp = generateOtp();
+  const now = new Date();
+  const otpExpiry = new Date(now.getTime() + OTP_EXPIRY_MINUTES * 60 * 1000);
+
+  // Start transaction
+  const session = await startSession();
+
+  try {
+    session.startTransaction();
+
+    // 1. Create Auth record
+    const authPayload = {
+      email,
+      password,
+      otp,
+      otpExpiry,
+      isVerifiedByOTP: false,
+      isProfile: true, // Set to true since we're creating profile
+      role: ROLE.BUSINESS,
+      isActive: true,
+      isDeleted: false,
+      status: AUTH_STATUS.PENDING, // Will be verified after OTP verification
+    };
+
+    const [newAuth] = await Auth.create([authPayload], { session });
+
+    if (!newAuth) {
+      throw new AppError(
+        httpStatus.INTERNAL_SERVER_ERROR,
+        'Failed to create authentication record!'
+      );
+    }
+
+    // 2. Create Business profile with optional fields
+    const businessPayload = {
+      auth: newAuth._id,
+      category: businessData.category,
+      name: businessData.name,
+      tagLine: businessData.tagLine,
+      description: businessData.description,
+
+      // Optional fields - only add if provided
+      ...(coverImage && { coverImage }),
+      ...(businessData.businessPhoneNumber && {
+        businessPhoneNumber: businessData.businessPhoneNumber,
+      }),
+      ...(businessData.businessEmail && {
+        businessEmail: businessData.businessEmail,
+      }),
+      ...(businessData.businessWebsite && {
+        businessWebsite: businessData.businessWebsite,
+      }),
+      ...(businessData.locations &&
+        businessData.locations.length > 0 && {
+          locations: businessData.locations,
+        }),
+    };
+
+    const [newBusiness] = await Business.create([businessPayload], { session });
+
+    if (!newBusiness) {
+      throw new AppError(
+        httpStatus.INTERNAL_SERVER_ERROR,
+        'Failed to create business profile!'
+      );
+    }
+
+    // 3. Send OTP email
+    await sendOtpEmail({
+      email,
+      otp,
+      name: businessData.name,
+      customMessage:
+        'Welcome to our platform! Please verify your business account with this OTP.',
+    });
+
+    // Commit transaction
+    await session.commitTransaction();
+    await session.endSession();
+
+    // Return response (without tokens since account is not verified yet)
+    return {
+      message:
+        'Business account created successfully! Please check your email for OTP verification.',
+      data: {
+        email: newAuth.email,
+        businessName: newBusiness.name,
+        isProfileCreated: true,
+        requiresVerification: true,
+      },
+    };
+  } catch (error: any) {
+    // Rollback transaction
+    await session.abortTransaction();
+    await session.endSession();
+
+    // Clean up uploaded files on error
+    if (coverImage && fs.existsSync(coverImage)) {
+      try {
+        fs.unlinkSync(coverImage);
+      } catch (deleteErr) {
+        console.error('Failed to delete uploaded file:', deleteErr);
+      }
+    }
+
+    // Re-throw application errors
+    if (error instanceof AppError) {
+      throw error;
+    }
+
+    // Handle MongoDB duplicate key error
+    if (error.code === 11000) {
+      throw new AppError(httpStatus.BAD_REQUEST, 'Email already exists!');
+    }
+
+    throw new AppError(
+      httpStatus.INTERNAL_SERVER_ERROR,
+      error?.message || 'Failed to create business account!'
+    );
+  }
+};
+
 export const AuthService = {
   createAuthIntoDB,
   sendSignupOtpAgain,
@@ -1351,4 +1496,5 @@ export const AuthService = {
   deleteSpecificUserAccountFromDB,
   getNewAccessTokenFromServer,
   updateAuthDataIntoDB,
+  businessSignupWithProfile,
 };

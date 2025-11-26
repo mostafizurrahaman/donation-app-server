@@ -16,6 +16,8 @@ import { CronJobsRoutes } from '../modules/CronJobs/cronJobs.route';
 import { BankConnectionRoutes } from '../modules/BankConnection/bankConnection.route';
 import { SecureRoundUpRoutes } from '../modules/RoundUp/secureRoundUp.route';
 import { roundUpTransactionRoutes } from '../modules/RoundUpTransaction/roundUpTransaction.route';
+import { ReceiptRoutes } from '../modules/Receipt/receipt.router';
+import { PointsRoutes } from '../modules/Points/points.route';
 
 const router = Router();
 
@@ -86,6 +88,14 @@ const moduleRoutes = [
   {
     path: '/roundup-transactions',
     route: roundUpTransactionRoutes,
+  },
+  {
+    path: '/receipt',
+    route: ReceiptRoutes,
+  },
+  {
+    path: '/points',
+    route: PointsRoutes,
   },
 ];
 
