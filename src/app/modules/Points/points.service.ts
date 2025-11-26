@@ -1,11 +1,14 @@
 // src/app/modules/Points/points.service.ts
-import { Types } from 'mongoose';
-import { PointsTransaction, PointsBalance } from './points.model';
+import { Types, ClientSession, SortOrder } from 'mongoose';
+
 import {
   ICreatePointsTransactionPayload,
   IPointsFilterQuery,
   IPointsStatistics,
   IPointsLeaderboard,
+  IPointsTransactionResult,
+  IUserPointsSummary,
+  IPopulatedUser,
 } from './points.interface';
 import {
   POINTS_MESSAGES,
@@ -13,307 +16,462 @@ import {
   POINTS_SOURCE,
   TRANSACTION_DESCRIPTIONS,
   LEADERBOARD_SIZE,
-  TIER_THRESHOLDS,
+  POINTS_PER_DOLLAR,
 } from './points.constant';
 import { AppError } from '../../utils';
 import httpStatus from 'http-status';
+import { PointsBalance, PointsTransaction } from './points.model';
+import Client from '../Client/client.model';
 
-class PointsService {
-  // 1. Create any points transaction
-  async createTransaction(payload: ICreatePointsTransactionPayload) {
-    const session = await PointsTransaction.startSession();
-    session.startTransaction();
+// =======================
+// CREATE TRANSACTION
+// =======================
+export const createPointsTransaction = async (
+  payload: ICreatePointsTransactionPayload
+): Promise<IPointsTransactionResult> => {
+  const session: ClientSession = await PointsTransaction.startSession();
+  session.startTransaction();
 
-    try {
-      const userId = new Types.ObjectId(payload.userId);
+  try {
+    const userId = new Types.ObjectId(payload.userId);
 
-      let balance = await PointsBalance.findOne({ user: userId }).session(
-        session
-      );
-      if (!balance) {
-        balance = await PointsBalance.create(
-          [
-            {
-              user: userId,
-              currentBalance: 0,
-              lifetimePoints: 0,
-              currentTier: 'bronze',
-              totalEarned: 0,
-              totalSpent: 0,
-              totalRefunded: 0,
-              totalAdjusted: 0,
-              totalExpired: 0,
-            },
-          ],
-          { session }
-        )[0];
-      }
+    let balanceDoc = await PointsBalance.findOne({ user: userId }).session(
+      session
+    );
 
-      let balanceChange = 0;
-      switch (payload.transactionType) {
-        case TRANSACTION_TYPE.EARNED:
-          balanceChange = payload.amount;
-          balance.totalEarned += payload.amount;
-          break;
-        case TRANSACTION_TYPE.SPENT:
-          if (balance.currentBalance < payload.amount) {
-            throw new AppError(
-              httpStatus.BAD_REQUEST,
-              POINTS_MESSAGES.INSUFFICIENT_BALANCE
-            );
-          }
-          balanceChange = -payload.amount;
-          balance.totalSpent += payload.amount;
-          break;
-        case TRANSACTION_TYPE.REFUNDED:
-          balanceChange = payload.amount;
-          balance.totalRefunded += payload.amount;
-          break;
-        case TRANSACTION_TYPE.ADJUSTED:
-          balanceChange = payload.amount;
-          balance.totalAdjusted += Math.abs(payload.amount);
-          break;
-        case TRANSACTION_TYPE.EXPIRED:
-          balanceChange = -payload.amount;
-          balance.totalExpired += payload.amount;
-          break;
-      }
-
-      const newBalance = balance.currentBalance + balanceChange;
-      if (newBalance < 0) {
-        throw new AppError(
-          httpStatus.BAD_REQUEST,
-          POINTS_MESSAGES.NEGATIVE_BALANCE
-        );
-      }
-
-      await balance.updateBalance(balanceChange);
-
-      const transaction = await PointsTransaction.create(
+    if (!balanceDoc) {
+      const [newBalance] = await PointsBalance.create(
         [
           {
             user: userId,
-            transactionType: payload.transactionType,
-            amount: payload.amount,
-            balance: newBalance,
-            source: payload.source,
-            donation: payload.donationId,
-            rewardRedemption: payload.rewardRedemptionId,
-            badge: payload.badgeId,
-            description:
-              payload.description || this.getDefaultDescription(payload),
-            metadata: payload.metadata || {},
-            adjustedBy: payload.adjustedBy,
-            adjustmentReason: payload.adjustmentReason,
-            expiresAt: payload.expiresAt,
-            isExpired: false,
+            totalEarned: 0,
+            totalSpent: 0,
+            totalRefunded: 0,
+            totalAdjusted: 0,
+            totalExpired: 0,
+            currentBalance: 0,
+            lifetimePoints: 0,
+            currentTier: 'bronze',
           },
         ],
         { session }
-      )[0];
-
-      await session.commitTransaction();
-      return { transaction, balance };
-    } catch (error) {
-      await session.abortTransaction();
-      throw error;
-    } finally {
-      session.endSession();
-    }
-  }
-
-  private getDefaultDescription(
-    payload: ICreatePointsTransactionPayload
-  ): string {
-    if (payload.source === POINTS_SOURCE.DONATION)
-      return TRANSACTION_DESCRIPTIONS.DONATION_EARNED;
-    if (payload.source === POINTS_SOURCE.REWARD_REDEMPTION)
-      return TRANSACTION_DESCRIPTIONS.REWARD_REDEEMED;
-    if (payload.source === POINTS_SOURCE.BADGE_UNLOCK)
-      return TRANSACTION_DESCRIPTIONS.BADGE_UNLOCKED;
-    return 'Points transaction';
-  }
-
-  // 2. Award points from donation
-  async awardPointsForDonation(
-    userId: string,
-    donationId: string,
-    amount: number
-  ) {
-    const points = Math.floor(amount * 100);
-    return this.createTransaction({
-      userId,
-      transactionType: TRANSACTION_TYPE.EARNED,
-      amount: points,
-      source: POINTS_SOURCE.DONATION,
-      donationId,
-      description: `${
-        TRANSACTION_DESCRIPTIONS.DONATION_EARNED
-      } - $${amount.toFixed(2)}`,
-      metadata: { donationAmount: amount },
-    });
-  }
-
-  // 3. Deduct points on reward redemption
-  async deductPoints(
-    userId: string,
-    amount: number,
-    rewardRedemptionId: string
-  ) {
-    return this.createTransaction({
-      userId,
-      transactionType: TRANSACTION_TYPE.SPENT,
-      amount,
-      source: POINTS_SOURCE.REWARD_REDEMPTION,
-      rewardRedemptionId,
-      description: TRANSACTION_DESCRIPTIONS.REWARD_REDEEMED,
-    });
-  }
-
-  // 4. Refund points (e.g. cancelled reward)
-  async refundPoints(
-    userId: string,
-    amount: number,
-    rewardRedemptionId?: string
-  ) {
-    return this.createTransaction({
-      userId,
-      transactionType: TRANSACTION_TYPE.REFUNDED,
-      amount,
-      source: POINTS_SOURCE.REWARD_REDEMPTION,
-      rewardRedemptionId,
-      description: TRANSACTION_DESCRIPTIONS.REWARD_REFUNDED,
-    });
-  }
-
-  // 5. Admin adjustment
-  async adjustPoints(
-    userId: string,
-    amount: number,
-    reason: string,
-    adjustedBy: string
-  ) {
-    return this.createTransaction({
-      userId,
-      transactionType: TRANSACTION_TYPE.ADJUSTED,
-      amount,
-      source: POINTS_SOURCE.ADMIN_ADJUSTMENT,
-      adjustmentReason: reason,
-      adjustedBy,
-      description: amount > 0 ? 'Admin added points' : 'Admin deducted points',
-    });
-  }
-
-  // 6. Badge unlock bonus
-  async awardBadgeBonus(userId: string, badgeId: string, bonusAmount = 500) {
-    return this.createTransaction({
-      userId,
-      transactionType: TRANSACTION_TYPE.EARNED,
-      amount: bonusAmount,
-      source: POINTS_SOURCE.BADGE_UNLOCK,
-      badgeId,
-      description: `${TRANSACTION_DESCRIPTIONS.BADGE_UNLOCKED} (+${bonusAmount} bonus)`,
-    });
-  }
-
-  // 7. Get user balance
-  async getUserBalance(userId: string) {
-    const balance = await PointsBalance.findOne({
-      user: new Types.ObjectId(userId),
-    })
-      .select(
-        'currentBalance lifetimePoints currentTier totalEarned totalSpent totalRefunded'
-      )
-      .lean();
-
-    if (!balance)
-      throw new AppError(
-        httpStatus.NOT_FOUND,
-        POINTS_MESSAGES.BALANCE_NOT_FOUND
       );
-    return balance;
-  }
-
-  // 8. Get transaction history
-  async getTransactions(userId: string, query: IPointsFilterQuery) {
-    const filter: any = { user: new Types.ObjectId(userId) };
-    if (query.source) filter.source = query.source;
-    if (query.transactionType) filter.transactionType = query.transactionType;
-    if (query.startDate || query.endDate) {
-      filter.createdAt = {};
-      if (query.startDate) filter.createdAt.$gte = new Date(query.startDate);
-      if (query.endDate) filter.createdAt.$lte = new Date(query.endDate);
+      balanceDoc = newBalance;
     }
 
-    const page = query.page || 1;
-    const limit = Math.min(query.limit || 20, 100);
-    const skip = (page - 1) * limit;
+    let balanceChange = 0;
+    switch (payload.transactionType) {
+      case TRANSACTION_TYPE.EARNED:
+        balanceChange = payload.amount;
+        balanceDoc.totalEarned += payload.amount;
+        break;
+      case TRANSACTION_TYPE.SPENT:
+        if (balanceDoc.currentBalance < payload.amount) {
+          throw new AppError(
+            httpStatus.BAD_REQUEST,
+            POINTS_MESSAGES.INSUFFICIENT_BALANCE
+          );
+        }
+        balanceChange = -payload.amount;
+        balanceDoc.totalSpent += payload.amount;
+        break;
+      case TRANSACTION_TYPE.REFUNDED:
+        balanceChange = payload.amount;
+        balanceDoc.totalRefunded += payload.amount;
+        break;
+      case TRANSACTION_TYPE.ADJUSTED:
+        balanceChange = payload.amount;
+        balanceDoc.totalAdjusted += Math.abs(payload.amount);
+        break;
+      case TRANSACTION_TYPE.EXPIRED:
+        balanceChange = -payload.amount;
+        balanceDoc.totalExpired += payload.amount;
+        break;
+    }
 
-    const [transactions, total] = await Promise.all([
-      PointsTransaction.find(filter)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .populate('donation', 'amount organization')
-        .populate('rewardRedemption', 'reward')
-        .populate('badge', 'name')
-        .lean(),
-      PointsTransaction.countDocuments(filter),
-    ]);
+    const newBalanceAmount = balanceDoc.currentBalance + balanceChange;
+    if (newBalanceAmount < 0) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        POINTS_MESSAGES.NEGATIVE_BALANCE
+      );
+    }
 
-    return { transactions, total, page, limit };
+    // Update balance
+    balanceDoc.currentBalance = newBalanceAmount;
+    if (balanceChange > 0) balanceDoc.lifetimePoints += payload.amount;
+    balanceDoc.currentTier = balanceDoc.getTierByPoints();
+    balanceDoc.lastTransactionAt = new Date();
+    await balanceDoc.save({ session });
+
+    // Create transaction
+    const [transactionDoc] = await PointsTransaction.create(
+      [
+        {
+          user: userId,
+          transactionType: payload.transactionType,
+          amount: payload.amount,
+          balance: newBalanceAmount,
+          source: payload.source,
+          donation: payload.donationId
+            ? new Types.ObjectId(payload.donationId)
+            : undefined,
+          rewardRedemption: payload.rewardRedemptionId
+            ? new Types.ObjectId(payload.rewardRedemptionId)
+            : undefined,
+          badge: payload.badgeId
+            ? new Types.ObjectId(payload.badgeId)
+            : undefined,
+          description: payload.description,
+          metadata: payload.metadata || {},
+          adjustedBy: payload.adjustedBy
+            ? new Types.ObjectId(payload.adjustedBy)
+            : undefined,
+          adjustmentReason: payload.adjustmentReason,
+          expiresAt: payload.expiresAt,
+          isExpired: false,
+        },
+      ],
+      { session }
+    );
+
+    await session.commitTransaction();
+
+    return {
+      transaction: transactionDoc,
+      balance: {
+        currentBalance: balanceDoc.currentBalance,
+        lifetimePoints: balanceDoc.lifetimePoints,
+        currentTier: balanceDoc.currentTier || 'bronze',
+      },
+    };
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    session.endSession();
   }
+};
 
-  // 9. Check if user can afford
-  async canAfford(userId: string, amount: number): Promise<boolean> {
-    const balance = await this.getUserBalance(userId);
-    return balance.currentBalance >= amount;
+// =======================
+// AWARD POINTS FOR DONATION
+// =======================
+export const awardPointsForDonation = async (
+  userId: Types.ObjectId | string,
+  donationId: Types.ObjectId | string,
+  donationAmount: number
+): Promise<IPointsTransactionResult> => {
+  const points = Math.floor(donationAmount * POINTS_PER_DOLLAR);
+  return createPointsTransaction({
+    userId,
+    transactionType: TRANSACTION_TYPE.EARNED,
+    amount: points,
+    source: POINTS_SOURCE.DONATION,
+    donationId,
+    description: `${
+      TRANSACTION_DESCRIPTIONS.DONATION_EARNED
+    } - $${donationAmount.toFixed(2)}`,
+    metadata: { donationAmount, conversionRate: POINTS_PER_DOLLAR },
+  });
+};
+
+// =======================
+// DEDUCT POINTS
+// =======================
+export const deductPoints = async (
+  userId: Types.ObjectId | string,
+  amount: number,
+  source: string,
+  rewardRedemptionId?: Types.ObjectId | string,
+  description?: string,
+  metadata?: Record<string, unknown>
+): Promise<IPointsTransactionResult> => {
+  return createPointsTransaction({
+    userId,
+    transactionType: TRANSACTION_TYPE.SPENT,
+    amount,
+    source: source as any,
+    rewardRedemptionId,
+    description: description || TRANSACTION_DESCRIPTIONS.REWARD_REDEEMED,
+    metadata,
+  });
+};
+
+// =======================
+// REFUND POINTS
+// =======================
+export const refundPoints = async (
+  userId: Types.ObjectId | string,
+  amount: number,
+  source: string,
+  reason: string,
+  rewardRedemptionId?: Types.ObjectId | string,
+  metadata?: Record<string, unknown>
+): Promise<IPointsTransactionResult> => {
+  return createPointsTransaction({
+    userId,
+    transactionType: TRANSACTION_TYPE.REFUNDED,
+    amount,
+    source: source as any,
+    rewardRedemptionId,
+    description: reason,
+    metadata,
+  });
+};
+
+// =======================
+// ADJUST POINTS (Admin)
+// =======================
+export const adjustPoints = async (
+  userId: Types.ObjectId | string,
+  amount: number,
+  reason: string,
+  adjustedBy: Types.ObjectId | string,
+  description?: string
+): Promise<IPointsTransactionResult> => {
+  return createPointsTransaction({
+    userId,
+    transactionType: TRANSACTION_TYPE.ADJUSTED,
+    amount,
+    source: POINTS_SOURCE.ADMIN_ADJUSTMENT,
+    adjustmentReason: reason,
+    adjustedBy,
+    description: description || TRANSACTION_DESCRIPTIONS.ADMIN_ADJUSTED,
+  });
+};
+
+// =======================
+// GET USER BALANCE
+// =======================
+export const getUserBalance = async (userId: Types.ObjectId | string) => {
+  const isUserExists = await Client?.findById(userId);
+
+  if (!isUserExists) {
+    throw new AppError(httpStatus.NOT_FOUND, POINTS_MESSAGES.USER_NOT_FOUND);
   }
+  const balance = await PointsBalance.findOne({
+    user: new Types.ObjectId(userId),
+  }).populate<{ user: IPopulatedUser }>('user', 'name image');
 
-  // 10. Get leaderboard (top 100)
-  async getLeaderboard(tier?: string): Promise<IPointsLeaderboard[]> {
-    const filter: any = {};
-    if (tier) filter.currentTier = tier;
-
-    const topUsers = await PointsBalance.find(filter)
-      .sort({ lifetimePoints: -1 })
-      .limit(LEADERBOARD_SIZE)
-      .populate('user', 'name image')
-      .lean();
-
-    return topUsers.map((entry, index) => ({
-      rank: index + 1,
-      userId: entry.user._id,
-      name: (entry.user as any).name,
-      image: (entry.user as any).image,
-      lifetimePoints: entry.lifetimePoints,
-      currentTier: entry.currentTier,
-    }));
+  if (!balance) {
+    return await PointsBalance.create({
+      user: new Types.ObjectId(userId),
+      currentBalance: 0,
+      lifetimePoints: 0,
+      currentTier: 'bronze',
+    });
   }
+  return balance;
+};
 
-  // 11. Get global stats (admin only)
-  async getStatistics(): Promise<IPointsStatistics> {
-    const stats = await PointsBalance.aggregate([
+// =======================
+// CAN AFFORD
+// =======================
+export const canUserAffordPoints = async (
+  userId: Types.ObjectId | string,
+  amount: number
+): Promise<boolean> => {
+  const balance = await getUserBalance(userId);
+  return balance.currentBalance >= amount;
+};
+
+// =======================
+// GET USER TRANSACTIONS
+// =======================
+export const getUserTransactions = async (
+  userId: Types.ObjectId | string,
+  query: IPointsFilterQuery
+) => {
+  const {
+    transactionType,
+    source,
+    startDate,
+    endDate,
+    minAmount,
+    maxAmount,
+    page = 1,
+    limit = 20,
+    sortBy = 'createdAt',
+    sortOrder = 'desc',
+  } = query;
+
+  const filter: any = { user: new Types.ObjectId(userId) };
+  if (transactionType) filter.transactionType = transactionType;
+  if (source) filter.source = source;
+  if (startDate || endDate) {
+    filter.createdAt = {};
+    if (startDate) filter.createdAt.$gte = new Date(startDate);
+    if (endDate) filter.createdAt.$lte = new Date(endDate);
+  }
+  if (minAmount !== undefined)
+    filter.amount = { ...filter.amount, $gte: minAmount };
+  if (maxAmount !== undefined)
+    filter.amount = { ...filter.amount, $lte: maxAmount };
+
+  const sort: Record<string, SortOrder> = {
+    [sortBy]: sortOrder === 'asc' ? 1 : -1,
+  };
+
+  const [transactions, total] = await Promise.all([
+    PointsTransaction.find(filter)
+      .sort(sort)
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .populate('donation', 'amount donationType organization')
+      .populate('rewardRedemption', 'reward status')
+      .populate('badge', 'name tier')
+      .lean(),
+    PointsTransaction.countDocuments(filter),
+  ]);
+
+  return { transactions, total, page, limit };
+};
+
+// =======================
+// GET LEADERBOARD
+// =======================
+export const getPointsLeaderboard = async (
+  limit = LEADERBOARD_SIZE,
+  tier?: string
+): Promise<IPointsLeaderboard[]> => {
+  const filter: any = {};
+  if (tier) filter.currentTier = tier;
+
+  const entries = await PointsBalance.find(filter)
+    .sort({ lifetimePoints: -1 })
+    .limit(limit)
+    .populate<{ user: IPopulatedUser }>('user', 'name image')
+    .lean();
+
+  return entries.map((entry: any, index: number) => ({
+    rank: index + 1,
+    user: entry.user._id,
+    userName: entry.user.name,
+    userImage: entry.user.image,
+    totalPoints: entry.lifetimePoints,
+    tier: entry.currentTier || 'bronze',
+  }));
+};
+
+// =======================
+// GET POINTS STATISTICS
+// =======================
+export const getPointsStatistics = async (
+  startDate?: Date,
+  endDate?: Date
+): Promise<IPointsStatistics> => {
+  const dateFilter: any = {};
+  if (startDate)
+    dateFilter.createdAt = { ...dateFilter.createdAt, $gte: startDate };
+  if (endDate)
+    dateFilter.createdAt = { ...dateFilter.createdAt, $lte: endDate };
+
+  const [overall, sources, topEarners, totalUsers] = await Promise.all([
+    PointsTransaction.aggregate([
+      { $match: dateFilter },
       {
         $group: {
           _id: null,
-          totalUsers: { $sum: 1 },
-          totalPointsEarned: { $sum: '$totalEarned' },
-          totalPointsSpent: { $sum: '$totalSpent' },
-          totalPointsCurrent: { $sum: '$currentBalance' },
+          totalPointsEarned: {
+            $sum: {
+              $cond: [{ $eq: ['$transactionType', 'earned'] }, '$amount', 0],
+            },
+          },
+          totalPointsSpent: {
+            $sum: {
+              $cond: [{ $eq: ['$transactionType', 'spent'] }, '$amount', 0],
+            },
+          },
+          totalPointsExpired: {
+            $sum: {
+              $cond: [{ $eq: ['$transactionType', 'expired'] }, '$amount', 0],
+            },
+          },
         },
       },
-    ]);
+    ]),
+    PointsTransaction.aggregate([
+      { $match: dateFilter },
+      { $group: { _id: '$source', total: { $sum: '$amount' } } },
+    ]),
+    PointsBalance.find()
+      .sort({ lifetimePoints: -1 })
+      .limit(10)
+      .select('user lifetimePoints currentTier')
+      .populate({
+        path: 'user',
+        select: 'name image email', // Add any fields you want
+        model: 'Client', // or whatever your user model is called
+      })
+      .lean(),
+    PointsBalance.countDocuments(),
+  ]);
 
-    return (
-      stats[0] || {
-        totalUsers: 0,
-        totalPointsEarned: 0,
-        totalPointsSpent: 0,
-        totalPointsCurrent: 0,
-      }
-    );
-  }
-}
+  const stats = overall[0] || {
+    totalPointsEarned: 0,
+    totalPointsSpent: 0,
+    totalPointsExpired: 0,
+  };
 
-export const pointsService = new PointsService();
+  return {
+    totalUsers,
+    totalPointsEarned: stats.totalPointsEarned,
+    totalPointsSpent: stats.totalPointsSpent,
+    totalPointsExpired: stats.totalPointsExpired,
+    averagePointsPerUser:
+      totalUsers > 0 ? Math.floor(stats.totalPointsEarned / totalUsers) : 0,
+    topEarners: topEarners.map((e: any) => ({
+      ...(e.user ? e.user : {}),
+      points: e.lifetimePoints,
+    })),
+    pointsBySource: sources.map((s: any) => ({
+      source: s._id,
+      total: s.total,
+    })),
+  };
+};
+
+// =======================
+// GET USER POINTS SUMMARY
+// =======================
+export const getUserPointsSummary = async (
+  userId: Types.ObjectId | string
+): Promise<IUserPointsSummary> => {
+  const balance = await getUserBalance(userId);
+  const recentTransactions = await PointsTransaction.find({
+    user: new Types.ObjectId(userId),
+  })
+    .sort({ createdAt: -1 })
+    .limit(5)
+    .populate('donation', 'amount organization')
+    .populate('rewardRedemption', 'reward')
+    .lean();
+
+  return {
+    balance: {
+      currentBalance: balance.currentBalance,
+      lifetimePoints: balance.lifetimePoints,
+      totalEarned: balance.totalEarned,
+      totalSpent: balance.totalSpent,
+      currentTier: balance.currentTier,
+    },
+    recentTransactions,
+  };
+};
+
+// =======================
+// EXPORT ALL FUNCTIONS
+// =======================
+export const pointsServices = {
+  createPointsTransaction,
+  awardPointsForDonation,
+  deductPoints,
+  refundPoints,
+  adjustPoints,
+  getUserBalance,
+  canUserAffordPoints,
+  getUserTransactions,
+  getPointsLeaderboard,
+  getPointsStatistics,
+  getUserPointsSummary,
+};

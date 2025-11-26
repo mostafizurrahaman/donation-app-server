@@ -1,3 +1,4 @@
+// src/app/modules/Points/points.interface.ts
 import { Document, Types } from 'mongoose';
 
 export interface IPointsTransaction {
@@ -20,7 +21,7 @@ export interface IPointsTransaction {
 
   // Metadata
   description?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>; // Fixed: any -> unknown
 
   // Admin adjustment fields
   adjustedBy?: Types.ObjectId;
@@ -76,7 +77,7 @@ export interface ICreatePointsTransactionPayload {
   rewardRedemptionId?: Types.ObjectId | string;
   badgeId?: Types.ObjectId | string;
   description?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>; // Fixed: any -> unknown
   adjustedBy?: Types.ObjectId | string;
   adjustmentReason?: string;
   expiresAt?: Date;
@@ -119,4 +120,32 @@ export interface IPointsLeaderboard {
   userImage?: string;
   totalPoints: number;
   tier: string;
+}
+
+// New interfaces for better typing
+export interface IPointsTransactionResult {
+  transaction: IPointsTransactionModel;
+  balance: {
+    currentBalance: number;
+    lifetimePoints: number;
+    currentTier: string;
+  };
+}
+
+export interface IUserPointsSummary {
+  balance: {
+    currentBalance: number;
+    lifetimePoints: number;
+    totalEarned: number;
+    totalSpent: number;
+    currentTier?: string;
+  };
+  recentTransactions: IPointsTransaction[];
+}
+
+export interface IPopulatedUser {
+  _id: Types.ObjectId;
+  name: string;
+  image?: string;
+  email?: string;
 }

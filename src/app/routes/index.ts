@@ -17,6 +17,7 @@ import { BankConnectionRoutes } from '../modules/BankConnection/bankConnection.r
 import { SecureRoundUpRoutes } from '../modules/RoundUp/secureRoundUp.route';
 import { roundUpTransactionRoutes } from '../modules/RoundUpTransaction/roundUpTransaction.route';
 import { ReceiptRoutes } from '../modules/Receipt/receipt.router';
+import { PointsRoutes } from '../modules/Points/points.route';
 
 const router = Router();
 
@@ -91,6 +92,10 @@ const moduleRoutes = [
   {
     path: '/receipt',
     route: ReceiptRoutes,
+  },
+  {
+    path: '/points',
+    route: PointsRoutes,
   },
 ];
 
