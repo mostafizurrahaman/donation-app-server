@@ -38,6 +38,9 @@
     "deploy": "yarn build && vercel && vercel --prod"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.937.0",
+    "@aws-sdk/s3-request-presigner": "^3.937.0",
+    "aws-sdk": "^2.1692.0",
     "bcryptjs": "^3.0.2",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
@@ -52,6 +55,7 @@
     "node-cron": "^4.2.1",
     "nodemailer": "^7.0.10",
     "otp-generator": "^4.0.1",
+    "pdfkit": "^0.17.2",
     "plaid": "^21.0.0",
     "stripe": "^19.3.0",
     "zod": "^4.1.12"
@@ -65,8 +69,9 @@
     "@types/morgan": "^1.9.10",
     "@types/multer": "^2.0.0",
     "@types/node-cron": "^3.0.11",
-    "@types/nodemailer": "^7.0.3",
+    "@types/nodemailer": "^7.0.4",
     "@types/otp-generator": "^4.0.2",
+    "@types/pdfkit": "^0.17.3",
     "eslint": "^9.38.0",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^16.4.0",

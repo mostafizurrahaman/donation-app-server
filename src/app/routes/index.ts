@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { AuthRoutes } from '../modules/Auth/auth.route';
-// import { AdminRoutes } from '../modules/Admin/admin.route';
+import { AdminRoutes } from '../modules/Admin/admin.route';
 // import { ClientRoutes } from '../modules/Client/client.route';
 // import { OrganizationRoutes } from '../modules/Organization/organization.routes';
 // import { BusinessRoutes } from '../modules/Business/business.routes';
@@ -16,6 +16,8 @@ import { CronJobsRoutes } from '../modules/CronJobs/cronJobs.route';
 import { BankConnectionRoutes } from '../modules/BankConnection/bankConnection.route';
 import { SecureRoundUpRoutes } from '../modules/RoundUp/secureRoundUp.route';
 import { roundUpTransactionRoutes } from '../modules/RoundUpTransaction/roundUpTransaction.route';
+import { ReceiptRoutes } from '../modules/Receipt/receipt.router';
+import { PointsRoutes } from '../modules/Points/points.route';
 
 const router = Router();
 
@@ -24,10 +26,10 @@ const moduleRoutes = [
     path: '/auth',
     route: AuthRoutes,
   },
-  // {
-  //   path: '/admin',
-  //   route: AdminRoutes,
-  // },
+  {
+    path: '/admin',
+    route: AdminRoutes,
+  },
   // {
   //   path: '/client',
   //   route: ClientRoutes,
@@ -86,6 +88,14 @@ const moduleRoutes = [
   {
     path: '/roundup-transactions',
     route: roundUpTransactionRoutes,
+  },
+  {
+    path: '/receipt',
+    route: ReceiptRoutes,
+  },
+  {
+    path: '/points',
+    route: PointsRoutes,
   },
 ];
 

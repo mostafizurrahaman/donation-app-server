@@ -724,7 +724,7 @@ const forgotPassword = async (email: string) => {
     // await sendOtpEmail(email, user.otp, user.fullName || 'Guest');
 
     throw new AppError(
-      httpStatus.NOT_FOUND,
+      httpStatus.BAD_REQUEST,
       `Last OTP is valid till now, use that in ${remainingMinutes} minutes!`
     );
   } else {
@@ -1091,78 +1091,54 @@ const deleteSpecificUserAccountFromDB = async (user: IAuth) => {
   try {
     session.startTransaction();
 
-    const currentUser = await Auth.findById(user._id).session(session);
+    // 1. Find the user to get their email and confirm they exist before deleting.
+    const userToDelete = await Auth.findById(user._id).session(session);
 
-    if (!currentUser) {
+    if (!userToDelete) {
       throw new AppError(httpStatus.NOT_FOUND, 'User not found!');
     }
 
-    currentUser.isDeleted = true;
-    currentUser.isActive = false;
-
-    await currentUser.save({ session });
-
+    // 2. Initialize a default name for the return object.
     let name: string = 'User';
 
+    // 3. Find and delete the associated profile document based on the user's role.
     if (user.role === ROLE.CLIENT) {
-      const client = await Client.findOne({ auth: user._id })
-        .select('_id')
-        .session(session);
-
-      if (client) {
-        name = client?.name || 'User';
-
-        const result = await Client.findByIdAndDelete(client._id, { session });
-
-        if (!result) {
-          throw new AppError(httpStatus.BAD_REQUEST, 'Client deletion failed!');
-        }
+      const deletedClient = await Client.findOneAndDelete(
+        { auth: user._id },
+        { session }
+      );
+      // If a client profile existed and was deleted, use its name.
+      if (deletedClient?.name) {
+        name = deletedClient.name;
       }
     } else if (user.role === ROLE.BUSINESS) {
-      const business = await Business.findOne({ auth: user._id })
-        .select('_id')
-        .session(session);
-
-      if (business) {
-        name = business?.name || 'Business';
-
-        const result = await Business.findByIdAndDelete(business._id, {
-          session,
-        });
-
-        if (!result) {
-          throw new AppError(
-            httpStatus.BAD_REQUEST,
-            'Business deletion failed!'
-          );
-        }
+      const deletedBusiness = await Business.findOneAndDelete(
+        { auth: user._id },
+        { session }
+      );
+      if (deletedBusiness?.name) {
+        name = deletedBusiness.name;
       }
     } else if (user.role === ROLE.ORGANIZATION) {
-      const organization = await Organization.findOne({ auth: user._id })
-        .select('_id')
-        .session(session);
-
-      if (organization) {
-        name = organization?.name || 'Organization';
-
-        const result = await Organization.findByIdAndDelete(organization._id, {
-          session,
-        });
-
-        if (!result) {
-          throw new AppError(
-            httpStatus.BAD_REQUEST,
-            'Organization deletion failed!'
-          );
-        }
+      const deletedOrganization = await Organization.findOneAndDelete(
+        { auth: user._id },
+        { session }
+      );
+      if (deletedOrganization?.name) {
+        name = deletedOrganization.name;
       }
     }
 
+    // 4. Hard delete the main authentication document.
+    await Auth.findByIdAndDelete(user._id, { session });
+
     await session.commitTransaction();
     await session.endSession();
+
+    // 5. Return the details of the deleted user.
     return {
-      email: currentUser.email,
-      id: currentUser._id,
+      email: userToDelete.email,
+      id: userToDelete._id,
       name,
     };
   } catch (error) {

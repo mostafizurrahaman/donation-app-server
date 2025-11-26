@@ -6,6 +6,7 @@ export const DONATION_STATUS = [
   'refunded',
   'canceled',
   'refunding',
+  'renewed',
 ] as const;
 
 export const DONATION_TYPE = ['one-time', 'recurring', 'round-up'] as const;

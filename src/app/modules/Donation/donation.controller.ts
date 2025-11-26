@@ -124,10 +124,7 @@ const getOrganizationDonations = asyncHandler(
     // Get query parameters
     const query = req.query as Record<string, unknown>;
 
-    // Authorization check: Verify user owns/manages the organization
-    const Organization = (await import('../Organization/organization.model'))
-      .default;
-    const organization = await Organization.findById(organizationId);
+    const organization = await OrganizationModel.findById(organizationId);
 
     if (!organization) {
       throw new AppError(httpStatus.NOT_FOUND, 'Organization not found');

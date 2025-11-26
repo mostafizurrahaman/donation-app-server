@@ -194,11 +194,11 @@ Client → BankConnection (Plaid) → RoundUp → RoundUpTransaction → Donatio
        │
        ├──────────────────────┬──────────────────────┐
        │                      │                      │
-       │ N:1                  │ N:1                 │
+       │ N:1                  │ N:1                  │
        │                      │                      │
 ┌──────▼──────┐      ┌────────▼────────┐   ┌────────▼────────┐
 │  Donation   │      │ RewardRedemption│   │ Manual Adjust   │
-│  (earned)   │      │ (spent)        │   │ (admin)         │
+│  (earned)   │      │ (spent)         │   │ (admin)         │
 └─────────────┘      └─────────────────┘   └─────────────────┘
 ```
 

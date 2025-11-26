@@ -50,7 +50,7 @@ router.get(
 // 6. Get donations by organization ID (QueryBuilder)
 router.get(
   '/organization/:organizationId',
-  // auth(ROLE.ORGANIZATION, ROLE.ADMIN),
+  auth(ROLE.ORGANIZATION, ROLE.ADMIN),
   validateRequest(DonationValidation.getOrganizationDonationsSchema),
   DonationController.getOrganizationDonations
 );
@@ -61,7 +61,7 @@ router.get(
   validateRequest(DonationValidation.getOrganizationCauseStatsSchema),
   DonationController.getOrganizationCauseStats
 );
-  
+
 // 7. Cancel donation
 router.post(
   '/:id/cancel',
