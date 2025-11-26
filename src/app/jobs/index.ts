@@ -19,6 +19,9 @@ export const initializeJobs = () => {
     // Start RoundUp transactions processing cron job
     startRoundUpProcessingCron();
 
+    // Start reward status update job
+    // startRewardJobs(); //: TODO: Uncomment when reward jobs are implemented
+
     // Add more cron jobs here as needed
     // Example:
     // startReceiptGenerationCron();

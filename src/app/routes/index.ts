@@ -18,6 +18,7 @@ import { SecureRoundUpRoutes } from '../modules/RoundUp/secureRoundUp.route';
 import { roundUpTransactionRoutes } from '../modules/RoundUpTransaction/roundUpTransaction.route';
 import { ReceiptRoutes } from '../modules/Receipt/receipt.router';
 import { PointsRoutes } from '../modules/Points/points.route';
+import { RewardRoutes } from '../modules/Reward/reward.route';
 
 const router = Router();
 
@@ -96,6 +97,10 @@ const moduleRoutes = [
   {
     path: '/points',
     route: PointsRoutes,
+  },
+  {
+    path: '/rewards',
+    route: RewardRoutes,
   },
 ];
 
