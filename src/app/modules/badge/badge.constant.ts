@@ -56,8 +56,6 @@ export const MAX_BADGE_DESCRIPTION_LENGTH = 500;
 export const MAX_TIER_NAME_LENGTH = 50;
 export const MIN_REQUIRED_COUNT = 1;
 export const MAX_REQUIRED_COUNT = 1000;
-export const MIN_BONUS_POINTS = 0;
-export const MAX_BONUS_POINTS = 10000;
 
 // Pagination defaults
 export const DEFAULT_PAGE = 1;

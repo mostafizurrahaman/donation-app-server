@@ -7,8 +7,6 @@ import {
   MAX_TIER_NAME_LENGTH,
   MIN_REQUIRED_COUNT,
   MAX_REQUIRED_COUNT,
-  MIN_BONUS_POINTS,
-  MAX_BONUS_POINTS,
 } from './badge.constant';
 
 const badgeTierSchema = z.object({
@@ -44,11 +42,6 @@ export const createBadgeSchema = z.object({
     unlockType: z.enum(BADGE_UNLOCK_TYPE_VALUES as [string, ...string[]]),
     targetOrganization: z.string().optional(),
     targetCause: z.string().optional(),
-    bonusPoints: z
-      .number()
-      .min(MIN_BONUS_POINTS)
-      .max(MAX_BONUS_POINTS)
-      .optional(),
     isActive: z.boolean().optional(),
     isVisible: z.boolean().optional(),
     featured: z.boolean().optional(),
@@ -70,11 +63,6 @@ export const updateBadgeSchema = z.object({
       .optional(),
     targetOrganization: z.string().optional(),
     targetCause: z.string().optional(),
-    bonusPoints: z
-      .number()
-      .min(MIN_BONUS_POINTS)
-      .max(MAX_BONUS_POINTS)
-      .optional(),
     isActive: z.boolean().optional(),
     isVisible: z.boolean().optional(),
     featured: z.boolean().optional(),

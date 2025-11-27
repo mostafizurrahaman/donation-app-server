@@ -1,4 +1,4 @@
-import { Document, Types } from 'mongoose';
+import { Document, Model, Types } from 'mongoose';
 
 export interface IBadge {
   name: string;
@@ -31,9 +31,6 @@ export interface IBadge {
   priority: number;
   featured: boolean;
 
-  // Bonus points (optional)
-  bonusPoints?: number;
-
   createdAt: Date;
   updatedAt: Date;
 }
@@ -47,9 +44,15 @@ export interface IBadgeTier {
   color?: string;
 }
 
-export interface IBadgeModel extends IBadge, Document {
+// Document interface with instance methods
+export interface IBadgeDocument extends IBadge, Document {
   getNextTier(currentTier: string): IBadgeTier | null;
   getTierByProgress(progress: number): IBadgeTier;
+}
+
+// Model interface extending Model with document type
+export interface IBadgeModel extends Model<IBadgeDocument> {
+  // Add any static methods here if needed
 }
 
 export interface IUserBadge {
@@ -77,10 +80,16 @@ export interface IUserBadge {
   updatedAt: Date;
 }
 
-export interface IUserBadgeModel extends IUserBadge, Document {
+// Document interface with instance methods
+export interface IUserBadgeDocument extends IUserBadge, Document {
   updateProgress(count: number, amount?: number): Promise<boolean>;
   unlockNextTier(): Promise<void>;
   checkTierUpgrade(): Promise<boolean>;
+}
+
+// Model interface extending Model with document type
+export interface IUserBadgeModel extends Model<IUserBadgeDocument> {
+  // Add any static methods here if needed
 }
 
 export interface ICreateBadgePayload {
@@ -99,7 +108,6 @@ export interface ICreateBadgePayload {
     | 'streak';
   targetOrganization?: Types.ObjectId | string;
   targetCause?: Types.ObjectId | string;
-  bonusPoints?: number;
   isActive?: boolean;
   isVisible?: boolean;
   featured?: boolean;
@@ -114,7 +122,6 @@ export interface IUpdateBadgePayload {
   unlockType?: string;
   targetOrganization?: Types.ObjectId | string;
   targetCause?: Types.ObjectId | string;
-  bonusPoints?: number;
   isActive?: boolean;
   isVisible?: boolean;
   featured?: boolean;

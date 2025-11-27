@@ -1,9 +1,11 @@
 import { Schema, model } from 'mongoose';
 import {
   IBadge,
+  IBadgeDocument,
   IBadgeModel,
   IBadgeTier,
   IUserBadge,
+  IUserBadgeDocument,
   IUserBadgeModel,
 } from './badge.interface';
 import {
@@ -63,7 +65,7 @@ const badgeTierSchema = new Schema<IBadgeTier>(
 );
 
 // Main Badge Schema
-const badgeSchema = new Schema<IBadge, IBadgeModel>(
+const badgeSchema = new Schema<IBadgeDocument, IBadgeModel>(
   {
     name: {
       type: String,
@@ -151,13 +153,6 @@ const badgeSchema = new Schema<IBadge, IBadgeModel>(
       default: false,
       index: true,
     },
-
-    // Bonus points (awarded when tier is unlocked)
-    bonusPoints: {
-      type: Number,
-      min: [0, 'Bonus points cannot be negative'],
-      default: 0,
-    },
   },
   {
     timestamps: true,
@@ -205,7 +200,7 @@ badgeSchema.methods.getTierByProgress = function (
 };
 
 // Validation: Ensure tiers are in ascending order
-badgeSchema.pre('save', function (next) {
+badgeSchema.pre('save', async function (next) {
   if (this.tiers && this.tiers.length === 4) {
     // Sort tiers by required count
     const sortedTiers = [...this.tiers].sort(
@@ -229,7 +224,7 @@ badgeSchema.pre('save', function (next) {
   next();
 });
 
-export const Badge = model<IBadge, IBadgeModel>('Badge', badgeSchema);
+export const Badge = model<IBadgeDocument, IBadgeModel>('Badge', badgeSchema);
 
 // ==========================================
 // User Badge Schema
@@ -251,7 +246,7 @@ const tierUnlockSchema = new Schema(
   { _id: false }
 );
 
-const userBadgeSchema = new Schema<IUserBadge, IUserBadgeModel>(
+const userBadgeSchema = new Schema<IUserBadgeDocument, IUserBadgeModel>(
   {
     user: {
       type: Schema.Types.ObjectId,
@@ -409,7 +404,7 @@ userBadgeSchema.methods.checkTierUpgrade = async function (): Promise<boolean> {
   return false;
 };
 
-export const UserBadge = model<IUserBadge, IUserBadgeModel>(
+export const UserBadge = model<IUserBadgeDocument, IUserBadgeModel>(
   'UserBadge',
   userBadgeSchema
 );
