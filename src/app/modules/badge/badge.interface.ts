@@ -1,3 +1,5 @@
+// src/app/modules/badge/badge.interface.ts
+
 import { Document, Model, Types } from 'mongoose';
 
 export interface IBadge {
@@ -7,27 +9,69 @@ export interface IBadge {
 
   // Tier system
   tiers: IBadgeTier[];
+  isSingleTier?: boolean;
 
-  // Unlock conditions
-  category?: string; // Cause category (Education, Health, etc.)
+  // Categorization
+  category?: string;
+
+  // Unlock mechanism
   unlockType:
     | 'donation_count'
     | 'donation_amount'
+    | 'first_time'
     | 'cause_specific'
+    | 'category_specific'
     | 'organization_specific'
-    | 'frequency'
     | 'round_up'
-    | 'streak';
+    | 'round_up_amount'
+    | 'recurring_streak'
+    | 'frequency'
+    | 'streak'
+    | 'unique_causes'
+    | 'time_based'
+    | 'seasonal'
+    | 'donation_size'
+    | 'amount_threshold';
 
-  // Target criteria
+  // ✅ UPDATED: Condition logic (both = ALL conditions, any_one = ANY condition)
+  conditionLogic?: 'both' | 'any_one';
+
+  // Target filters
   targetOrganization?: Types.ObjectId;
   targetCause?: Types.ObjectId;
 
-  // Visibility & Status
+  // Seasonal filters
+  seasonalPeriod?:
+    | 'ramadan'
+    | 'laylat_al_qadr'
+    | 'dhul_hijjah'
+    | 'winter'
+    | 'zakat_fitr';
+
+  // Time-based filters
+  timeRange?: {
+    start: number; // Hour (0-23)
+    end: number; // Hour (0-23)
+  };
+
+  // Donation filters
+  donationFilters?: {
+    maxAmount?: number;
+    minAmount?: number;
+    donationType?: 'one-time' | 'recurring' | 'round-up';
+    specificCategory?: string;
+    specificCategories?: string[]; // For multiple categories
+  };
+
+  // Hijri calendar
+  hijriMonth?: number;
+  hijriDay?: number;
+
+  // Status
   isActive: boolean;
   isVisible: boolean;
 
-  // Display settings
+  // Display
   priority: number;
   featured: boolean;
 
@@ -36,39 +80,46 @@ export interface IBadge {
 }
 
 export interface IBadgeTier {
-  tier: 'colour' | 'bronze' | 'silver' | 'gold';
+  tier: 'one-tier' | 'colour' | 'bronze' | 'silver' | 'gold';
   name: string;
-  requiredCount: number; // Number of donations/actions required
-  requiredAmount?: number; // Dollar amount (optional)
+  requiredCount: number;
+  requiredAmount?: number;
   icon?: string;
   color?: string;
 }
 
-// Document interface with instance methods
 export interface IBadgeDocument extends IBadge, Document {
   getNextTier(currentTier: string): IBadgeTier | null;
-  getTierByProgress(progress: number): IBadgeTier;
+  getTierByProgress(progress: number, amount?: number): IBadgeTier;
 }
 
-// Model interface extending Model with document type
-export interface IBadgeModel extends Model<IBadgeDocument> {
-  // Add any static methods here if needed
-}
+export interface IBadgeModel extends Model<IBadgeDocument> {}
 
 export interface IUserBadge {
   user: Types.ObjectId;
   badge: Types.ObjectId;
 
-  // Progress tracking
-  currentTier: 'colour' | 'bronze' | 'silver' | 'gold';
+  // Progress
+  currentTier: 'one-tier' | 'colour' | 'bronze' | 'silver' | 'gold';
   progressCount: number;
   progressAmount?: number;
 
-  // Unlock history
+  // Special tracking
+  uniqueCauses?: Types.ObjectId[];
+  consecutiveMonths?: number;
+  lastDonationMonth?: Date;
+  seasonalDonations?: Array<{
+    period: string;
+    count: number;
+    amount: number;
+    year: number;
+  }>;
+
+  // History
   unlockedAt: Date;
   lastUpdatedAt: Date;
   tiersUnlocked: Array<{
-    tier: 'colour' | 'bronze' | 'silver' | 'gold';
+    tier: 'one-tier' | 'colour' | 'bronze' | 'silver' | 'gold';
     unlockedAt: Date;
   }>;
 
@@ -80,34 +131,45 @@ export interface IUserBadge {
   updatedAt: Date;
 }
 
-// Document interface with instance methods
 export interface IUserBadgeDocument extends IUserBadge, Document {
-  updateProgress(count: number, amount?: number): Promise<boolean>;
+  updateProgress(
+    count: number,
+    amount?: number,
+    metadata?: {
+      causeId?: Types.ObjectId;
+      donationDate?: Date;
+      isRecurring?: boolean;
+    }
+  ): Promise<boolean>;
   unlockNextTier(): Promise<void>;
   checkTierUpgrade(): Promise<boolean>;
+  addUniqueCause(causeId: Types.ObjectId): Promise<void>;
+  updateConsecutiveMonths(donationDate: Date): Promise<void>;
+  addSeasonalDonation(
+    period: string,
+    amount: number,
+    year: number
+  ): Promise<void>;
 }
 
-// Model interface extending Model with document type
-export interface IUserBadgeModel extends Model<IUserBadgeDocument> {
-  // Add any static methods here if needed
-}
+export interface IUserBadgeModel extends Model<IUserBadgeDocument> {}
 
 export interface ICreateBadgePayload {
   name: string;
   description: string;
   icon?: string;
   tiers: IBadgeTier[];
+  isSingleTier?: boolean;
   category?: string;
-  unlockType:
-    | 'donation_count'
-    | 'donation_amount'
-    | 'cause_specific'
-    | 'organization_specific'
-    | 'frequency'
-    | 'round_up'
-    | 'streak';
+  unlockType: IBadge['unlockType'];
+  conditionLogic?: 'both' | 'any_one';
   targetOrganization?: Types.ObjectId | string;
   targetCause?: Types.ObjectId | string;
+  seasonalPeriod?: IBadge['seasonalPeriod'];
+  timeRange?: IBadge['timeRange'];
+  donationFilters?: IBadge['donationFilters'];
+  hijriMonth?: number;
+  hijriDay?: number;
   isActive?: boolean;
   isVisible?: boolean;
   featured?: boolean;
@@ -118,10 +180,26 @@ export interface IUpdateBadgePayload {
   description?: string;
   icon?: string;
   tiers?: IBadgeTier[];
+  isSingleTier?: boolean;
   category?: string;
   unlockType?: string;
+  conditionLogic?: 'both' | 'any_one';
   targetOrganization?: Types.ObjectId | string;
   targetCause?: Types.ObjectId | string;
+  seasonalPeriod?: string;
+  timeRange?: {
+    start: number;
+    end: number;
+  };
+  donationFilters?: {
+    maxAmount?: number;
+    minAmount?: number;
+    donationType?: string;
+    specificCategory?: string;
+    specificCategories?: string[];
+  };
+  hijriMonth?: number;
+  hijriDay?: number;
   isActive?: boolean;
   isVisible?: boolean;
   featured?: boolean;
@@ -130,7 +208,7 @@ export interface IUpdateBadgePayload {
 export interface IAssignBadgePayload {
   userId: Types.ObjectId | string;
   badgeId: Types.ObjectId | string;
-  initialTier?: 'colour' | 'bronze' | 'silver' | 'gold';
+  initialTier?: 'one-tier' | 'colour' | 'bronze' | 'silver' | 'gold';
   initialProgress?: number;
 }
 
@@ -185,6 +263,7 @@ export interface IUserBadgeProgress {
   currentTier: string;
   nextTier?: IBadgeTier;
   progressCount: number;
+  progressAmount?: number;
   progressPercentage: number;
   remainingForNextTier?: number;
 }

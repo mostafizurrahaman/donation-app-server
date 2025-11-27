@@ -1,3 +1,5 @@
+// src/app/modules/badge/badge.service.ts
+
 import { Types } from 'mongoose';
 import { Badge, UserBadge } from './badge.model';
 import Client from '../Client/client.model';
@@ -11,19 +13,29 @@ import {
   IBadgeStatistics,
   IUserBadgeProgress,
   IBadgeTier,
-  IUserBadge,
 } from './badge.interface';
 import {
   BADGE_MESSAGES,
   BADGE_UNLOCK_TYPE,
-  TIER_ORDER,
+  TIER_ORDER_PROGRESSION,
 } from './badge.constant';
 import { AppError } from '../../utils';
 import httpStatus from 'http-status';
+import {
+  getCurrentHijriYear,
+  getSeasonalPeriod,
+  isBeforeEid,
+  isDhulHijjah,
+  isLaylatAlQadr,
+  isRamadan,
+  isWinter,
+  isWithinTimeRange,
+} from './badge.utils';
 
-/**
- * Small helper to normalize string | ObjectId inputs to a mongoose Types.ObjectId.
- */
+// ==========================================
+// HELPER FUNCTIONS
+// ==========================================
+
 const toObjectId = (id?: string | Types.ObjectId | undefined) => {
   if (!id) return undefined;
   return typeof id === 'string'
@@ -31,66 +43,73 @@ const toObjectId = (id?: string | Types.ObjectId | undefined) => {
     : (id as Types.ObjectId);
 };
 
+// ==========================================
+// CRUD OPERATIONS
+// ==========================================
+
 /**
- * Create a new badge
+ * Create badge
  */
 const createBadge = async (payload: ICreateBadgePayload): Promise<any> => {
-  // Check for duplicate name
   const existingBadge = await Badge.findOne({ name: payload.name });
   if (existingBadge) {
     throw new AppError(httpStatus.CONFLICT, BADGE_MESSAGES.ALREADY_EXISTS);
   }
 
-  // Validate tier progression
-  const sortedTiers = [...(payload.tiers || [])].sort(
-    (a, b) => a.requiredCount - b.requiredCount
-  );
-  const tierOrder = ['colour', 'bronze', 'silver', 'gold'];
-  const isValidOrder = sortedTiers.every(
-    (tier, index) => tier.tier === tierOrder[index]
-  );
-
-  if (!isValidOrder) {
+  const tierCount = payload.tiers?.length || 0;
+  if (tierCount !== 1 && tierCount !== 4) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      'Badge tiers must be in ascending order: colour < bronze < silver < gold'
+      'Badge must have exactly 1 tier or 4 tiers'
     );
   }
 
-  // Create badge
+  if (tierCount === 4) {
+    const sortedTiers = [...payload.tiers].sort(
+      (a, b) => a.requiredCount - b.requiredCount
+    );
+    const tierOrder = ['colour', 'bronze', 'silver', 'gold'];
+    const isValidOrder = sortedTiers.every(
+      (tier, index) => tier.tier === tierOrder[index]
+    );
+
+    if (!isValidOrder) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        'Badge tiers must be in ascending order'
+      );
+    }
+  }
+
   const badge = await Badge.create({
-    name: payload.name,
-    description: payload.description,
-    icon: payload.icon,
-    tiers: payload.tiers,
-    category: payload.category,
-    unlockType: payload.unlockType,
+    ...payload,
+    isSingleTier: tierCount === 1,
     targetOrganization: toObjectId(payload.targetOrganization),
     targetCause: toObjectId(payload.targetCause),
+    conditionLogic: payload.conditionLogic || 'both',
     isActive: payload.isActive !== false,
     isVisible: payload.isVisible !== false,
-    featured: payload.featured || false,
     priority: payload.featured ? 10 : 1,
   });
 
-  const populatedBadge = await badge.populate('targetOrganization', 'name');
-  return await populatedBadge.populate('targetCause', 'name category');
+  return badge.populate([
+    { path: 'targetOrganization', select: 'name' },
+    { path: 'targetCause', select: 'name category' },
+  ]);
 };
 
 /**
- * Update a badge
+ * Update badge
  */
 const updateBadge = async (
   badgeId: string,
   payload: IUpdateBadgePayload
 ): Promise<any> => {
   const badge = await Badge.findById(badgeId);
-
   if (!badge) {
     throw new AppError(httpStatus.NOT_FOUND, BADGE_MESSAGES.NOT_FOUND);
   }
 
-  // Check for duplicate name if name is being changed
   if (payload.name && payload.name !== badge.name) {
     const existingBadge = await Badge.findOne({ name: payload.name });
     if (existingBadge) {
@@ -98,30 +117,28 @@ const updateBadge = async (
     }
   }
 
-  // Update fields
-  if (payload.name !== undefined) badge.name = payload.name;
-  if (payload.description !== undefined)
-    badge.description = payload.description;
-  if (payload.icon !== undefined) badge.icon = payload.icon;
-  if (payload.tiers !== undefined) badge.tiers = payload.tiers;
-  if (payload.category !== undefined) badge.category = payload.category;
-  if (payload.unlockType !== undefined)
-    badge.unlockType = payload.unlockType as any;
-  if (payload.targetOrganization !== undefined)
-    badge.targetOrganization = toObjectId(payload.targetOrganization);
-  if (payload.targetCause !== undefined)
-    badge.targetCause = toObjectId(payload.targetCause);
-  if (payload.isActive !== undefined) badge.isActive = payload.isActive;
-  if (payload.isVisible !== undefined) badge.isVisible = payload.isVisible;
-  if (payload.featured !== undefined) {
-    badge.featured = payload.featured;
-    badge.priority = payload.featured ? 10 : 1;
-  }
+  Object.assign(badge, {
+    ...payload,
+    targetOrganization: payload.targetOrganization
+      ? toObjectId(payload.targetOrganization)
+      : badge.targetOrganization,
+    targetCause: payload.targetCause
+      ? toObjectId(payload.targetCause)
+      : badge.targetCause,
+    priority:
+      payload.featured !== undefined
+        ? payload.featured
+          ? 10
+          : 1
+        : badge.priority,
+  });
 
   await badge.save();
 
-  const populatedBadge = await badge.populate('targetOrganization', 'name');
-  return await populatedBadge.populate('targetCause', 'name category');
+  return badge.populate([
+    { path: 'targetOrganization', select: 'name' },
+    { path: 'targetCause', select: 'name category' },
+  ]);
 };
 
 /**
@@ -136,7 +153,6 @@ const getBadgeById = async (badgeId: string): Promise<any> => {
     throw new AppError(httpStatus.NOT_FOUND, BADGE_MESSAGES.NOT_FOUND);
   }
 
-  // Get user count for this badge
   const userCount = await UserBadge.countDocuments({ badge: badgeId });
 
   return {
@@ -146,7 +162,7 @@ const getBadgeById = async (badgeId: string): Promise<any> => {
 };
 
 /**
- * Get all badges with filters
+ * Get all badges
  */
 const getBadges = async (
   query: IBadgeFilterQuery
@@ -176,15 +192,11 @@ const getBadges = async (
   if (isActive !== undefined) filter.isActive = isActive;
   if (isVisible !== undefined) filter.isVisible = isVisible;
   if (featured !== undefined) filter.featured = featured;
-
-  if (search) {
-    filter.$text = { $search: search };
-  }
+  if (search) filter.$text = { $search: search };
 
   const skip = (page - 1) * limit;
   const sort: any = { [sortBy]: sortOrder === 'asc' ? 1 : -1 };
 
-  // Prioritize featured badges
   if (featured) {
     sort.priority = -1;
     sort.createdAt = -1;
@@ -201,7 +213,6 @@ const getBadges = async (
     Badge.countDocuments(filter),
   ]);
 
-  // Get user counts for each badge
   const badgeIds = badges.map((b: any) => b._id);
   const userCounts = await UserBadge.aggregate([
     { $match: { badge: { $in: badgeIds } } },
@@ -217,25 +228,18 @@ const getBadges = async (
     userCount: userCountMap.get(badge._id.toString()) || 0,
   }));
 
-  return {
-    badges: badgesWithCounts,
-    total,
-    page,
-    limit,
-  };
+  return { badges: badgesWithCounts, total, page, limit };
 };
 
 /**
- * Delete badge
+ * Delete badge (soft delete)
  */
 const deleteBadge = async (badgeId: string): Promise<void> => {
   const badge = await Badge.findById(badgeId);
-
   if (!badge) {
     throw new AppError(httpStatus.NOT_FOUND, BADGE_MESSAGES.NOT_FOUND);
   }
 
-  // Soft delete by marking as inactive
   badge.isActive = false;
   badge.isVisible = false;
   await badge.save();
@@ -254,19 +258,16 @@ const assignBadgeToUser = async (
     throw new AppError(httpStatus.BAD_REQUEST, 'Invalid user or badge id');
   }
 
-  // Check if badge exists
   const badge = await Badge.findById(badgeId);
   if (!badge) {
     throw new AppError(httpStatus.NOT_FOUND, BADGE_MESSAGES.NOT_FOUND);
   }
 
-  // Check if user exists
   const user = await Client.findById(userId);
   if (!user) {
     throw new AppError(httpStatus.NOT_FOUND, 'User not found');
   }
 
-  // Check if already assigned
   const existingUserBadge = await UserBadge.findOne({
     user: userId,
     badge: badgeId,
@@ -276,33 +277,25 @@ const assignBadgeToUser = async (
     throw new AppError(httpStatus.CONFLICT, BADGE_MESSAGES.ALREADY_ASSIGNED);
   }
 
-  // Create user badge
-  const initialTier = payload.initialTier || 'colour';
-  const initialProgress = payload.initialProgress || 0;
+  const initialTier =
+    payload.initialTier || (badge.isSingleTier ? 'one-tier' : 'colour');
 
   const userBadge = await UserBadge.create({
     user: userId,
     badge: badgeId,
     currentTier: initialTier,
-    progressCount: initialProgress,
+    progressCount: payload.initialProgress || 0,
     progressAmount: 0,
-    unlockedAt: new Date(),
-    lastUpdatedAt: new Date(),
-    tiersUnlocked: [
-      {
-        tier: initialTier,
-        unlockedAt: new Date(),
-      },
-    ],
-    isCompleted: initialTier === 'gold',
-    completedAt: initialTier === 'gold' ? new Date() : undefined,
+    tiersUnlocked: [{ tier: initialTier, unlockedAt: new Date() }],
+    isCompleted: initialTier === 'gold' || badge.isSingleTier,
+    completedAt:
+      initialTier === 'gold' || badge.isSingleTier ? new Date() : undefined,
   });
 
-  const populatedUserBadge = await userBadge.populate(
-    'badge',
-    'name description icon tiers'
-  );
-  return await populatedUserBadge.populate('user', 'name image');
+  return userBadge.populate([
+    { path: 'badge', select: 'name description icon tiers' },
+    { path: 'user', select: 'name image' },
+  ]);
 };
 
 /**
@@ -346,16 +339,11 @@ const getUserBadges = async (
     UserBadge.countDocuments(filter),
   ]);
 
-  return {
-    userBadges,
-    total,
-    page,
-    limit,
-  };
+  return { userBadges, total, page, limit };
 };
 
 /**
- * Get user badge progress for a specific badge
+ * Get user badge progress
  */
 const getUserBadgeProgress = async (
   userId: string,
@@ -372,21 +360,22 @@ const getUserBadgeProgress = async (
   });
 
   const isUnlocked = !!userBadge;
-  const currentTier = userBadge?.currentTier || 'colour';
+  const currentTier =
+    userBadge?.currentTier || (badge.isSingleTier ? 'one-tier' : 'colour');
   const progressCount = userBadge?.progressCount || 0;
+  const progressAmount = userBadge?.progressAmount || 0;
 
-  // Get next tier
   let nextTier = null;
-  const currentIndex = TIER_ORDER.indexOf(currentTier);
-  if (currentIndex < TIER_ORDER.length - 1) {
-    const nextTierName = TIER_ORDER[currentIndex + 1];
-    nextTier =
-      (badge.tiers as IBadgeTier[]).find(
-        (t: IBadgeTier) => t.tier === nextTierName
-      ) || null;
+  if (!badge.isSingleTier) {
+    const currentIndex = TIER_ORDER_PROGRESSION.indexOf(currentTier);
+    if (currentIndex < TIER_ORDER_PROGRESSION.length - 1) {
+      const nextTierName = TIER_ORDER_PROGRESSION[currentIndex + 1];
+      nextTier =
+        (badge.tiers as IBadgeTier[]).find((t) => t.tier === nextTierName) ||
+        null;
+    }
   }
 
-  // Calculate progress percentage
   let progressPercentage = 0;
   let remainingForNextTier = 0;
 
@@ -396,8 +385,10 @@ const getUserBadgeProgress = async (
       (progressCount / nextTier.requiredCount) * 100
     );
     remainingForNextTier = Math.max(0, nextTier.requiredCount - progressCount);
+  } else if (badge.isSingleTier) {
+    progressPercentage = isUnlocked ? 100 : 0;
   } else {
-    progressPercentage = 100; // Completed
+    progressPercentage = 100;
   }
 
   return {
@@ -407,6 +398,7 @@ const getUserBadgeProgress = async (
     currentTier,
     nextTier: nextTier || undefined,
     progressCount,
+    progressAmount,
     progressPercentage: Math.round(progressPercentage),
     remainingForNextTier: nextTier ? remainingForNextTier : undefined,
   };
@@ -433,7 +425,6 @@ const updateUserBadgeProgress = async (
     );
   }
 
-  // Cast to any to access custom instance methods defined on the document
   const tierUpgraded = await (userBadge as any).updateProgress(count, amount);
 
   const updatedUserBadge = await userBadge.populate(
@@ -447,99 +438,373 @@ const updateUserBadgeProgress = async (
   };
 };
 
+// ==========================================
+// BADGE CHECKING LOGIC
+// ==========================================
+
 /**
- * Check and update badges for user based on donation
+ * Check if donation matches badge filters
+ */
+const doesDonationMatchFilters = (
+  donation: any,
+  badge: any,
+  donationDate: Date
+): boolean => {
+  const filters = badge.donationFilters;
+
+  // Check donation type
+  if (filters?.donationType && donation.donationType !== filters.donationType) {
+    return false;
+  }
+
+  // Check amount range
+  if (filters?.maxAmount && donation.amount > filters.maxAmount) {
+    return false;
+  }
+  if (filters?.minAmount && donation.amount < filters.minAmount) {
+    return false;
+  }
+
+  // Check specific category
+  if (filters?.specificCategory) {
+    const cause = donation.cause as any;
+    if (!cause || cause.category !== filters.specificCategory) {
+      return false;
+    }
+  }
+
+  // Check multiple categories (for Global Giver: Refugees OR Emergencies)
+  if (filters?.specificCategories && filters.specificCategories.length > 0) {
+    const cause = donation.cause as any;
+    if (!cause || !filters.specificCategories.includes(cause.category)) {
+      return false;
+    }
+  }
+
+  // Check seasonal period
+  if (badge.seasonalPeriod) {
+    if (badge.seasonalPeriod === 'laylat_al_qadr') {
+      if (!isLaylatAlQadr(donationDate)) return false;
+    } else if (badge.seasonalPeriod === 'zakat_fitr') {
+      if (!isBeforeEid(donationDate)) return false;
+    } else if (badge.seasonalPeriod === 'ramadan') {
+      if (!isRamadan(donationDate)) return false;
+    } else if (badge.seasonalPeriod === 'dhul_hijjah') {
+      if (!isDhulHijjah(donationDate)) return false;
+    } else if (badge.seasonalPeriod === 'winter') {
+      if (!isWinter(donationDate)) return false;
+    }
+  }
+
+  // Check time range
+  if (badge.timeRange) {
+    if (
+      !isWithinTimeRange(
+        donationDate,
+        badge.timeRange.start,
+        badge.timeRange.end
+      )
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
+/**
+ * Check and update badges for donation
  */
 const checkAndUpdateBadgesForDonation = async (
   userId: Types.ObjectId | string,
   donationId: Types.ObjectId | string
 ): Promise<void> => {
+  console.log(
+    `🏅 Starting badge check for user: ${userId}, donation: ${donationId}`
+  );
+
   const donation = await Donation.findById(donationId)
     .populate('organization')
     .populate('cause');
 
-  if (!donation) return;
+  if (!donation) {
+    console.log(`❌ Donation not found: ${donationId}`);
+    return;
+  }
+
+  const donationDate = donation.donationDate || new Date();
+  const normalizedUserId = toObjectId(userId);
+
+  if (!normalizedUserId) {
+    console.log(`❌ Invalid user ID: ${userId}`);
+    return;
+  }
 
   // Get all active badges
   const badges = await Badge.find({ isActive: true, isVisible: true });
 
-  const normalizedUserId = toObjectId(userId);
-
-  if (!normalizedUserId) return;
+  console.log(`📋 Found ${badges.length} active badges to check`);
 
   for (const badge of badges) {
-    let shouldUpdate = false;
+    try {
+      let shouldUpdate = false;
 
-    // Check if badge criteria matches
-    switch (badge.unlockType) {
-      case BADGE_UNLOCK_TYPE.DONATION_COUNT:
-        shouldUpdate = true;
-        break;
+      switch (badge.unlockType) {
+        // ✅ FIRST TIME: First ever donation
+        case BADGE_UNLOCK_TYPE.FIRST_TIME:
+          {
+            const donationCount = await Donation.countDocuments({
+              donor: normalizedUserId,
+              status: 'completed',
+            });
+            shouldUpdate = donationCount === 1;
+          }
+          break;
 
-      case BADGE_UNLOCK_TYPE.CAUSE_SPECIFIC:
-        if (
-          badge.targetCause &&
-          donation.cause &&
-          badge.targetCause.toString() ===
-            (donation.cause as any)._id.toString()
-        ) {
+        // ✅ DONATION COUNT: Any donation
+        case BADGE_UNLOCK_TYPE.DONATION_COUNT:
           shouldUpdate = true;
-        }
-        break;
+          break;
 
-      case BADGE_UNLOCK_TYPE.ORGANIZATION_SPECIFIC:
-        if (
-          badge.targetOrganization &&
-          badge.targetOrganization.toString() ===
-            (donation.organization as any)._id.toString()
-        ) {
+        // ✅ DONATION AMOUNT: Track total amount
+        case BADGE_UNLOCK_TYPE.DONATION_AMOUNT:
           shouldUpdate = true;
-        }
-        break;
+          break;
 
-      case BADGE_UNLOCK_TYPE.ROUND_UP:
-        if ((donation as any).donationType === 'round-up') {
+        // ✅ AMOUNT THRESHOLD: Top Contributor
+        case BADGE_UNLOCK_TYPE.AMOUNT_THRESHOLD:
           shouldUpdate = true;
-        }
-        break;
+          break;
 
-      case BADGE_UNLOCK_TYPE.DONATION_AMOUNT:
-        shouldUpdate = true;
-        break;
-    }
+        // ✅ CAUSE SPECIFIC: Specific cause
+        case BADGE_UNLOCK_TYPE.CAUSE_SPECIFIC:
+          if (
+            badge.targetCause &&
+            donation.cause &&
+            badge.targetCause.toString() ===
+              (donation.cause as any)._id.toString()
+          ) {
+            shouldUpdate = true;
+          }
+          break;
 
-    if (shouldUpdate) {
-      // Check if user has this badge
-      let userBadge = await UserBadge.findOne({
-        user: normalizedUserId,
-        badge: badge._id,
-      });
+        // ✅ CATEGORY SPECIFIC: Category-based (Water, Youth, etc.)
+        case BADGE_UNLOCK_TYPE.CATEGORY_SPECIFIC:
+          {
+            const cause = donation.cause as any;
+            const filters = badge.donationFilters;
 
-      if (!userBadge) {
-        // Create new user badge
-        userBadge = await UserBadge.create({
-          user: normalizedUserId,
-          badge: badge._id,
-          currentTier: 'colour',
-          progressCount: 0,
-          progressAmount: 0,
-          unlockedAt: new Date(),
-          lastUpdatedAt: new Date(),
-          tiersUnlocked: [
-            {
-              tier: 'colour',
-              unlockedAt: new Date(),
-            },
-          ],
-          isCompleted: false,
-        });
+            // Single category
+            if (filters?.specificCategory && cause) {
+              if (cause.category === filters.specificCategory) {
+                shouldUpdate = true;
+              }
+            }
+
+            // Multiple categories (e.g., Refugees OR Emergencies)
+            if (
+              filters?.specificCategories &&
+              filters.specificCategories.length > 0 &&
+              cause
+            ) {
+              if (filters.specificCategories.includes(cause.category)) {
+                shouldUpdate = true;
+              }
+            }
+          }
+          break;
+
+        // ✅ ORGANIZATION SPECIFIC
+        case BADGE_UNLOCK_TYPE.ORGANIZATION_SPECIFIC:
+          if (
+            badge.targetOrganization &&
+            badge.targetOrganization.toString() ===
+              (donation.organization as any)._id.toString()
+          ) {
+            shouldUpdate = true;
+          }
+          break;
+
+        // ✅ ROUND UP: Round-up donation count
+        case BADGE_UNLOCK_TYPE.ROUND_UP:
+          if (donation.donationType === 'round-up') {
+            shouldUpdate = true;
+          }
+          break;
+
+        // ✅ ROUND UP AMOUNT: Total round-up amount
+        case BADGE_UNLOCK_TYPE.ROUND_UP_AMOUNT:
+          if (donation.donationType === 'round-up') {
+            shouldUpdate = true;
+          }
+          break;
+
+        // ✅ DONATION SIZE: Donations under specific amount
+        case BADGE_UNLOCK_TYPE.DONATION_SIZE:
+          if (doesDonationMatchFilters(donation, badge, donationDate)) {
+            shouldUpdate = true;
+          }
+          break;
+
+        // ✅ SEASONAL: Ramadan, Qurban, Winter, etc.
+        case BADGE_UNLOCK_TYPE.SEASONAL:
+          if (doesDonationMatchFilters(donation, badge, donationDate)) {
+            shouldUpdate = true;
+          }
+          break;
+
+        // ✅ TIME BASED: Midnight Giver
+        case BADGE_UNLOCK_TYPE.TIME_BASED:
+          if (doesDonationMatchFilters(donation, badge, donationDate)) {
+            shouldUpdate = true;
+          }
+          break;
+
+        // ✅ RECURRING STREAK: Set & Forget
+        case BADGE_UNLOCK_TYPE.RECURRING_STREAK:
+          if (donation.donationType === 'recurring') {
+            shouldUpdate = true;
+          }
+          break;
+
+        // ✅ FREQUENCY: Monthly Mover
+        case BADGE_UNLOCK_TYPE.FREQUENCY:
+          shouldUpdate = true;
+          break;
+
+        // ✅ UNIQUE CAUSES: Cause Explorer
+        case BADGE_UNLOCK_TYPE.UNIQUE_CAUSES:
+          if (donation.cause) {
+            shouldUpdate = true;
+          }
+          break;
+
+        default:
+          console.log(`⚠️ Unhandled unlock type: ${badge.unlockType}`);
       }
 
-      // Cast to any to access updateProgress
-      await (userBadge as any).updateProgress(1, (donation as any).amount);
+      if (shouldUpdate) {
+        await updateBadgeForUser(
+          normalizedUserId,
+          badge,
+          donation,
+          donationDate
+        );
+      }
+    } catch (error) {
+      console.error(`❌ Error checking badge ${badge.name}:`, error);
     }
   }
+
+  console.log(`✅ Badge check completed for donation: ${donationId}`);
 };
+
+/**
+ * Update badge for user
+ */
+const updateBadgeForUser = async (
+  userId: Types.ObjectId,
+  badge: any,
+  donation: any,
+  donationDate: Date
+): Promise<void> => {
+  // Find or create user badge
+  let userBadge = await UserBadge.findOne({
+    user: userId,
+    badge: badge._id,
+  });
+
+  if (!userBadge) {
+    console.log(
+      `📝 Creating new user badge: ${badge.name} for user: ${userId}`
+    );
+    const initialTier = badge.isSingleTier ? 'one-tier' : 'colour';
+    userBadge = await UserBadge.create({
+      user: userId,
+      badge: badge._id,
+      currentTier: initialTier,
+      progressCount: 0,
+      progressAmount: 0,
+      tiersUnlocked: [{ tier: initialTier, unlockedAt: new Date() }],
+      isCompleted: false,
+    });
+  }
+
+  // Prepare metadata
+  const metadata: any = {
+    causeId: donation.cause?._id || donation.cause,
+    donationDate,
+    isRecurring: donation.donationType === 'recurring',
+  };
+
+  let countIncrement = 1;
+  let amountIncrement = donation.amount;
+
+  // Special handling
+  if (badge.unlockType === BADGE_UNLOCK_TYPE.UNIQUE_CAUSES) {
+    // Cause Explorer: Count unique causes
+    if (donation.cause) {
+      await (userBadge as any).addUniqueCause(
+        donation.cause._id || donation.cause
+      );
+      countIncrement = 0;
+      userBadge.progressCount = (userBadge.uniqueCauses || []).length;
+    }
+  } else if (badge.unlockType === BADGE_UNLOCK_TYPE.RECURRING_STREAK) {
+    // Recurring streak: Track consecutive months
+    countIncrement = 0;
+    await (userBadge as any).updateConsecutiveMonths(donationDate);
+    userBadge.progressCount = userBadge.consecutiveMonths || 1;
+  } else if (badge.unlockType === BADGE_UNLOCK_TYPE.FREQUENCY) {
+    // Monthly Mover: Track consecutive months
+    countIncrement = 0;
+    await (userBadge as any).updateConsecutiveMonths(donationDate);
+    userBadge.progressCount = userBadge.consecutiveMonths || 1;
+  } else if (badge.unlockType === BADGE_UNLOCK_TYPE.SEASONAL) {
+    // Seasonal: Track by period/year
+    const period = badge.seasonalPeriod || getSeasonalPeriod(donationDate);
+    const year = getCurrentHijriYear();
+    if (period) {
+      await (userBadge as any).addSeasonalDonation(
+        period,
+        donation.amount,
+        year
+      );
+
+      const seasonalStats = (userBadge.seasonalDonations || []).find(
+        (sd: any) => sd.period === period && sd.year === year
+      );
+
+      if (seasonalStats) {
+        userBadge.progressCount = seasonalStats.count;
+        userBadge.progressAmount = seasonalStats.amount;
+        countIncrement = 0;
+        amountIncrement = 0;
+      }
+    }
+  }
+
+  // Update progress
+  if (countIncrement > 0 || amountIncrement > 0) {
+    await (userBadge as any).updateProgress(
+      countIncrement,
+      amountIncrement,
+      metadata
+    );
+  } else {
+    await userBadge.save();
+    await (userBadge as any).checkTierUpgrade();
+  }
+
+  console.log(`✅ Updated badge: ${badge.name} for user: ${userId}`);
+  console.log(
+    `   Progress: ${userBadge.progressCount} | Amount: $${userBadge.progressAmount}`
+  );
+};
+
+// ==========================================
+// STATISTICS
+// ==========================================
 
 /**
  * Get badge statistics
@@ -563,38 +828,21 @@ const getBadgeStatistics = async (
           $group: {
             _id: null,
             totalBadges: { $sum: 1 },
-            activeBadges: {
-              $sum: { $cond: ['$isActive', 1, 0] },
-            },
+            activeBadges: { $sum: { $cond: ['$isActive', 1, 0] } },
           },
         },
       ]),
       Badge.aggregate([
         { $match: { ...dateFilter, category: { $exists: true } } },
-        {
-          $group: {
-            _id: '$category',
-            count: { $sum: 1 },
-          },
-        },
+        { $group: { _id: '$category', count: { $sum: 1 } } },
       ]),
       Badge.aggregate([
         { $match: dateFilter },
-        {
-          $group: {
-            _id: '$unlockType',
-            count: { $sum: 1 },
-          },
-        },
+        { $group: { _id: '$unlockType', count: { $sum: 1 } } },
       ]),
       UserBadge.aggregate([
         { $match: dateFilter },
-        {
-          $group: {
-            _id: '$badge',
-            userCount: { $sum: 1 },
-          },
-        },
+        { $group: { _id: '$badge', userCount: { $sum: 1 } } },
         { $sort: { userCount: -1 } },
         { $limit: 10 },
         {
@@ -617,10 +865,7 @@ const getBadgeStatistics = async (
     ]
   );
 
-  const stats = overallStats[0] || {
-    totalBadges: 0,
-    activeBadges: 0,
-  };
+  const stats = overallStats[0] || { totalBadges: 0, activeBadges: 0 };
 
   const totalUserBadges = await UserBadge.countDocuments(dateFilter);
   const completedBadges = await UserBadge.countDocuments({
@@ -669,24 +914,24 @@ const getAllBadgesWithProgress = async (
   );
 
   const badgesWithProgress: IUserBadgeProgress[] = badges.map((badge: any) => {
-    const userBadge = userBadgeMap.get(badge._id.toString()) as
-      | IUserBadge
-      | undefined;
+    const userBadge = userBadgeMap.get(badge._id.toString()) as any;
     const isUnlocked = !!userBadge;
-    const currentTier = userBadge?.currentTier || 'colour';
+    const currentTier =
+      userBadge?.currentTier || (badge.isSingleTier ? 'one-tier' : 'colour');
     const progressCount = userBadge?.progressCount || 0;
+    const progressAmount = userBadge?.progressAmount || 0;
 
-    // Get next tier
     let nextTier = null;
-    const currentIndex = TIER_ORDER.indexOf(currentTier);
-    if (currentIndex < TIER_ORDER.length - 1) {
-      const nextTierName = TIER_ORDER[currentIndex + 1];
-      nextTier =
-        (badge.tiers as IBadgeTier[]).find((t) => t.tier === nextTierName) ||
-        null;
+    if (!badge.isSingleTier) {
+      const currentIndex = TIER_ORDER_PROGRESSION.indexOf(currentTier);
+      if (currentIndex < TIER_ORDER_PROGRESSION.length - 1) {
+        const nextTierName = TIER_ORDER_PROGRESSION[currentIndex + 1];
+        nextTier =
+          (badge.tiers as IBadgeTier[]).find((t) => t.tier === nextTierName) ||
+          null;
+      }
     }
 
-    // Calculate progress
     let progressPercentage = 0;
     let remainingForNextTier = 0;
 
@@ -699,6 +944,8 @@ const getAllBadgesWithProgress = async (
         0,
         nextTier.requiredCount - progressCount
       );
+    } else if (badge.isSingleTier) {
+      progressPercentage = isUnlocked ? 100 : 0;
     } else if (isUnlocked) {
       progressPercentage = 100;
     }
@@ -710,6 +957,7 @@ const getAllBadgesWithProgress = async (
       currentTier,
       nextTier: nextTier || undefined,
       progressCount,
+      progressAmount,
       progressPercentage: Math.round(progressPercentage),
       remainingForNextTier: nextTier ? remainingForNextTier : undefined,
     };
@@ -718,7 +966,10 @@ const getAllBadgesWithProgress = async (
   return badgesWithProgress;
 };
 
-// Export all functions as a service object
+// ==========================================
+// EXPORT SERVICE
+// ==========================================
+
 export const badgeService = {
   createBadge,
   updateBadge,

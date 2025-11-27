@@ -1,3 +1,5 @@
+// src/app/modules/badge/badge.route.ts
+
 import express from 'express';
 
 import { ROLE } from '../Auth/auth.constant';
@@ -8,11 +10,7 @@ import { auth, validateRequest } from '../../middlewares';
 
 const router = express.Router();
 
-/**
- * @route   POST /api/badges
- * @desc    Create a new badge
- * @access  Private (Admin, Super Admin)
- */
+// Create badge
 router.post(
   '/',
   auth(ROLE.ADMIN),
@@ -20,11 +18,7 @@ router.post(
   badgeController.createBadge
 );
 
-/**
- * @route   PATCH /api/badges/:id
- * @desc    Update a badge
- * @access  Private (Admin, Super Admin)
- */
+// Update badge
 router.patch(
   '/:id',
   auth(ROLE.ADMIN),
@@ -32,34 +26,21 @@ router.patch(
   badgeController.updateBadge
 );
 
-/**
- * @route   GET /api/badges/:id
- * @desc    Get badge by ID
- * @access  Public
- */
+// Get badge by ID
 router.get(
   '/:id',
   validateRequest(badgeValidation.getBadgeByIdSchema),
   badgeController.getBadgeById
 );
 
-/**
-* @route   GET /api/badgesFContinue
-@desc    Get all badges with filters
-@access  Public
-*/
+// Get all badges
 router.get(
   '/',
   validateRequest(badgeValidation.getBadgesSchema),
   badgeController.getBadges
 );
 
-/**
-
-@route   DELETE /api/badges/:id
-@desc    Delete badge
-@access  Private (Admin, Super Admin)
-*/
+// Delete badge
 router.delete(
   '/:id',
   auth(ROLE.ADMIN),
@@ -67,12 +48,7 @@ router.delete(
   badgeController.deleteBadge
 );
 
-/**
-
-@route   POST /api/badges/assign
-@desc    Assign badge to user
-@access  Private (Admin, Super Admin)
-*/
+// Assign badge to user
 router.post(
   '/assign',
   auth(ROLE.ADMIN),
@@ -80,12 +56,7 @@ router.post(
   badgeController.assignBadgeToUser
 );
 
-/**
-
-@route   GET /api/badges/user/:userId
-@desc    Get user badges
-@access  Private (Owner, Admin, Super Admin)
-*/
+// Get user badges
 router.get(
   '/user/:userId',
   auth(ROLE.CLIENT, ROLE.ADMIN),
@@ -93,24 +64,14 @@ router.get(
   badgeController.getUserBadges
 );
 
-/**
-
-@route   GET /api/badges/user/:userId/progress
-@desc    Get all badges with user progress (for donor app)
-@access  Private (Owner, Admin, Super Admin)
-*/
+// Get all badges with user progress
 router.get(
   '/user/:userId/progress',
   auth(ROLE.CLIENT, ROLE.ADMIN),
   badgeController.getAllBadgesWithProgress
 );
 
-/**
-
-@route   GET /api/badges/user/:userId/badge/:badgeId
-@desc    Get user badge progress for specific badge
-@access  Private (Owner, Admin, Super Admin)
-*/
+// Get user badge progress for specific badge
 router.get(
   '/user/:userId/badge/:badgeId',
   auth(ROLE.CLIENT, ROLE.ADMIN),
@@ -118,12 +79,7 @@ router.get(
   badgeController.getUserBadgeProgress
 );
 
-/**
-
-@route   PATCH /api/badges/user/:userId/badge/:badgeId/progress
-@desc    Update user badge progress
-@access  Private (System/Admin)
-*/
+// Update user badge progress
 router.patch(
   '/user/:userId/badge/:badgeId/progress',
   auth(ROLE.ADMIN),
@@ -131,12 +87,7 @@ router.patch(
   badgeController.updateUserBadgeProgress
 );
 
-/**
-
-@route   GET /api/badges/stats
-@desc    Get badge statistics
-@access  Private (Admin, Super Admin)
-*/
+// Get badge statistics
 router.get(
   '/stats',
   auth(ROLE.ADMIN),

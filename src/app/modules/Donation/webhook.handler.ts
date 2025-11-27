@@ -13,6 +13,7 @@ import { RoundUpTransactionModel } from '../RoundUpTransaction/roundUpTransactio
 import { receiptServices } from './../Receipt/receipt.service';
 import { Receipt } from '../Receipt/receipt.model';
 import { pointsServices } from '../Points/points.service';
+import { badgeService } from '../badge/badge.service';
 
 // Helper function to calculate next donation date for recurring donations
 const calculateNextDonationDate = (
@@ -438,7 +439,7 @@ const handlePaymentIntentSucceeded = async (
     try {
       await pointsServices.awardPointsForDonation(
         donation.donor._id.toString(),
-        donation._id.toString(),
+        donation._id!.toString(),
         donation.amount // amount is in dollars
       );
       console.log(
@@ -453,7 +454,22 @@ const handlePaymentIntentSucceeded = async (
     }
 
     // ------------------------------------------------------------------
-    // 3. Handle Round-Up Donations
+    // 3. CHECK AND UPDATE BADGES
+    // ------------------------------------------------------------------
+    try {
+      console.log(`🏅 Checking badges for user: ${donation.donor._id}`);
+      await badgeService.checkAndUpdateBadgesForDonation(
+        donation.donor._id,
+        donation._id?.toString()!
+      );
+      console.log(`✅ Badge check completed for donation: ${donation._id}`);
+    } catch (err) {
+      console.error(`Badge checking failed for donation ${donation._id}:`, err);
+      // Non-blocking — user still donated and got points
+    }
+
+    // ------------------------------------------------------------------
+    // 4. Handle Round-Up Donations
     // ------------------------------------------------------------------
     if (metadata?.donationType === 'roundup' && metadata?.roundUpId) {
       console.log(`Processing Round-Up donation: ${metadata.roundUpId}`);
@@ -469,7 +485,7 @@ const handlePaymentIntentSucceeded = async (
     }
 
     // ------------------------------------------------------------------
-    // 4. Handle Recurring / Scheduled Donations
+    // 5. Handle Recurring / Scheduled Donations
     // ------------------------------------------------------------------
     if (
       metadata?.donationType === 'recurring' &&
@@ -493,6 +509,7 @@ const handlePaymentIntentSucceeded = async (
     // Don't throw — Stripe will retry webhook if we return 5xx
   }
 };
+
 // Handle payment_intent.payment_failed event
 const handlePaymentIntentFailed = async (
   paymentIntent: Stripe.PaymentIntent

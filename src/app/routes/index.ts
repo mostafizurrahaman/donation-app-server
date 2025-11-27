@@ -19,6 +19,7 @@ import { roundUpTransactionRoutes } from '../modules/RoundUpTransaction/roundUpT
 import { ReceiptRoutes } from '../modules/Receipt/receipt.router';
 import { PointsRoutes } from '../modules/Points/points.route';
 import { RewardRoutes } from '../modules/Reward/reward.route';
+import { BadgeRoutes } from '../modules/badge/badge.route';
 
 const router = Router();
 
@@ -101,6 +102,10 @@ const moduleRoutes = [
   {
     path: '/rewards',
     route: RewardRoutes,
+  },
+  {
+    path: '/badges',
+    route: BadgeRoutes,
   },
 ];
 

@@ -1,7 +1,11 @@
+// src/app/modules/badge/badge.validation.ts
+
 import { z } from 'zod';
 import {
   BADGE_TIER_VALUES,
   BADGE_UNLOCK_TYPE_VALUES,
+  CONDITION_LOGIC_VALUES,
+  SEASONAL_PERIOD_VALUES,
   MAX_BADGE_NAME_LENGTH,
   MAX_BADGE_DESCRIPTION_LENGTH,
   MAX_TIER_NAME_LENGTH,
@@ -20,28 +24,43 @@ const badgeTierSchema = z.object({
 
 export const createBadgeSchema = z.object({
   body: z.object({
-    name: z
-      .string()
-      .min(1, 'Badge name is required')
-      .max(
-        MAX_BADGE_NAME_LENGTH,
-        `Badge name cannot exceed ${MAX_BADGE_NAME_LENGTH} characters`
-      ),
-    description: z
-      .string()
-      .min(1, 'Description is required')
-      .max(
-        MAX_BADGE_DESCRIPTION_LENGTH,
-        `Description cannot exceed ${MAX_BADGE_DESCRIPTION_LENGTH} characters`
-      ),
+    name: z.string().min(1).max(MAX_BADGE_NAME_LENGTH),
+    description: z.string().min(1).max(MAX_BADGE_DESCRIPTION_LENGTH),
     icon: z.string().url().optional(),
     tiers: z
       .array(badgeTierSchema)
-      .length(4, 'Badge must have exactly 4 tiers'),
+      .refine((tiers) => tiers.length === 1 || tiers.length === 4, {
+        message: 'Badge must have exactly 1 tier or 4 tiers',
+      }),
+    isSingleTier: z.boolean().optional(),
     category: z.string().optional(),
     unlockType: z.enum(BADGE_UNLOCK_TYPE_VALUES as [string, ...string[]]),
+    // ✅ UPDATED: Use 'both' | 'any_one'
+    conditionLogic: z
+      .enum(CONDITION_LOGIC_VALUES as [string, ...string[]])
+      .optional(),
     targetOrganization: z.string().optional(),
     targetCause: z.string().optional(),
+    seasonalPeriod: z
+      .enum(SEASONAL_PERIOD_VALUES as [string, ...string[]])
+      .optional(),
+    timeRange: z
+      .object({
+        start: z.number().min(0).max(23),
+        end: z.number().min(0).max(23),
+      })
+      .optional(),
+    donationFilters: z
+      .object({
+        maxAmount: z.number().min(0).optional(),
+        minAmount: z.number().min(0).optional(),
+        donationType: z.enum(['one-time', 'recurring', 'round-up']).optional(),
+        specificCategory: z.string().optional(),
+        specificCategories: z.array(z.string()).optional(),
+      })
+      .optional(),
+    hijriMonth: z.number().min(1).max(12).optional(),
+    hijriDay: z.number().min(1).max(30).optional(),
     isActive: z.boolean().optional(),
     isVisible: z.boolean().optional(),
     featured: z.boolean().optional(),
@@ -50,19 +69,48 @@ export const createBadgeSchema = z.object({
 
 export const updateBadgeSchema = z.object({
   params: z.object({
-    id: z.string().min(1, 'Badge ID is required'),
+    id: z.string().min(1),
   }),
   body: z.object({
     name: z.string().max(MAX_BADGE_NAME_LENGTH).optional(),
     description: z.string().max(MAX_BADGE_DESCRIPTION_LENGTH).optional(),
     icon: z.string().url().optional(),
-    tiers: z.array(badgeTierSchema).length(4).optional(),
+    tiers: z
+      .array(badgeTierSchema)
+      .refine((tiers) => tiers.length === 1 || tiers.length === 4, {
+        message: 'Badge must have exactly 1 tier or 4 tiers',
+      })
+      .optional(),
+    isSingleTier: z.boolean().optional(),
     category: z.string().optional(),
     unlockType: z
       .enum(BADGE_UNLOCK_TYPE_VALUES as [string, ...string[]])
       .optional(),
+    conditionLogic: z
+      .enum(CONDITION_LOGIC_VALUES as [string, ...string[]])
+      .optional(),
     targetOrganization: z.string().optional(),
     targetCause: z.string().optional(),
+    seasonalPeriod: z
+      .enum(SEASONAL_PERIOD_VALUES as [string, ...string[]])
+      .optional(),
+    timeRange: z
+      .object({
+        start: z.number().min(0).max(23),
+        end: z.number().min(0).max(23),
+      })
+      .optional(),
+    donationFilters: z
+      .object({
+        maxAmount: z.number().min(0).optional(),
+        minAmount: z.number().min(0).optional(),
+        donationType: z.enum(['one-time', 'recurring', 'round-up']).optional(),
+        specificCategory: z.string().optional(),
+        specificCategories: z.array(z.string()).optional(),
+      })
+      .optional(),
+    hijriMonth: z.number().min(1).max(12).optional(),
+    hijriDay: z.number().min(1).max(30).optional(),
     isActive: z.boolean().optional(),
     isVisible: z.boolean().optional(),
     featured: z.boolean().optional(),
@@ -71,7 +119,7 @@ export const updateBadgeSchema = z.object({
 
 export const getBadgeByIdSchema = z.object({
   params: z.object({
-    id: z.string().min(1, 'Badge ID is required'),
+    id: z.string().min(1),
   }),
 });
 
@@ -94,14 +142,14 @@ export const getBadgesSchema = z.object({
 
 export const deleteBadgeSchema = z.object({
   params: z.object({
-    id: z.string().min(1, 'Badge ID is required'),
+    id: z.string().min(1),
   }),
 });
 
 export const assignBadgeSchema = z.object({
   body: z.object({
-    userId: z.string().min(1, 'User ID is required'),
-    badgeId: z.string().min(1, 'Badge ID is required'),
+    userId: z.string().min(1),
+    badgeId: z.string().min(1),
     initialTier: z.enum(BADGE_TIER_VALUES as [string, ...string[]]).optional(),
     initialProgress: z.number().min(0).optional(),
   }),
@@ -109,7 +157,7 @@ export const assignBadgeSchema = z.object({
 
 export const getUserBadgesSchema = z.object({
   params: z.object({
-    userId: z.string().min(1, 'User ID is required'),
+    userId: z.string().min(1),
   }),
   query: z.object({
     badgeId: z.string().optional(),
@@ -124,11 +172,11 @@ export const getUserBadgesSchema = z.object({
 
 export const updateBadgeProgressSchema = z.object({
   params: z.object({
-    userId: z.string().min(1, 'User ID is required'),
-    badgeId: z.string().min(1, 'Badge ID is required'),
+    userId: z.string().min(1),
+    badgeId: z.string().min(1),
   }),
   body: z.object({
-    count: z.number().min(1, 'Count must be at least 1'),
+    count: z.number().min(0),
     amount: z.number().min(0).optional(),
   }),
 });
@@ -142,7 +190,7 @@ export const getBadgeStatsSchema = z.object({
 
 export const getUserBadgeProgressSchema = z.object({
   params: z.object({
-    userId: z.string().min(1, 'User ID is required'),
-    badgeId: z.string().min(1, 'Badge ID is required'),
+    userId: z.string().min(1),
+    badgeId: z.string().min(1),
   }),
 });

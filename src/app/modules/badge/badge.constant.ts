@@ -1,4 +1,7 @@
+// src/app/modules/badge/badge.constant.ts
+
 export const BADGE_TIER = {
+  ONE_TIER: 'one-tier',
   COLOUR: 'colour',
   BRONZE: 'bronze',
   SILVER: 'silver',
@@ -8,56 +11,124 @@ export const BADGE_TIER = {
 export const BADGE_TIER_VALUES = Object.values(BADGE_TIER);
 
 export const BADGE_UNLOCK_TYPE = {
+  // Donation-based
   DONATION_COUNT: 'donation_count',
   DONATION_AMOUNT: 'donation_amount',
+  FIRST_TIME: 'first_time',
+
+  // Category/Cause-based
   CAUSE_SPECIFIC: 'cause_specific',
+  CATEGORY_SPECIFIC: 'category_specific',
   ORGANIZATION_SPECIFIC: 'organization_specific',
-  FREQUENCY: 'frequency',
+
+  // Round-up specific
   ROUND_UP: 'round_up',
+  ROUND_UP_AMOUNT: 'round_up_amount',
+
+  // Recurring specific
+  RECURRING_STREAK: 'recurring_streak',
+
+  // Frequency & Patterns
+  FREQUENCY: 'frequency',
   STREAK: 'streak',
+  UNIQUE_CAUSES: 'unique_causes',
+
+  // Time-based
+  TIME_BASED: 'time_based',
+
+  // Seasonal
+  SEASONAL: 'seasonal',
+
+  // Size-based
+  DONATION_SIZE: 'donation_size',
+
+  // Amount threshold
+  AMOUNT_THRESHOLD: 'amount_threshold',
 } as const;
 
 export const BADGE_UNLOCK_TYPE_VALUES = Object.values(BADGE_UNLOCK_TYPE);
 
+// ✅ UPDATED: Condition logic (both = AND, any_one = OR)
+export const CONDITION_LOGIC = {
+  BOTH: 'both', // ALL conditions must be met
+  ANY_ONE: 'any_one', // ANY ONE condition can be met
+} as const;
+
+export const CONDITION_LOGIC_VALUES = Object.values(CONDITION_LOGIC);
+
+// Seasonal periods
+export const SEASONAL_PERIOD = {
+  RAMADAN: 'ramadan',
+  LAYLAT_AL_QADR: 'laylat_al_qadr',
+  DHUL_HIJJAH: 'dhul_hijjah',
+  WINTER: 'winter',
+  ZAKAT_FITR: 'zakat_fitr',
+} as const;
+
+export const SEASONAL_PERIOD_VALUES = Object.values(SEASONAL_PERIOD);
+
+// Time ranges
+export const TIME_RANGE = {
+  MIDNIGHT: 'midnight', // 12am-4am
+  MORNING: 'morning', // 6am-12pm
+  AFTERNOON: 'afternoon', // 12pm-6pm
+  EVENING: 'evening', // 6pm-12am
+} as const;
+
+// Badge categories (MUST match Cause categories exactly!)
 export const BADGE_CATEGORY = {
+  // Islamic & Specific
+  WATER: 'Water',
+  YOUTH: 'Youth',
+  QURAN_EDUCATION: 'Quran Education',
+  ZAKAT: 'Zakat',
+  FOOD: 'Food',
+  SADAQAH: 'Sadaqah',
+  MOSQUE_UTILITIES: 'Mosque Utilities',
+  REFUGEES: 'Refugees',
+  EMERGENCIES: 'Emergencies',
+
+  // General
   EDUCATION: 'Education',
   HEALTH: 'Health',
   EMERGENCY_RELIEF: 'Emergency Relief',
   ENVIRONMENT: 'Environment',
   COMMUNITY: 'Community',
   ANIMAL_WELFARE: 'Animal Welfare',
-  GENERAL: 'General',
+  ORPHANS: 'Orphans',
+
+  // Special
+  ROUND_UP: 'Round-Up',
+  SEASONAL: 'Seasonal',
+  MILESTONE: 'Milestone',
+  FREQUENCY: 'Frequency',
 } as const;
 
 export const BADGE_CATEGORY_VALUES = Object.values(BADGE_CATEGORY);
 
-// Tier order for progression
-export const TIER_ORDER = ['colour', 'bronze', 'silver', 'gold'];
+// Tier order
+export const TIER_ORDER = ['one-tier', 'colour', 'bronze', 'silver', 'gold'];
+export const TIER_ORDER_PROGRESSION = ['colour', 'bronze', 'silver', 'gold'];
 
-// Tier colors for UI
+// Tier colors
 export const TIER_COLORS = {
-  colour: '#9CA3AF', // Gray
-  bronze: '#CD7F32', // Bronze
-  silver: '#C0C0C0', // Silver
-  gold: '#FFD700', // Gold
-} as const;
-
-// Default tier configurations (can be overridden per badge)
-export const DEFAULT_TIER_REQUIREMENTS = {
-  colour: 1,
-  bronze: 3,
-  silver: 5,
-  gold: 10,
+  'one-tier': '#10B981',
+  colour: '#9CA3AF',
+  bronze: '#CD7F32',
+  silver: '#C0C0C0',
+  gold: '#FFD700',
 } as const;
 
 // Validation limits
 export const MAX_BADGE_NAME_LENGTH = 100;
 export const MAX_BADGE_DESCRIPTION_LENGTH = 500;
 export const MAX_TIER_NAME_LENGTH = 50;
-export const MIN_REQUIRED_COUNT = 1;
-export const MAX_REQUIRED_COUNT = 1000;
+export const MIN_REQUIRED_COUNT = 0;
+export const MAX_REQUIRED_COUNT = 10000;
+export const MIN_REQUIRED_AMOUNT = 0;
+export const MAX_REQUIRED_AMOUNT = 100000;
 
-// Pagination defaults
+// Pagination
 export const DEFAULT_PAGE = 1;
 export const DEFAULT_LIMIT = 20;
 export const MAX_LIMIT = 100;
@@ -78,51 +149,18 @@ export const BADGE_MESSAGES = {
   PROGRESS_UPDATED: 'Badge progress updated successfully',
 } as const;
 
-// Badge templates (predefined badges)
-export const BADGE_TEMPLATES = {
-  ROUND_UP_REBEL: {
-    name: 'Round-Up Rebel',
-    description: "You've turned small change into real change — literally.",
-    unlockType: BADGE_UNLOCK_TYPE.ROUND_UP,
-    tiers: [
-      { tier: BADGE_TIER.COLOUR, name: 'Getting Started', requiredCount: 1 },
-      { tier: BADGE_TIER.BRONZE, name: 'Change Maker', requiredCount: 10 },
-      { tier: BADGE_TIER.SILVER, name: 'Spare Change Hero', requiredCount: 30 },
-      { tier: BADGE_TIER.GOLD, name: 'Round-Up Legend', requiredCount: 100 },
-    ],
-  },
-  STREAK_CHAMPION: {
-    name: 'Streak Champion',
-    description: 'Consistency is key. Keep up the giving streak!',
-    unlockType: BADGE_UNLOCK_TYPE.STREAK,
-    tiers: [
-      { tier: BADGE_TIER.COLOUR, name: 'Day One', requiredCount: 1 },
-      { tier: BADGE_TIER.BRONZE, name: 'Week Warrior', requiredCount: 7 },
-      { tier: BADGE_TIER.SILVER, name: 'Month Master', requiredCount: 30 },
-      { tier: BADGE_TIER.GOLD, name: 'Unstoppable', requiredCount: 100 },
-    ],
-  },
-  EDUCATION_CHAMPION: {
-    name: 'Education Champion',
-    description: 'Supporting education and empowering minds.',
-    unlockType: BADGE_UNLOCK_TYPE.CAUSE_SPECIFIC,
-    category: BADGE_CATEGORY.EDUCATION,
-    tiers: [
-      { tier: BADGE_TIER.COLOUR, name: 'Learner', requiredCount: 1 },
-      { tier: BADGE_TIER.BRONZE, name: 'Supporter', requiredCount: 5 },
-      { tier: BADGE_TIER.SILVER, name: 'Advocate', requiredCount: 10 },
-      { tier: BADGE_TIER.GOLD, name: 'Champion', requiredCount: 20 },
-    ],
-  },
-  GENEROUS_GIVER: {
-    name: 'Generous Giver',
-    description: 'Your generosity knows no bounds.',
-    unlockType: BADGE_UNLOCK_TYPE.DONATION_COUNT,
-    tiers: [
-      { tier: BADGE_TIER.COLOUR, name: 'First Step', requiredCount: 1 },
-      { tier: BADGE_TIER.BRONZE, name: 'Regular Donor', requiredCount: 5 },
-      { tier: BADGE_TIER.SILVER, name: 'Committed Giver', requiredCount: 15 },
-      { tier: BADGE_TIER.GOLD, name: 'Philanthropist', requiredCount: 50 },
-    ],
-  },
+// Hijri months
+export const HIJRI_MONTHS = {
+  MUHARRAM: 1,
+  SAFAR: 2,
+  RABI_AL_AWWAL: 3,
+  RABI_AL_THANI: 4,
+  JUMADA_AL_AWWAL: 5,
+  JUMADA_AL_THANI: 6,
+  RAJAB: 7,
+  SHABAN: 8,
+  RAMADAN: 9,
+  SHAWWAL: 10,
+  DHU_AL_QIDAH: 11,
+  DHU_AL_HIJJAH: 12,
 } as const;
