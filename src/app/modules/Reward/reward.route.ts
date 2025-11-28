@@ -5,12 +5,9 @@ import { ROLE } from '../Auth/auth.constant';
 import { validateRequest } from '../../middlewares/validateRequest';
 import * as rewardController from './reward.controller';
 import * as rewardValidation from './reward.validation';
+import { uploadForParsing } from '../../lib/upload';
 
 const router = express.Router();
-
-/**
- * Public routes
- */
 
 // Get featured rewards
 router.get('/featured', rewardController.getFeaturedRewards);
@@ -43,14 +40,11 @@ router.get(
   rewardController.getRewardsByBusiness
 );
 
-/**
- * Protected routes
- */
-
 // Create a new reward (Business/Admin)
 router.post(
   '/',
   auth(ROLE.BUSINESS, ROLE.ADMIN),
+  uploadForParsing.single('codesFile'),
   validateRequest(rewardValidation.createRewardSchema),
   rewardController.createReward
 );
@@ -75,6 +69,7 @@ router.delete(
 router.post(
   '/:id/codes',
   auth(ROLE.BUSINESS, ROLE.ADMIN),
+  uploadForParsing.single('file'),
   validateRequest(rewardValidation.uploadCodesSchema),
   rewardController.uploadCodes
 );
@@ -87,10 +82,6 @@ router.get(
   rewardController.getRewardStats
 );
 
-/**
- * Admin only routes
- */
-
 // Archive (permanent delete) reward
 router.delete(
   '/:id/archive',
@@ -100,4 +91,3 @@ router.delete(
 );
 
 export const RewardRoutes = router;
-export default router;

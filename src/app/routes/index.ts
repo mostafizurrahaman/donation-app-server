@@ -20,6 +20,7 @@ import { ReceiptRoutes } from '../modules/Receipt/receipt.router';
 import { PointsRoutes } from '../modules/Points/points.route';
 import { RewardRoutes } from '../modules/Reward/reward.route';
 import { BadgeRoutes } from '../modules/badge/badge.route';
+import { BusinessRoutes } from '../modules/Business/business.routes';
 
 const router = Router();
 
@@ -41,10 +42,10 @@ const moduleRoutes = [
   //   route: OrganizationRoutes,
   // },
 
-  // {
-  //   path: '/business',
-  //   route: BusinessRoutes,
-  // },
+  {
+    path: '/business',
+    route: BusinessRoutes,
+  },
   // {
   //   path: '/notification',
   //   route: notificationRoutes,

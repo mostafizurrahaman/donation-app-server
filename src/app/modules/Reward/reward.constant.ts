@@ -32,16 +32,28 @@ export const REWARD_CATEGORY = {
 
 export const REWARD_CATEGORY_VALUES = Object.values(REWARD_CATEGORY);
 
+export const REDEMPTION_METHOD = {
+  QR_CODE: 'qr',
+  NFC: 'nfc',
+  STATIC_CODE: 'static-code',
+  DISCOUNT_CODE: 'discount-code',
+  GIFT_CARD: 'gift-card',
+} as const;
+
+export const REDEMPTION_METHOD_VALUES = Object.values(REDEMPTION_METHOD);
+
+// Static points cost for all rewards
+export const STATIC_POINTS_COST = 500;
+
 // Validation limits
-export const MIN_POINTS_COST = 100; // Minimum 100 points = $1
-export const MAX_POINTS_COST = 1000000; // 1 million points = $10,000
 export const MIN_REDEMPTION_LIMIT = 1;
 export const MAX_REDEMPTION_LIMIT = 10000;
 export const MAX_TITLE_LENGTH = 100;
 export const MAX_DESCRIPTION_LENGTH = 1000;
 export const MAX_TERMS_LENGTH = 2000;
-export const MAX_CODE_LENGTH = 50;
-export const MAX_CODES_PER_REWARD = 10000;
+export const MAX_CODE_LENGTH = 500; // For URLs
+export const MAX_CODES_PER_UPLOAD = 10000;
+export const CODES_TO_GENERATE_FOR_INSTORE = 100; // Auto-generate 100 codes for in-store
 
 // Pagination defaults
 export const DEFAULT_PAGE = 1;
@@ -71,20 +83,16 @@ export const REWARD_MESSAGES = {
   NO_CODES_AVAILABLE: 'No redemption codes available',
   INVALID_CODE: 'Invalid or already used redemption code',
   CODE_ALREADY_USED: 'This code has already been used',
-  BUSINESS_NOT_FOUND: 'Business not found',
-  INVALID_REWARD_TYPE: 'Invalid reward type for this operation',
+  INVALID_TYPE: 'Invalid reward type',
   CODES_UPLOADED: 'Codes uploaded successfully',
-} as const;
-
-// CSV upload settings
-export const CSV_UPLOAD = {
-  MAX_FILE_SIZE: 5 * 1024 * 1024, // 5MB
-  ALLOWED_MIME_TYPES: ['text/csv', 'application/vnd.ms-excel'],
-  ENCODING: 'utf-8',
+  INVALID_CSV_FORMAT: 'Invalid CSV format',
+  CATEGORY_REQUIRED: 'Category is required',
+  INVALID_REDEMPTION_METHODS: 'Invalid redemption methods for reward type',
 } as const;
 
 // Auto-status update intervals
 export const STATUS_UPDATE_INTERVAL = 3600000; // 1 hour in milliseconds
 
-// Searchable fields for text search
-export const SEARCHABLE_FIELDS = ['title', 'description', 'terms'];
+// URL validation regex
+export const URL_REGEX =
+  /^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/;
