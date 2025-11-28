@@ -1,0 +1,515 @@
+{
+  "info": {
+    "_postman_id": "crescent-rewards-v1",
+    "name": "Crescent Change – Rewards API",
+    "description": "Complete Rewards System API for Crescent Change\n\nRoles:\n- **Public** → No auth required for browsing\n- **Client** → Users who can view and redeem rewards\n- **Business** → Business owners managing rewards\n- **Admin** → Super Admin with full access\n\n**Reward Types:**\n- **In-Store** → QR code, NFC tap, static code\n- **Online** → Discount codes, gift cards\n\n**All rewards cost 500 points (static)**",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Public Endpoints",
+      "item": [
+        {
+          "name": "[Public] Get All Rewards",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/rewards?page=1&limit=20&type=online&category=food&status=active",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "rewards"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                {
+                  "key": "type",
+                  "value": "online",
+                  "description": "in-store | online",
+                  "disabled": true
+                },
+                {
+                  "key": "category",
+                  "value": "food",
+                  "description": "food | clothing | groceries | health | beauty | electronics | entertainment | travel | fitness | education | other",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "active",
+                  "description": "active | inactive | expired | upcoming | sold-out",
+                  "disabled": true
+                },
+                { "key": "featured", "value": "true", "disabled": true },
+                { "key": "search", "value": "coffee", "disabled": true },
+                { "key": "sortBy", "value": "createdAt", "disabled": true },
+                { "key": "sortOrder", "value": "desc", "disabled": true },
+                {
+                  "key": "userId",
+                  "value": "{{userId}}",
+                  "description": "Optional - checks affordability",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Browse all available rewards with filters"
+          }
+        },
+        {
+          "name": "[Public] Get Featured Rewards",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/rewards/featured?limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "rewards", "featured"],
+              "query": [
+                { "key": "limit", "value": "10" },
+                { "key": "category", "value": "food", "disabled": true }
+              ]
+            },
+            "description": "Get featured/promoted rewards"
+          }
+        },
+        {
+          "name": "[Public] Get Single Reward",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/rewards/{{rewardId}}?userId={{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "rewards", "{{rewardId}}"],
+              "query": [
+                {
+                  "key": "userId",
+                  "value": "{{userId}}",
+                  "description": "Optional - checks if user can afford",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "View detailed reward information"
+          }
+        },
+        {
+          "name": "[Public] Check Reward Availability",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/rewards/{{rewardId}}/availability?userId={{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "rewards", "{{rewardId}}", "availability"],
+              "query": [
+                {
+                  "key": "userId",
+                  "value": "{{userId}}",
+                  "description": "Optional - checks points balance"
+                }
+              ]
+            },
+            "description": "Check if reward is available and if user can afford it"
+          }
+        },
+        {
+          "name": "[Public] Get Business Rewards",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/rewards/business/{{businessId}}?page=1&limit=20&type=in-store",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "rewards", "business", "{{businessId}}"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "type", "value": "in-store", "disabled": true },
+                { "key": "category", "value": "food", "disabled": true },
+                { "key": "status", "value": "active", "disabled": true }
+              ]
+            },
+            "description": "Get all rewards from a specific business"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Business Endpoints",
+      "item": [
+        {
+          "name": "[Business] Create In-Store Reward",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{business_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"businessId\": \"{{businessId}}\",\n  \"title\": \"Free Coffee Voucher\",\n  \"description\": \"Enjoy a complimentary coffee of your choice at any of our locations\",\n  \"image\": \"https://example.com/coffee.jpg\",\n  \"type\": \"in-store\",\n  \"category\": \"food\",\n  \"redemptionLimit\": 100,\n  \"startDate\": \"2025-01-01\",\n  \"expiryDate\": \"2025-03-31\",\n  \"inStoreRedemptionMethods\": {\n    \"qrCode\": true,\n    \"staticCode\": true,\n    \"nfcTap\": false\n  },\n  \"terms\": \"Valid at participating locations only. One per customer per day.\",\n  \"featured\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/rewards",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "rewards"]
+            },
+            "description": "Create in-store reward - auto-generates 100 codes"
+          }
+        },
+        {
+          "name": "[Business] Create Online Reward (With CSV)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{business_token}}" }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "businessId",
+                  "value": "{{businessId}}",
+                  "type": "text"
+                },
+                {
+                  "key": "title",
+                  "value": "20% Off Online Purchase",
+                  "type": "text"
+                },
+                {
+                  "key": "description",
+                  "value": "Save 20% on your next online order",
+                  "type": "text"
+                },
+                {
+                  "key": "image",
+                  "value": "https://example.com/discount.jpg",
+                  "type": "text"
+                },
+                { "key": "type", "value": "online", "type": "text" },
+                { "key": "category", "value": "clothing", "type": "text" },
+                { "key": "expiryDate", "value": "2025-06-30", "type": "text" },
+                {
+                  "key": "onlineRedemptionMethods[discountCode]",
+                  "value": "true",
+                  "type": "text"
+                },
+                {
+                  "key": "onlineRedemptionMethods[giftCard]",
+                  "value": "false",
+                  "type": "text"
+                },
+                {
+                  "key": "terms",
+                  "value": "Not valid with other offers",
+                  "type": "text"
+                },
+                {
+                  "key": "codesFile",
+                  "type": "file",
+                  "src": "codes.csv",
+                  "description": "CSV with discount codes"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/rewards",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "rewards"]
+            },
+            "description": "Create online reward with codes upload"
+          }
+        },
+        {
+          "name": "[Business] Update Reward",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{business_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Updated Coffee Voucher\",\n  \"description\": \"Updated description\",\n  \"redemptionLimit\": 150,\n  \"expiryDate\": \"2025-04-30\",\n  \"featured\": true,\n  \"isActive\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/rewards/{{rewardId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "rewards", "{{rewardId}}"]
+            },
+            "description": "Update reward details"
+          }
+        },
+        {
+          "name": "[Business] Upload Additional Codes",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{business_token}}" }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "additional_codes.csv",
+                  "description": "CSV file with codes or gift card URLs"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/rewards/{{rewardId}}/codes",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "rewards", "{{rewardId}}", "codes"]
+            },
+            "description": "Upload more codes to existing online reward"
+          }
+        },
+        {
+          "name": "[Business] Soft Delete Reward",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{business_token}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/rewards/{{rewardId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "rewards", "{{rewardId}}"]
+            },
+            "description": "Mark reward as inactive (soft delete)"
+          }
+        },
+        {
+          "name": "[Business] Get Reward Statistics",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{business_token}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/rewards/analytics/stats?businessId={{businessId}}&startDate=2025-01-01&endDate=2025-12-31",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "rewards", "analytics", "stats"],
+              "query": [
+                {
+                  "key": "businessId",
+                  "value": "{{businessId}}",
+                  "disabled": true
+                },
+                { "key": "startDate", "value": "2025-01-01", "disabled": true },
+                { "key": "endDate", "value": "2025-12-31", "disabled": true }
+              ]
+            },
+            "description": "Get analytics and statistics for rewards"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin Endpoints",
+      "item": [
+        {
+          "name": "[Admin] Create Any Reward",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{admin_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"businessId\": \"{{businessId}}\",\n  \"title\": \"Admin Special Reward\",\n  \"description\": \"Special promotion created by admin\",\n  \"type\": \"online\",\n  \"category\": \"other\",\n  \"redemptionLimit\": 50,\n  \"onlineRedemptionMethods\": {\n    \"giftCard\": true,\n    \"discountCode\": false\n  },\n  \"featured\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/rewards",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "rewards"]
+            },
+            "description": "Admin can create rewards for any business"
+          }
+        },
+        {
+          "name": "[Admin] Update Any Reward",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{admin_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isActive\": false,\n  \"featured\": false,\n  \"category\": \"other\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/rewards/{{rewardId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "rewards", "{{rewardId}}"]
+            },
+            "description": "Admin can update any reward"
+          }
+        },
+        {
+          "name": "[Admin] Permanently Archive Reward",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{admin_token}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/rewards/{{rewardId}}/archive",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "rewards", "{{rewardId}}", "archive"]
+            },
+            "description": "Permanently delete reward from database (admin only)"
+          }
+        },
+        {
+          "name": "[Admin] Get All Statistics",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{admin_token}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/rewards/analytics/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "rewards", "analytics", "stats"]
+            },
+            "description": "Get platform-wide reward statistics"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Sample Data",
+      "item": [
+        {
+          "name": "Example: Create Gift Card Reward",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{business_token}}" }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "businessId",
+                  "value": "{{businessId}}",
+                  "type": "text"
+                },
+                {
+                  "key": "title",
+                  "value": "$10 Amazon Gift Card",
+                  "type": "text"
+                },
+                {
+                  "key": "description",
+                  "value": "Redeem your points for a $10 Amazon gift card",
+                  "type": "text"
+                },
+                { "key": "type", "value": "online", "type": "text" },
+                { "key": "category", "value": "other", "type": "text" },
+                {
+                  "key": "onlineRedemptionMethods[giftCard]",
+                  "value": "true",
+                  "type": "text"
+                },
+                {
+                  "key": "onlineRedemptionMethods[discountCode]",
+                  "value": "false",
+                  "type": "text"
+                },
+                {
+                  "key": "codesFile",
+                  "type": "file",
+                  "src": "gift_cards.csv",
+                  "description": "CSV with gift card URLs"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/rewards",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "rewards"]
+            },
+            "description": "Example CSV format:\n```\nhttps://amazon.com/giftcard/ABC123\nhttps://amazon.com/giftcard/DEF456\nhttps://amazon.com/giftcard/GHI789\n```"
+          }
+        },
+        {
+          "name": "Example: Create QR Code Reward",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{business_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"businessId\": \"{{businessId}}\",\n  \"title\": \"Free Gym Day Pass\",\n  \"description\": \"Access to all gym facilities for one day\",\n  \"type\": \"in-store\",\n  \"category\": \"fitness\",\n  \"redemptionLimit\": 50,\n  \"inStoreRedemptionMethods\": {\n    \"qrCode\": true,\n    \"nfcTap\": true,\n    \"staticCode\": false\n  },\n  \"expiryDate\": \"2025-12-31\",\n  \"terms\": \"Valid ID required. First-time visitors only.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/rewards",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "rewards"]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Set base URL if not already set",
+          "if (!pm.variables.get('baseUrl')) {",
+          "    pm.variables.set('baseUrl', 'http://localhost:5000');",
+          "}",
+          "",
+          "// Example variables to set:",
+          "// pm.variables.set('businessId', '66f8a1b2c3d4e5f678901234');",
+          "// pm.variables.set('rewardId', '66f8a1b2c3d4e5f678905678');",
+          "// pm.variables.set('userId', '66f8a1b2c3d4e5f678909012');"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000",
+      "type": "string"
+    },
+    {
+      "key": "businessId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "rewardId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "business_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "admin_token",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}
