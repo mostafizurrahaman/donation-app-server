@@ -26,6 +26,9 @@ const businessSchema = new Schema<IBusiness>(
     coverImage: {
       type: String,
     },
+    logoImage: {
+      type: String,
+    },
 
     businessPhoneNumber: {
       type: String,

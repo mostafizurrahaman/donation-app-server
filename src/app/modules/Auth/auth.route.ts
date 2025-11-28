@@ -150,7 +150,7 @@ router
 router
   .route('/business-signup')
   .post(
-    upload.fields([{ name: 'coverImage', maxCount: 1 }]),
+    upload.fields([{ name: 'logoImage', maxCount: 1 }]),
     validateRequestFromFormData(AuthValidation.businessSignupWithProfileSchema),
     AuthController.businessSignupWithProfile
   );

@@ -1002,6 +1002,9 @@ const resetPasswordIntoDB = async (
 
 // 12. fetchProfileFromDB
 const fetchProfileFromDB = async (user: IAuth) => {
+  console.log({
+    user,
+  });
   if (user?.role === ROLE.CLIENT) {
     const client = await Client.findOne({ auth: user._id }).populate([
       {
@@ -1022,6 +1025,7 @@ const fetchProfileFromDB = async (user: IAuth) => {
         select: 'email role isProfile',
       },
     ]);
+    console.log({ business });
 
     return business;
 
@@ -1327,7 +1331,7 @@ const businessSignupWithProfile = async (
     locations?: string[];
   },
   files?: {
-    coverImage?: Express.Multer.File[];
+    logoImage?: Express.Multer.File[];
   }
 ) => {
   // Extract auth and business data
@@ -1338,9 +1342,9 @@ const businessSignupWithProfile = async (
 
   if (existingUser) {
     // Clean up uploaded files if user exists
-    if (files?.coverImage?.[0]?.path) {
+    if (files?.logoImage?.[0]?.path) {
       try {
-        fs.unlinkSync(files.coverImage[0].path);
+        fs.unlinkSync(files.logoImage[0].path);
       } catch (err) {
         console.error('Failed to delete uploaded file:', err);
       }
@@ -1354,7 +1358,7 @@ const businessSignupWithProfile = async (
   }
 
   // Extract cover image path (optional)
-  const coverImage = files?.coverImage?.[0]?.path.replace(/\\/g, '/') || null;
+  const logoImage = files?.logoImage?.[0]?.path.replace(/\\/g, '/') || null;
 
   // Generate OTP for new user
   const otp = generateOtp();
@@ -1399,7 +1403,7 @@ const businessSignupWithProfile = async (
       description: businessData.description,
 
       // Optional fields - only add if provided
-      ...(coverImage && { coverImage }),
+      ...(logoImage && { logoImage }),
       ...(businessData.businessPhoneNumber && {
         businessPhoneNumber: businessData.businessPhoneNumber,
       }),
@@ -1454,9 +1458,9 @@ const businessSignupWithProfile = async (
     await session.endSession();
 
     // Clean up uploaded files on error
-    if (coverImage && fs.existsSync(coverImage)) {
+    if (logoImage && fs.existsSync(logoImage)) {
       try {
-        fs.unlinkSync(coverImage);
+        fs.unlinkSync(logoImage);
       } catch (deleteErr) {
         console.error('Failed to delete uploaded file:', deleteErr);
       }

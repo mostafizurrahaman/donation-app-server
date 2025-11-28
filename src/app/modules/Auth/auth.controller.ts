@@ -213,8 +213,11 @@ const updateAuthData = asyncHandler(async (req, res) => {
 // 17. Besiness Profile Create :
 const businessSignupWithProfile = asyncHandler(async (req, res) => {
   const files = {
-    coverImage: (req.files as any)?.coverImage || undefined,
+    logoImage: (req.files as any)?.logoImage || undefined,
   };
+  console.log({
+    files,
+  });
 
   const result = await AuthService.businessSignupWithProfile(req.body, files);
 
