@@ -2,7 +2,10 @@
 import express from 'express';
 import { auth } from '../../middlewares';
 import { ROLE } from '../Auth/auth.constant';
-import { validateRequest } from '../../middlewares/validateRequest';
+import {
+  validateRequest,
+  validateRequestFromFormData,
+} from '../../middlewares/validateRequest';
 import { RewardController } from './reward.controller';
 import { rewardValidation } from './reward.validation';
 import { upload, uploadForParsing } from '../../lib/upload';
@@ -92,7 +95,7 @@ router.post(
     { name: 'rewardImage', maxCount: 1 },
     { name: 'codesFiles', maxCount: 10 }, // Multiple code files for online rewards
   ]),
-  validateRequest(rewardValidation.createRewardSchema),
+  validateRequestFromFormData(rewardValidation.createRewardSchema),
   RewardController.createReward
 );
 
@@ -104,7 +107,7 @@ router.patch(
     { name: 'rewardImage', maxCount: 1 },
     { name: 'codesFiles', maxCount: 10 }, // Multiple code files for online rewards
   ]),
-  validateRequest(rewardValidation.updateRewardSchema),
+  validateRequestFromFormData(rewardValidation.updateRewardSchema),
   RewardController.updateReward
 );
 

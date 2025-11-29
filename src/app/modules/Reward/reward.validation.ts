@@ -20,7 +20,8 @@ const inStoreRedemptionMethodsSchema = z
   })
   .refine((data) => data.qrCode || data.staticCode || data.nfcTap, {
     message: 'At least one in-store redemption method must be selected',
-  });
+  })
+  .nullable();
 
 const onlineRedemptionMethodsSchema = z
   .object({
@@ -29,7 +30,8 @@ const onlineRedemptionMethodsSchema = z
   })
   .refine((data) => data.discountCode || data.giftCard, {
     message: 'At least one online redemption method must be selected',
-  });
+  })
+  .nullable();
 
 // Create reward schema
 export const createRewardSchema = z.object({

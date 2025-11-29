@@ -59,12 +59,6 @@ export interface ITokenUser {
 
 export const verifyToken = (token: string, secret: Secret) => {
   try {
-    console.log(`Verifying token: ${token} with secret: ${secret}`, {
-      tokenLength: token.length,
-      token,
-      secret,
-      secretLength: typeof secret === 'string' ? secret.length : 'N/A',
-    });
     const decoded = jwt.verify(token, secret) as ITokenUser;
 
     return decoded;

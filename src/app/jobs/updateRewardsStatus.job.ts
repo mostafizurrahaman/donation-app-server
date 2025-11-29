@@ -3,40 +3,124 @@ import cron from 'node-cron';
 import { rewardService } from '../modules/Reward/reward.service';
 
 /**
- * Run every hour to update reward statuses
- * Schedule: At minute 0 of every hour
+ * Run every 5 minutes to handle claim expirations and reward status updates
+ * Schedule: Every 5 minutes
  */
-export const updateRewardsStatusJob = cron.schedule(
-  '0 * * * *',
+export const rewardMaintenanceJob = cron.schedule(
+  '*/5 * * * *',
   async () => {
-    console.log('🔄 Running reward status update job...');
+    console.log('🔄 Running reward maintenance job (every 5 minutes)...');
+    const startTime = Date.now();
 
     try {
-      // Update expired rewards
-      await rewardService.updateExpiredRewards();
+      // 1. Expire old claims with full restoration (most important - runs every 5 minutes)
+      console.log('📋 Processing expired claims...');
+      const expirationResult =
+        await rewardService.expireOldClaimsWithFullRestoration();
+      console.log(
+        `✅ Expired claims: ${expirationResult.expiredCount}, Points refunded: ${expirationResult.pointsRefunded}, Errors: ${expirationResult.errors.length}`
+      );
 
-      // Update upcoming rewards to active
-      await rewardService.updateUpcomingRewards();
+      // 2. Update expired rewards (less critical - runs every 5 minutes)
+      console.log('⏰ Updating expired rewards...');
+      const expiredCount = await rewardService.updateExpiredRewards();
+      console.log(`✅ Updated ${expiredCount} expired rewards`);
 
-      console.log('✅ Reward status update completed successfully');
+      // 3. Update upcoming rewards to active (less critical - runs every 5 minutes)
+      console.log('🚀 Activating upcoming rewards...');
+      const activatedCount = await rewardService.updateUpcomingRewards();
+      console.log(`✅ Activated ${activatedCount} upcoming rewards`);
+
+      const duration = Date.now() - startTime;
+      console.log(`✅ Reward maintenance job completed in ${duration}ms`);
     } catch (error) {
-      console.error('❌ Reward status update job failed:', error);
+      console.error('❌ Reward maintenance job failed:', error);
+
+      // Log detailed error information
+      if (error instanceof Error) {
+        console.error('Error details:', {
+          message: error.message,
+          stack: error.stack,
+        });
+      }
     }
   },
   {
-    scheduled: true,
     timezone: 'UTC',
   }
 );
 
-// Start the job
-export const startRewardJobs = () => {
-  updateRewardsStatusJob.start();
-  console.log('📅 Reward status update job scheduled');
+/**
+ * Manual trigger for reward maintenance (used for testing/one-time execution)
+ */
+export const runRewardMaintenanceManual = async () => {
+  console.log('🔧 Manually triggering reward maintenance...');
+  const startTime = Date.now();
+
+  try {
+    // Call the same logic directly to avoid CronJob.invoke() issues
+    console.log('🔄 Running manual reward maintenance...');
+    
+    // 1. Expire old claims with full restoration
+    console.log('📋 Processing expired claims...');
+    const expirationResult = await rewardService.expireOldClaimsWithFullRestoration();
+    console.log(
+      `✅ Expired claims: ${expirationResult.expiredCount}, Points refunded: ${expirationResult.pointsRefunded}, Errors: ${expirationResult.errors.length}`
+    );
+
+    // 2. Update expired rewards
+    console.log('⏰ Updating expired rewards...');
+    const expiredCount = await rewardService.updateExpiredRewards();
+    console.log(`✅ Updated ${expiredCount} expired rewards`);
+
+    // 3. Update upcoming rewards to active
+    console.log('🚀 Activating upcoming rewards...');
+    const activatedCount = await rewardService.updateUpcomingRewards();
+    console.log(`✅ Activated ${activatedCount} upcoming rewards`);
+
+    const duration = Date.now() - startTime;
+    console.log(`✅ Manual reward maintenance completed in ${duration}ms`);
+    
+    return {
+      expiredClaims: expirationResult.expiredCount,
+      pointsRefunded: expirationResult.pointsRefunded,
+      errors: expirationResult.errors.length,
+      expiredRewards: expiredCount,
+      activatedRewards: activatedCount,
+      duration,
+    };
+  } catch (error) {
+    console.error('❌ Manual reward maintenance failed:', error);
+    
+    if (error instanceof Error) {
+      console.error('Error details:', {
+        message: error.message,
+        stack: error.stack,
+      });
+    }
+    
+    throw error;
+  }
 };
 
-// Stop the job
+// Start the jobs
+export const startRewardJobs = () => {
+  try {
+    // Check if job is already running, if not, start it
+    if (rewardMaintenanceJob.getStatus() === 'scheduled') {
+      console.log('📅 Reward maintenance jobs already started (every 5 minutes)');
+    } else {
+      rewardMaintenanceJob.start();
+      console.log('📅 Reward maintenance jobs started (every 5 minutes)');
+    }
+  } catch (error) {
+    console.error('❌ Failed to start reward maintenance jobs:', error);
+    throw error;
+  }
+};
+
+// Stop the jobs
 export const stopRewardJobs = () => {
-  updateRewardsStatusJob.stop();
-  console.log('⏹️ Reward status update job stopped');
+  rewardMaintenanceJob.stop();
+  console.log('⏹️ Reward maintenance jobs stopped');
 };

@@ -1,5 +1,6 @@
 import { startRoundUpProcessingCron } from './roundUpTransactions.job';
 import { startScheduledDonationsCron } from './scheduledDonations.job';
+import { startRewardJobs } from './updateRewardsStatus.job';
 
 /**
  * Initialize all cron jobs
@@ -19,13 +20,8 @@ export const initializeJobs = () => {
     // Start RoundUp transactions processing cron job
     startRoundUpProcessingCron();
 
-    // Start reward status update job
-    // startRewardJobs(); //: TODO: Uncomment when reward jobs are implemented
-
-    // Add more cron jobs here as needed
-    // Example:
-    // startReceiptGenerationCron();
-    // startPaymentRetrysCron();
+    // Start reward maintenance job (every 5 minutes)
+    startRewardJobs();
 
     console.log('════════════════════════════════════════════════════════');
     console.log('✅ All background jobs initialized successfully');
@@ -39,3 +35,4 @@ export const initializeJobs = () => {
 
 export * from './scheduledDonations.job';
 export * from './roundUpTransactions.job';
+export * from './updateRewardsStatus.job';

@@ -10,6 +10,7 @@ import { AppError, asyncHandler, sendResponse } from '../../utils';
 import { ExtendedRequest } from '../../types';
 import { RewardRedemption } from '../RewardRedeemtion/rewardRedemption.model';
 import { Reward } from './reward.model';
+import { runRewardMaintenanceManual } from '../../jobs/updateRewardsStatus.job';
 
 // Type for multer files object
 interface MulterFiles {
@@ -467,6 +468,35 @@ const verifyRedemption = asyncHandler(
   }
 );
 
+/**
+ * Trigger reward maintenance job manually (Admin/Development only)
+ */
+const triggerRewardMaintenance = asyncHandler(
+  async (req: ExtendedRequest, res: Response) => {
+    console.log('🔧 Manual trigger: Reward maintenance job started by admin');
+
+    try {
+      const result = await runRewardMaintenanceManual();
+      
+      sendResponse(res, {
+        statusCode: httpStatus.OK,
+        message: 'Reward maintenance job completed successfully',
+        data: {
+          executedAt: new Date(),
+          summary: 'Expired claims processed, reward statuses updated',
+          details: result,
+        },
+      });
+    } catch (error) {
+      console.error('❌ Manual reward maintenance failed:', error);
+      throw new AppError(
+        httpStatus.INTERNAL_SERVER_ERROR,
+        'Reward maintenance job failed'
+      );
+    }
+  }
+);
+
 export const RewardController = {
   // CRUD
   createReward,
@@ -489,4 +519,7 @@ export const RewardController = {
   getUserClaimedRewards,
   getClaimedRewardById,
   verifyRedemption,
+
+  // Admin/Dev Tools
+  triggerRewardMaintenance,
 };
