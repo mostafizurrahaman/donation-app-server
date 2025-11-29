@@ -2,12 +2,14 @@
 
 import { Request, Response } from 'express';
 import httpStatus from 'http-status';
+import { Types } from 'mongoose';
 
 import { rewardService } from './reward.service';
 import { REWARD_MESSAGES } from './reward.constant';
 import { AppError, asyncHandler, sendResponse } from '../../utils';
 import { ExtendedRequest } from '../../types';
 import { RewardRedemption } from '../RewardRedeemtion/rewardRedemption.model';
+import { Reward } from './reward.model';
 
 // Type for multer files object
 interface MulterFiles {
@@ -273,13 +275,9 @@ const claimReward = asyncHandler(
       throw new AppError(httpStatus.UNAUTHORIZED, 'User not authenticated');
     }
 
-    const { preferredCodeType, idempotencyKey } = req.body;
-
     const result = await rewardService.claimReward({
       rewardId: req.params.id,
       userId,
-      preferredCodeType,
-      idempotencyKey,
     });
 
     sendResponse(res, {
@@ -287,8 +285,8 @@ const claimReward = asyncHandler(
       message: result.message,
       data: {
         redemption: result.redemption,
-        qrCode: result.qrCode,
         code: result.code,
+        availableMethods: result.availableMethods,
         isRetry: result.isRetry || false,
       },
     });
@@ -328,7 +326,11 @@ const cancelClaimedReward = asyncHandler(
 const redeemReward = asyncHandler(
   async (req: ExtendedRequest, res: Response) => {
     const staffId = req.user?._id?.toString();
+
+
     const { location, notes } = req.body;
+
+
 
     const result = await rewardService.redeemReward({
       redemptionId: req.params.redemptionId,
@@ -403,11 +405,16 @@ const getClaimedRewardById = asyncHandler(
 );
 
 /**
- * Verify redemption by code or QR
+ * Verify redemption by code or QR (only creator business can validate)
  */
 const verifyRedemption = asyncHandler(
   async (req: ExtendedRequest, res: Response) => {
     const { code, redemptionId } = req.body;
+    const staffBusinessId = req.user?._id?.toString();
+
+    if (!staffBusinessId) {
+      throw new AppError(httpStatus.UNAUTHORIZED, 'Business not authenticated');
+    }
 
     // Find by code or redemptionId
     let redemption;
@@ -433,6 +440,15 @@ const verifyRedemption = asyncHandler(
     // Check if expired
     if (new Date() > redemption.expiresAt) {
       throw new AppError(httpStatus.GONE, REWARD_MESSAGES.CLAIM_EXPIRED);
+    }
+
+    // Verify that only the creator business can validate their own rewards
+    const reward = await Reward.findById(redemption.reward._id);
+    if (reward && !reward.isCreatorBusiness(new Types.ObjectId(staffBusinessId))) {
+      throw new AppError(
+        httpStatus.FORBIDDEN,
+        'Only the creator business can validate their own reward codes'
+      );
     }
 
     sendResponse(res, {

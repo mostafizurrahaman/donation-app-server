@@ -229,7 +229,7 @@ rewardSchema.index({ business: 1, isActive: 1 });
 rewardSchema.index({ business: 1, title: 1 }, { unique: true });
 rewardSchema.index({ type: 1, category: 1 });
 rewardSchema.index({ featured: 1, priority: -1 });
-rewardSchema.index({ 'codes.code': 1, business: 1 });
+rewardSchema.index({ 'codes.code': 1 });
 rewardSchema.index({ title: 'text', description: 'text' });
 
 // Instance Methods
@@ -332,6 +332,11 @@ rewardSchema.methods.checkAvailability = function (): boolean {
   return true;
 };
 
+// Check if a business can validate this reward (only creator business can validate)
+rewardSchema.methods.isCreatorBusiness = function (businessId: Types.ObjectId): boolean {
+  return this.business.toString() === businessId.toString();
+};
+
 rewardSchema.methods.canUpdateLimit = function (newLimit: number): boolean {
   return newLimit >= this.redeemedCount;
 };
@@ -426,12 +431,10 @@ rewardSchema.statics.findAvailable = function (
 };
 
 rewardSchema.statics.checkCodeUniqueness = async function (
-  businessId: Types.ObjectId,
   codes: string[],
   excludeRewardId?: Types.ObjectId
 ): Promise<boolean> {
   const query: Record<string, unknown> = {
-    business: businessId,
     'codes.code': { $in: codes },
   };
 

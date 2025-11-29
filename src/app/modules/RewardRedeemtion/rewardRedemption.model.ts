@@ -63,10 +63,6 @@ const rewardRedemptionSchema = new Schema<
     cancelledAt: { type: Date },
 
     assignedCode: { type: String },
-    codeType: {
-      type: String,
-      enum: ['discount', 'giftcard', 'static', 'qr', undefined],
-    },
     redemptionMethod: { type: String },
 
     qrCode: { type: String },

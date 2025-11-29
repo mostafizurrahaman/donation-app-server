@@ -36,6 +36,8 @@ import {
   LIMIT_UPDATE_COOLDOWN_HOURS,
   CANCELLATION_WINDOW_HOURS,
   CLAIM_EXPIRY_DAYS,
+  REDEMPTION_METHOD,
+  REDEMPTION_STATUS,
 } from './reward.constant';
 
 // ==========================================
@@ -220,7 +222,8 @@ const createReward = async (
   let redemptionLimit = rewardData.redemptionLimit;
 
   if (rewardData.type === 'in-store') {
-    // Generate codes equal to redemption limit
+    // Pre-generate limited codes equal to redemption limit (business requirement)
+    // When the redemption limit = 100, only 100 codes will be generated
     const codeStrings = generateInStoreCodes(redemptionLimit);
     generatedCodes = codeStrings.map((code) => ({
       code,
@@ -235,15 +238,18 @@ const createReward = async (
 
     const { codes: parsedCodes } = await parseCodesFiles(codesFiles);
 
-    // Check code uniqueness across business
+    // Check code uniqueness across platform (per reward)
     const isUnique = await Reward.checkCodeUniqueness(
-      businessId,
       parsedCodes.map((c) => c.code)
     );
 
     if (!isUnique) {
       throw new AppError(httpStatus.CONFLICT, REWARD_MESSAGES.DUPLICATE_CODES);
     }
+
+    // For online rewards: users upload files containing codes or gift card URLs
+    // We extract them - if it's a code, it's a discount code; if it's a gift card, it's a URL
+    // Users can upload multiple files and we extract codes/URLs to identify redemption method
 
     // If redemptionLimit not provided, use codes count
     if (!redemptionLimit) {
@@ -258,11 +264,11 @@ const createReward = async (
       );
     }
 
-    // Use only needed codes
+    // Use only needed codes with proper online reward classification
     generatedCodes = parsedCodes.slice(0, redemptionLimit).map((c) => ({
       code: c.code,
-      isGiftCard: c.isGiftCard,
-      isDiscountCode: c.isDiscountCode,
+      isGiftCard: c.isGiftCard, // URL pattern detected during parsing
+      isDiscountCode: c.isDiscountCode, // Non-URL pattern detected during parsing
       isUsed: false,
     }));
   }
@@ -339,15 +345,17 @@ const updateReward = async (
     );
 
     if (uniqueNewCodes.length > 0) {
-      // Check for duplicates across business
+      // Check for duplicates across platform (per reward)
       const isUnique = await Reward.checkCodeUniqueness(
-        reward.business,
         uniqueNewCodes.map((c) => c.code),
-        reward._id
+        reward._id as Types.ObjectId
       );
 
       if (!isUnique) {
-        throw new AppError(httpStatus.CONFLICT, REWARD_MESSAGES.DUPLICATE_CODES);
+        throw new AppError(
+          httpStatus.CONFLICT,
+          REWARD_MESSAGES.DUPLICATE_CODES
+        );
       }
 
       // Add new codes
@@ -576,7 +584,10 @@ const getClaimedRewardById = async (
     _id: redemptionId,
     user: userId,
   })
-    .populate('reward', 'title description image type category pointsCost terms')
+    .populate(
+      'reward',
+      'title description image type category pointsCost terms'
+    )
     .populate('business', 'name locations coverImage');
 
   if (!redemption) {
@@ -738,21 +749,10 @@ const archiveReward = async (rewardId: string): Promise<void> => {
 const claimReward = async (
   payload: IClaimRewardPayload
 ): Promise<IClaimResult> => {
-  const { rewardId, userId, preferredCodeType, idempotencyKey } = payload;
+  const { rewardId, userId } = payload;
 
-  // Check for existing claim (idempotency)
-  if (idempotencyKey) {
-    const existingByKey = await RewardRedemption.findOne({ idempotencyKey });
-    if (existingByKey) {
-      return {
-        redemption: existingByKey,
-        message: 'Reward already claimed',
-        isRetry: true,
-        code: existingByKey.assignedCode,
-        qrCode: existingByKey.qrCode,
-      };
-    }
-  }
+  // Generate idempotency key backend for preventing double claims
+  const idempotencyKey = crypto.randomBytes(16).toString('hex');
 
   // Check if user already claimed this reward
   const existingUserClaim = await RewardRedemption.findOne({
@@ -825,32 +825,41 @@ const claimReward = async (
       );
     }
 
-    // 3. Get available code
+    // 3. Get available code and determine available methods
     let assignedCode: string | undefined;
-    let codeType: 'discount' | 'giftcard' | 'static' | 'qr' | 'nfc' | undefined;
+    let availableMethods: string[] = [];
+    let redemptionMethod: string | undefined;
 
-    if (reward.codes.length > 0) {
-      let availableCode = reward.getAvailableCode(preferredCodeType);
+    if (reward.type === 'in-store') {
+      // For in-store rewards: available methods are based on REDEMPTION_METHOD constants
+      availableMethods = [];
+      if (reward.inStoreRedemptionMethods?.qrCode)
+        availableMethods.push(REDEMPTION_METHOD.QR_CODE);
+      if (reward.inStoreRedemptionMethods?.staticCode)
+        availableMethods.push(REDEMPTION_METHOD.STATIC_CODE);
+      if (reward.inStoreRedemptionMethods?.nfcTap)
+        availableMethods.push(REDEMPTION_METHOD.NFC);
 
-      if (!availableCode && preferredCodeType) {
-        const fallbackType =
-          preferredCodeType === 'discount' ? 'giftcard' : 'discount';
-        availableCode = reward.getAvailableCode(fallbackType);
+      // Get any available code for in-store
+      if (reward.codes.length > 0) {
+        const availableCode = reward.getAvailableCode();
+        console.log({ availableCode });
+        if (availableCode) {
+          assignedCode = availableCode.code;
+          // Don't set default redemption method - store will choose during redemption
+        }
       }
-
-      if (!availableCode) {
-        availableCode = reward.getAvailableCode();
-      }
-
-      if (availableCode) {
-        assignedCode = availableCode.code;
-        codeType = availableCode.isGiftCard
-          ? 'giftcard'
-          : availableCode.isDiscountCode
-            ? 'discount'
-            : reward.type === 'in-store'
-              ? 'static'
-              : undefined;
+    } else if (reward.type === 'online') {
+      // For online rewards: method is based on code type (discount vs gift card URL)
+      if (reward.codes.length > 0) {
+        const availableCode = reward.getAvailableCode();
+        if (availableCode) {
+          assignedCode = availableCode.code;
+          redemptionMethod = availableCode.isGiftCard
+            ? REDEMPTION_METHOD.GIFT_CARD
+            : REDEMPTION_METHOD.DISCOUNT_CODE;
+          availableMethods = [redemptionMethod];
+        }
       }
     }
 
@@ -866,9 +875,9 @@ const claimReward = async (
           reward: rewardId,
           business: reward.business,
           pointsSpent: STATIC_POINTS_COST,
-          status: 'claimed',
+          status: REDEMPTION_STATUS.CLAIMED,
           assignedCode,
-          codeType,
+          redemptionMethod,
           idempotencyKey,
           expiresAt,
         },
@@ -876,12 +885,7 @@ const claimReward = async (
       { session }
     );
 
-    // 5. Generate QR code for in-store rewards
-    if (reward.type === 'in-store') {
-      await redemption.generateQRCode();
-    }
-
-    // 6. Mark code as used
+    // 5. Mark code as used
     if (assignedCode) {
       await reward.markCodeAsUsed(
         assignedCode,
@@ -890,7 +894,7 @@ const claimReward = async (
       );
     }
 
-    // 7. Update reward status if sold out
+    // 6. Update reward status if sold out
     if (reward.remainingCount <= 0) {
       reward.status = 'sold-out';
       await reward.save({ session });
@@ -923,7 +927,7 @@ const claimReward = async (
       redemption,
       message: REWARD_MESSAGES.CLAIMED,
       code: assignedCode,
-      qrCode: redemption.qrCode,
+      availableMethods, // Return available methods so store knows how to redeem
     };
   } catch (error) {
     await session.abortTransaction();
@@ -974,24 +978,9 @@ const cancelClaimedReward = async (
       redemptionId
     );
 
-    // 2. Return code to pool if assigned
-    if (redemption.assignedCode) {
-      const reward = await Reward.findById(redemption.reward).session(session);
-      if (reward) {
-        await reward.returnCode(redemption.assignedCode);
-
-        // Update reward counts
-        reward.remainingCount += 1;
-        reward.redeemedCount = Math.max(0, reward.redeemedCount - 1);
-        reward.redemptions = Math.max(0, reward.redemptions - 1);
-
-        if (reward.status === 'sold-out' && reward.remainingCount > 0) {
-          reward.status = 'active';
-        }
-
-        await reward.save({ session });
-      }
-    }
+    // 2. Note: Code is NOT returned to inventory per business requirements
+    // Once claimed, points are deducted and cancellation only refunds points,
+    // but the code remains assigned and cannot be reused
 
     // 3. Update redemption status
     redemption.status = 'cancelled';
@@ -1020,6 +1009,15 @@ const redeemReward = async (
   payload: IRedeemRewardPayload
 ): Promise<IRewardRedemptionDocument> => {
   const { redemptionId, staffId, location, notes } = payload;
+
+  const business = await Business.findOne({ auth: staffId });
+
+  if (!business) {
+    throw new AppError(
+      httpStatus.NOT_FOUND,
+      REWARD_MESSAGES.BUSINESS_NOT_FOUND
+    );
+  }
 
   const redemption = await RewardRedemption.findById(redemptionId);
 
@@ -1051,7 +1049,7 @@ const redeemReward = async (
 
   redemption.status = 'redeemed';
   redemption.redeemedAt = new Date();
-  if (staffId) redemption.redeemedByStaff = new Types.ObjectId(staffId);
+  if (staffId) redemption.redeemedByStaff = new Types.ObjectId(business?._id);
   if (location) redemption.redemptionLocation = location;
   if (notes) redemption.redemptionNotes = notes;
 
@@ -1212,8 +1210,9 @@ const uploadCodesToReward = async (
     );
   }
 
-  const { codes: parsedCodes, filesProcessed } =
-    await parseCodesFiles(codesFiles);
+  const { codes: parsedCodes, filesProcessed } = await parseCodesFiles(
+    codesFiles
+  );
 
   // Check for duplicates within this reward
   const existingCodes = new Set(reward.codes.map((c) => c.code));
@@ -1226,11 +1225,10 @@ const uploadCodesToReward = async (
     );
   }
 
-  // Check for duplicates across business
+  // Check for duplicates across platform (per reward)
   const isUnique = await Reward.checkCodeUniqueness(
-    reward.business,
     newCodes.map((c) => c.code),
-    reward._id
+    reward._id as Types.ObjectId
   );
 
   if (!isUnique) {
@@ -1287,132 +1285,105 @@ interface IExpireClaimsResult {
  * - Restores reward stock
  * - Refunds points to user
  */
-const expireOldClaimsWithFullRestoration = async (): Promise<IExpireClaimsResult> => {
-  const now = new Date();
-  const result: IExpireClaimsResult = {
-    totalProcessed: 0,
-    expiredCount: 0,
-    codesReturned: 0,
-    pointsRefunded: 0,
-    stockRestored: 0,
-    errors: [],
-  };
+const expireOldClaimsWithFullRestoration =
+  async (): Promise<IExpireClaimsResult> => {
+    const now = new Date();
+    const result: IExpireClaimsResult = {
+      totalProcessed: 0,
+      expiredCount: 0,
+      codesReturned: 0,
+      pointsRefunded: 0,
+      stockRestored: 0,
+      errors: [],
+    };
 
-  // Find all expired claims that haven't been processed
-  const expiredClaims = await RewardRedemption.find({
-    status: 'claimed',
-    expiresAt: { $lte: now },
-  });
+    // Find all expired claims that haven't been processed
+    const expiredClaims = await RewardRedemption.find({
+      status: 'claimed',
+      expiresAt: { $lte: now },
+    });
 
-  result.totalProcessed = expiredClaims.length;
+    result.totalProcessed = expiredClaims.length;
 
-  if (expiredClaims.length === 0) {
-    return result;
-  }
+    if (expiredClaims.length === 0) {
+      return result;
+    }
 
-  console.log(`[EXPIRATION] Processing ${expiredClaims.length} expired claims...`);
+    console.log(
+      `[EXPIRATION] Processing ${expiredClaims.length} expired claims...`
+    );
 
-  for (const claim of expiredClaims) {
-    const session = await mongoose.startSession();
-    session.startTransaction();
+    for (const claim of expiredClaims) {
+      const session = await mongoose.startSession();
+      session.startTransaction();
 
-    try {
-      // 1. Update claim status
-      claim.status = 'expired';
-      claim.expiredAt = now;
-      await claim.save({ session });
+      try {
+        // 1. Update claim status
+        claim.status = 'expired';
+        claim.expiredAt = now;
+        await claim.save({ session });
 
-      // 2. Return code to pool and restore stock
-      if (claim.assignedCode) {
-        const reward = await Reward.findById(claim.reward).session(session);
-        
-        if (reward) {
-          // Return the code
-          const codeIndex = reward.codes.findIndex(
-            (c) => c.code === claim.assignedCode && c.isUsed
+        // 2. Note: Per business requirements, codes are NOT returned to inventory on expiration
+        // The code remains assigned and cannot be reused even after expiration
+        // Stock is not restored - this maintains the integrity of the reward system
+
+        // 3. Refund points to user
+        try {
+          const refundResult = await pointsServices.refundPoints(
+            claim.user.toString(),
+            claim.pointsSpent,
+            'claim_expired',
+            `Reward claim expired - automatic refund for claim ${claim._id}`,
+            claim._id.toString()
           );
 
-          if (codeIndex !== -1) {
-            reward.codes[codeIndex].isUsed = false;
-            reward.codes[codeIndex].usedBy = undefined;
-            reward.codes[codeIndex].usedAt = undefined;
-            reward.codes[codeIndex].redemptionId = undefined;
-            result.codesReturned++;
+          if (refundResult && refundResult.transaction) {
+            claim.refundTransactionId = refundResult.transaction
+              ._id as Types.ObjectId;
+            await claim.save({ session });
+            result.pointsRefunded += claim.pointsSpent;
           }
-
-          // Restore stock
-          reward.remainingCount += 1;
-          reward.redeemedCount = Math.max(0, reward.redeemedCount - 1);
-          reward.redemptions = Math.max(0, reward.redemptions - 1);
-          result.stockRestored++;
-
-          // Reactivate reward if it was sold out
-          if (reward.status === 'sold-out' && reward.remainingCount > 0) {
-            // Check if reward hasn't expired
-            if (!reward.expiryDate || reward.expiryDate > now) {
-              reward.status = 'active';
-            }
-          }
-
-          await reward.save({ session });
+        } catch (refundError) {
+          // Log refund error but continue with expiration
+          console.error(
+            `[EXPIRATION] Failed to refund points for claim ${claim._id}:`,
+            refundError
+          );
+          // Still mark as expired even if refund fails
+          // The refund can be manually processed later
         }
-      }
 
-      // 3. Refund points to user
-      try {
-        const refundResult = await pointsServices.refundPoints(
-          claim.user.toString(),
-          claim.pointsSpent,
-          'claim_expired',
-          `Reward claim expired - automatic refund for claim ${claim._id}`,
-          claim._id.toString()
+        await session.commitTransaction();
+        result.expiredCount++;
+
+        console.log(
+          `[EXPIRATION] Expired claim ${claim._id} - Code NOT returned to inventory, Points refunded: ${claim.pointsSpent}`
         );
+      } catch (error) {
+        await session.abortTransaction();
 
-        if (refundResult && refundResult.transaction) {
-          claim.refundTransactionId = refundResult.transaction._id as Types.ObjectId;
-          await claim.save({ session });
-          result.pointsRefunded += claim.pointsSpent;
-        }
-      } catch (refundError) {
-        // Log refund error but continue with expiration
+        const errorMessage =
+          error instanceof Error ? error.message : 'Unknown error';
+        result.errors.push({
+          claimId: claim._id.toString(),
+          error: errorMessage,
+        });
+
         console.error(
-          `[EXPIRATION] Failed to refund points for claim ${claim._id}:`,
-          refundError
+          `[EXPIRATION] Failed to expire claim ${claim._id}:`,
+          error
         );
-        // Still mark as expired even if refund fails
-        // The refund can be manually processed later
+      } finally {
+        session.endSession();
       }
-
-      await session.commitTransaction();
-      result.expiredCount++;
-
-      console.log(
-        `[EXPIRATION] Expired claim ${claim._id} - Code returned: ${!!claim.assignedCode}, Points refunded: ${claim.pointsSpent}`
-      );
-    } catch (error) {
-      await session.abortTransaction();
-      
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      result.errors.push({
-        claimId: claim._id.toString(),
-        error: errorMessage,
-      });
-      
-      console.error(
-        `[EXPIRATION] Failed to expire claim ${claim._id}:`,
-        error
-      );
-    } finally {
-      session.endSession();
     }
-  }
 
-  console.log(
-    `[EXPIRATION] Completed - Expired: ${result.expiredCount}, Codes returned: ${result.codesReturned}, Points refunded: ${result.pointsRefunded}, Errors: ${result.errors.length}`
-  );
+    console.log(
+      `[EXPIRATION] Completed - Expired: ${result.expiredCount}, Codes returned: ${result.codesReturned}, Points refunded: ${result.pointsRefunded}, Errors: ${result.errors.length}`
+    );
 
-  return result;
-};
+    return result;
+  };
 
 /**
  * Notify users about expiring claims (optional - for email/push notifications)
@@ -1422,7 +1393,9 @@ const getExpiringClaims = async (
   hoursUntilExpiry: number = 24
 ): Promise<IRewardRedemptionDocument[]> => {
   const now = new Date();
-  const expiryThreshold = new Date(now.getTime() + hoursUntilExpiry * 60 * 60 * 1000);
+  const expiryThreshold = new Date(
+    now.getTime() + hoursUntilExpiry * 60 * 60 * 1000
+  );
 
   return RewardRedemption.find({
     status: 'claimed',

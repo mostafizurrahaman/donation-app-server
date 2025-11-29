@@ -88,7 +88,6 @@ export interface IRewardRedemption {
   cancelledAt?: Date;
 
   assignedCode?: string;
-  codeType?: 'discount' | 'giftcard' | 'static' | 'qr';
   redemptionMethod?: string;
 
   qrCode?: string;
@@ -125,6 +124,7 @@ export interface IRewardDocument extends IReward, Document {
   checkAvailability(): boolean;
   updateStatus(): Promise<void>;
   canUpdateLimit(newLimit: number): boolean;
+  isCreatorBusiness(businessId: Types.ObjectId): boolean;
 }
 
 export interface IRewardRedemptionDocument extends IRewardRedemption, Document {
@@ -139,7 +139,6 @@ export interface IRewardRedemptionDocument extends IRewardRedemption, Document {
 export interface IRewardModel extends Model<IRewardDocument> {
   findAvailable(filter?: Record<string, unknown>): Promise<IRewardDocument[]>;
   checkCodeUniqueness(
-    businessId: Types.ObjectId,
     codes: string[],
     excludeRewardId?: Types.ObjectId
   ): Promise<boolean>;
@@ -203,8 +202,6 @@ export interface IUpdateRewardPayload {
 export interface IClaimRewardPayload {
   rewardId: string;
   userId: string;
-  preferredCodeType?: 'discount' | 'giftcard';
-  idempotencyKey?: string;
 }
 
 export interface IRedeemRewardPayload {
@@ -270,8 +267,8 @@ export interface IClaimResult {
   redemption: IRewardRedemptionDocument;
   message: string;
   isRetry?: boolean;
-  qrCode?: string;
   code?: string;
+  availableMethods?: string[];
 }
 
 export interface IRewardsListResult {
