@@ -1,10 +1,12 @@
 // src/app/modules/Reward/reward.model.ts
-import { Schema, model } from 'mongoose';
+
+import { Schema, model, Types } from 'mongoose';
 import {
   IReward,
   IRewardDocument,
   IRewardModel,
   IRewardCode,
+  ILimitUpdateRecord,
 } from './reward.interface';
 import {
   REWARD_TYPE_VALUES,
@@ -19,7 +21,18 @@ import {
   MAX_CODE_LENGTH,
   REDEMPTION_METHOD_VALUES,
 } from './reward.constant';
-import { Types } from 'mongoose';
+
+// Limit Update History Sub-Schema
+const limitUpdateRecordSchema = new Schema<ILimitUpdateRecord>(
+  {
+    previousLimit: { type: Number, required: true },
+    newLimit: { type: Number, required: true },
+    changedBy: { type: Schema.Types.ObjectId, ref: 'Auth', required: true },
+    changedAt: { type: Date, required: true },
+    reason: { type: String, maxlength: 500 },
+  },
+  { _id: false }
+);
 
 // Reward Code Sub-Schema
 const rewardCodeSchema = new Schema<IRewardCode>(
@@ -30,29 +43,15 @@ const rewardCodeSchema = new Schema<IRewardCode>(
       maxlength: MAX_CODE_LENGTH,
       trim: true,
     },
-    isGiftCard: {
-      type: Boolean,
-      default: false,
-    },
-    isDiscountCode: {
-      type: Boolean,
-      default: false,
-    },
-    isUsed: {
-      type: Boolean,
-      default: false,
-      index: true,
-    },
-    usedBy: {
-      type: Schema.Types.ObjectId,
-      ref: 'Client',
-    },
-    usedAt: {
-      type: Date,
-    },
+    isGiftCard: { type: Boolean, default: false },
+    isDiscountCode: { type: Boolean, default: false },
+    isUsed: { type: Boolean, default: false, index: true },
+    usedBy: { type: Schema.Types.ObjectId, ref: 'Client' },
+    usedAt: { type: Date },
+    redemptionId: { type: Schema.Types.ObjectId, ref: 'RewardRedemption' },
     redemptionMethod: {
       type: String,
-      enum: REDEMPTION_METHOD_VALUES,
+      enum: [...REDEMPTION_METHOD_VALUES, undefined],
     },
   },
   { _id: false }
@@ -61,18 +60,9 @@ const rewardCodeSchema = new Schema<IRewardCode>(
 // In-Store Redemption Methods Sub-Schema
 const inStoreRedemptionMethodsSchema = new Schema(
   {
-    qrCode: {
-      type: Boolean,
-      default: false,
-    },
-    staticCode: {
-      type: Boolean,
-      default: false,
-    },
-    nfcTap: {
-      type: Boolean,
-      default: false,
-    },
+    qrCode: { type: Boolean, default: false },
+    staticCode: { type: Boolean, default: false },
+    nfcTap: { type: Boolean, default: false },
   },
   { _id: false }
 );
@@ -80,14 +70,8 @@ const inStoreRedemptionMethodsSchema = new Schema(
 // Online Redemption Methods Sub-Schema
 const onlineRedemptionMethodsSchema = new Schema(
   {
-    discountCode: {
-      type: Boolean,
-      default: false,
-    },
-    giftCard: {
-      type: Boolean,
-      default: false,
-    },
+    discountCode: { type: Boolean, default: false },
+    giftCard: { type: Boolean, default: false },
   },
   { _id: false }
 );
@@ -119,12 +103,8 @@ const rewardSchema = new Schema<IRewardDocument, IRewardModel>(
       ],
       trim: true,
     },
-    image: {
-      type: String,
-      trim: true,
-    },
+    image: { type: String, trim: true },
 
-    // Reward Type
     type: {
       type: String,
       enum: REWARD_TYPE_VALUES,
@@ -138,11 +118,10 @@ const rewardSchema = new Schema<IRewardDocument, IRewardModel>(
       index: true,
     },
 
-    // Points & Availability (Static 500 points)
     pointsCost: {
       type: Number,
       default: STATIC_POINTS_COST,
-      immutable: true, // Cannot be changed
+      immutable: true,
     },
     redemptionLimit: {
       type: Number,
@@ -167,19 +146,14 @@ const rewardSchema = new Schema<IRewardDocument, IRewardModel>(
       min: [0, 'Remaining count cannot be negative'],
     },
 
-    // Dates
     startDate: {
       type: Date,
       required: [true, 'Start date is required'],
       default: Date.now,
       index: true,
     },
-    expiryDate: {
-      type: Date,
-      index: true,
-    },
+    expiryDate: { type: Date, index: true },
 
-    // Status
     status: {
       type: String,
       enum: REWARD_STATUS_VALUES,
@@ -192,29 +166,19 @@ const rewardSchema = new Schema<IRewardDocument, IRewardModel>(
       index: true,
     },
 
-    // In-Store Redemption Methods
     inStoreRedemptionMethods: {
       type: inStoreRedemptionMethodsSchema,
-      required: function (this: IReward) {
-        return this.type === 'in-store';
-      },
     },
 
-    // Online Redemption Methods
     onlineRedemptionMethods: {
       type: onlineRedemptionMethodsSchema,
-      required: function (this: IReward) {
-        return this.type === 'online';
-      },
     },
 
-    // Codes
     codes: {
       type: [rewardCodeSchema],
       default: [],
     },
 
-    // Terms & Conditions
     terms: {
       type: String,
       maxlength: [
@@ -224,7 +188,6 @@ const rewardSchema = new Schema<IRewardDocument, IRewardModel>(
       trim: true,
     },
 
-    // Metadata
     featured: {
       type: Boolean,
       default: false,
@@ -237,7 +200,6 @@ const rewardSchema = new Schema<IRewardDocument, IRewardModel>(
       max: [10, 'Priority cannot exceed 10'],
     },
 
-    // Statistics
     views: {
       type: Number,
       default: 0,
@@ -248,6 +210,12 @@ const rewardSchema = new Schema<IRewardDocument, IRewardModel>(
       default: 0,
       min: [0, 'Redemptions cannot be negative'],
     },
+
+    lastLimitUpdate: { type: Date },
+    limitUpdateHistory: {
+      type: [limitUpdateRecordSchema],
+      default: [],
+    },
   },
   {
     timestamps: true,
@@ -255,39 +223,26 @@ const rewardSchema = new Schema<IRewardDocument, IRewardModel>(
   }
 );
 
-// Indexes for optimal performance
+// Indexes
 rewardSchema.index({ business: 1, status: 1 });
 rewardSchema.index({ business: 1, isActive: 1 });
+rewardSchema.index({ business: 1, title: 1 }, { unique: true });
 rewardSchema.index({ type: 1, category: 1 });
-rewardSchema.index({ pointsCost: 1 });
 rewardSchema.index({ featured: 1, priority: -1 });
-rewardSchema.index({ expiryDate: 1 });
+rewardSchema.index({ 'codes.code': 1, business: 1 });
 rewardSchema.index({ title: 'text', description: 'text' });
-rewardSchema.index({ 'codes.isUsed': 1 });
-rewardSchema.index({ 'codes.code': 1, business: 1 }); // Unique per reward
 
-// Virtual for checking if reward is available
-rewardSchema.virtual('isAvailable').get(function (this: IRewardDocument) {
-  return this.checkAvailability();
-});
-
-// Method to increment views
-rewardSchema.methods.incrementViews = async function (
-  this: IRewardDocument
-): Promise<void> {
+// Instance Methods
+rewardSchema.methods.incrementViews = async function (): Promise<void> {
   this.views += 1;
   await this.save();
 };
 
-// Method to increment redemptions
-rewardSchema.methods.incrementRedemptions = async function (
-  this: IRewardDocument
-): Promise<void> {
+rewardSchema.methods.incrementRedemptions = async function (): Promise<void> {
   this.redemptions += 1;
   this.redeemedCount += 1;
-  this.remainingCount -= 1;
+  this.remainingCount = Math.max(0, this.remainingCount - 1);
 
-  // Update status if sold out
   if (this.remainingCount <= 0) {
     this.status = 'sold-out';
   }
@@ -295,18 +250,12 @@ rewardSchema.methods.incrementRedemptions = async function (
   await this.save();
 };
 
-// Method to decrement stock
-rewardSchema.methods.decrementStock = async function (
-  this: IRewardDocument
-): Promise<boolean> {
-  if (this.remainingCount <= 0) {
-    return false;
-  }
+rewardSchema.methods.decrementStock = async function (): Promise<boolean> {
+  if (this.remainingCount <= 0) return false;
 
   this.redeemedCount += 1;
   this.remainingCount -= 1;
 
-  // Update status if sold out
   if (this.remainingCount <= 0) {
     this.status = 'sold-out';
   }
@@ -315,29 +264,26 @@ rewardSchema.methods.decrementStock = async function (
   return true;
 };
 
-// Method to get available code by type
-rewardSchema.methods.getAvailableCode = async function (
-  this: IRewardDocument,
-  type: 'discount' | 'giftcard'
-): Promise<IRewardCode | null> {
-  if (this.type !== 'online' || !this.codes || this.codes.length === 0) {
-    return null;
+rewardSchema.methods.getAvailableCode = function (
+  type?: 'discount' | 'giftcard'
+): IRewardCode | null {
+  if (this.codes.length === 0) return null;
+
+  if (type) {
+    const filterKey = type === 'giftcard' ? 'isGiftCard' : 'isDiscountCode';
+    return (
+      this.codes.find((code: IRewardCode) => !code.isUsed && code[filterKey]) ||
+      null
+    );
   }
 
-  const filterKey = type === 'giftcard' ? 'isGiftCard' : 'isDiscountCode';
-  const availableCode = this.codes.find(
-    (code: IRewardCode) => !code.isUsed && code[filterKey]
-  );
-
-  return availableCode || null;
+  return this.codes.find((code: IRewardCode) => !code.isUsed) || null;
 };
 
-// Method to mark code as used
 rewardSchema.methods.markCodeAsUsed = async function (
-  this: IRewardDocument,
   code: string,
   userId: Types.ObjectId,
-  redemptionMethod: string
+  redemptionId: Types.ObjectId
 ): Promise<void> {
   const codeIndex = this.codes.findIndex(
     (c: IRewardCode) => c.code === code && !c.isUsed
@@ -350,52 +296,47 @@ rewardSchema.methods.markCodeAsUsed = async function (
   this.codes[codeIndex].isUsed = true;
   this.codes[codeIndex].usedBy = userId;
   this.codes[codeIndex].usedAt = new Date();
-  this.codes[codeIndex].redemptionMethod = redemptionMethod;
+  this.codes[codeIndex].redemptionId = redemptionId;
 
   await this.save();
 };
 
-// Method to check availability
-rewardSchema.methods.checkAvailability = function (
-  this: IRewardDocument
-): boolean {
+rewardSchema.methods.returnCode = async function (code: string): Promise<void> {
+  const codeIndex = this.codes.findIndex(
+    (c: IRewardCode) => c.code === code && c.isUsed
+  );
+
+  if (codeIndex === -1) return;
+
+  this.codes[codeIndex].isUsed = false;
+  this.codes[codeIndex].usedBy = undefined;
+  this.codes[codeIndex].usedAt = undefined;
+  this.codes[codeIndex].redemptionId = undefined;
+
+  await this.save();
+};
+
+rewardSchema.methods.checkAvailability = function (): boolean {
   const now = new Date();
 
-  // Check if active
-  if (!this.isActive) {
-    return false;
-  }
+  if (!this.isActive) return false;
+  if (this.startDate > now) return false;
+  if (this.expiryDate && this.expiryDate < now) return false;
+  if (this.remainingCount <= 0) return false;
 
-  // Check if started
-  if (this.startDate > now) {
-    return false;
-  }
-
-  // Check if expired
-  if (this.expiryDate && this.expiryDate < now) {
-    return false;
-  }
-
-  // Check if sold out
-  if (this.remainingCount <= 0) {
-    return false;
-  }
-
-  // For online rewards, check if codes available
   if (this.type === 'online' && this.codes.length > 0) {
     const availableCode = this.codes.find((code: IRewardCode) => !code.isUsed);
-    if (!availableCode) {
-      return false;
-    }
+    if (!availableCode) return false;
   }
 
   return true;
 };
 
-// Method to update status based on dates and stock
-rewardSchema.methods.updateStatus = async function (
-  this: IRewardDocument
-): Promise<void> {
+rewardSchema.methods.canUpdateLimit = function (newLimit: number): boolean {
+  return newLimit >= this.redeemedCount;
+};
+
+rewardSchema.methods.updateStatus = async function (): Promise<void> {
   const now = new Date();
 
   if (!this.isActive) {
@@ -413,14 +354,12 @@ rewardSchema.methods.updateStatus = async function (
   await this.save();
 };
 
-// Pre-save hook to calculate remaining count and set priority
+// Pre-save hooks
 rewardSchema.pre('save', function (next) {
-  // Initialize remainingCount on creation
   if (this.isNew) {
     this.remainingCount = this.redemptionLimit - this.redeemedCount;
   }
 
-  // Auto-update priority if featured
   if (this.featured) {
     this.priority = 10;
   }
@@ -442,10 +381,9 @@ rewardSchema.pre('save', function (next) {
   next();
 });
 
-// Validation: Ensure redemption methods match reward type
+// Validation hook
 rewardSchema.pre('save', function (next) {
   if (this.type === 'in-store') {
-    // Must have at least one in-store redemption method
     if (
       !this.inStoreRedemptionMethods ||
       (!this.inStoreRedemptionMethods.qrCode &&
@@ -456,10 +394,8 @@ rewardSchema.pre('save', function (next) {
         new Error('At least one in-store redemption method must be selected')
       );
     }
-    // Clear online methods
     this.onlineRedemptionMethods = undefined;
   } else if (this.type === 'online') {
-    // Must have at least one online redemption method
     if (
       !this.onlineRedemptionMethods ||
       (!this.onlineRedemptionMethods.discountCode &&
@@ -469,14 +405,13 @@ rewardSchema.pre('save', function (next) {
         new Error('At least one online redemption method must be selected')
       );
     }
-    // Clear in-store methods
     this.inStoreRedemptionMethods = undefined;
   }
 
   next();
 });
 
-// Static method to find available rewards
+// Static methods
 rewardSchema.statics.findAvailable = function (
   filter: Record<string, unknown> = {}
 ) {
@@ -488,6 +423,24 @@ rewardSchema.statics.findAvailable = function (
     $or: [{ expiryDate: { $gte: now } }, { expiryDate: null }],
     remainingCount: { $gt: 0 },
   });
+};
+
+rewardSchema.statics.checkCodeUniqueness = async function (
+  businessId: Types.ObjectId,
+  codes: string[],
+  excludeRewardId?: Types.ObjectId
+): Promise<boolean> {
+  const query: Record<string, unknown> = {
+    business: businessId,
+    'codes.code': { $in: codes },
+  };
+
+  if (excludeRewardId) {
+    query._id = { $ne: excludeRewardId };
+  }
+
+  const duplicates = await this.findOne(query);
+  return !duplicates;
 };
 
 export const Reward = model<IRewardDocument, IRewardModel>(

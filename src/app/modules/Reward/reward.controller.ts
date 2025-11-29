@@ -1,22 +1,36 @@
 // src/app/modules/Reward/reward.controller.ts
+
 import { Request, Response } from 'express';
 import httpStatus from 'http-status';
 
 import { rewardService } from './reward.service';
-
 import { REWARD_MESSAGES } from './reward.constant';
 import { AppError, asyncHandler, sendResponse } from '../../utils';
+import { ExtendedRequest } from '../../types';
+import { RewardRedemption } from '../RewardRedeemtion/rewardRedemption.model';
 
+// Type for multer files object
+interface MulterFiles {
+  rewardImage?: Express.Multer.File[];
+  codesFiles?: Express.Multer.File[];
+}
 
 /**
- * Create a new reward with optional codes upload
+ * Create a new reward
  */
-export const createReward = asyncHandler(async (req: Request, res: Response) => {
-  const reward = await rewardService.createReward(req.body, req.file);
+const createReward = asyncHandler(async (req: Request, res: Response) => {
+  const files = req.files as MulterFiles | undefined;
+  const rewardImage = files?.rewardImage?.[0];
+  const codesFiles = files?.codesFiles;
+
+  const reward = await rewardService.createReward(
+    req.body,
+    rewardImage,
+    codesFiles
+  );
 
   sendResponse(res, {
     statusCode: httpStatus.CREATED,
-    
     message: REWARD_MESSAGES.CREATED,
     data: reward,
   });
@@ -25,27 +39,72 @@ export const createReward = asyncHandler(async (req: Request, res: Response) => 
 /**
  * Update a reward
  */
-export const updateReward = asyncHandler(async (req: Request, res: Response) => {
-  const reward = await rewardService.updateReward(req.params.id, req.body);
+const updateReward = asyncHandler(
+  async (req: ExtendedRequest, res: Response) => {
+    const userId = req.user?._id?.toString();
 
-  sendResponse(res, {
-    statusCode: httpStatus.OK,
-    
-    message: REWARD_MESSAGES.UPDATED,
-    data: reward,
-  });
-});
+    if (!userId) {
+      throw new AppError(httpStatus.UNAUTHORIZED, 'User not authenticated');
+    }
+
+    const files = req.files as MulterFiles | undefined;
+    const rewardImage = files?.rewardImage?.[0];
+    const codesFiles = files?.codesFiles;
+
+    const reward = await rewardService.updateReward(
+      req.params.id,
+      req.body,
+      userId,
+      rewardImage,
+      codesFiles
+    );
+
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      message: REWARD_MESSAGES.UPDATED,
+      data: reward,
+    });
+  }
+);
+
+/**
+ * Update reward image only
+ */
+const updateRewardImage = asyncHandler(
+  async (req: ExtendedRequest, res: Response) => {
+    const userId = req.user?._id?.toString();
+
+    if (!userId) {
+      throw new AppError(httpStatus.UNAUTHORIZED, 'User not authenticated');
+    }
+
+    if (!req.file) {
+      throw new AppError(httpStatus.BAD_REQUEST, 'No image file uploaded');
+    }
+
+    const reward = await rewardService.updateRewardImage(
+      req.params.id,
+      req.file,
+      userId
+    );
+
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      message: 'Reward image updated successfully',
+      data: reward,
+    });
+  }
+);
 
 /**
  * Get reward by ID
  */
-export const getRewardById = asyncHandler(async (req: Request, res: Response) => {
+const getRewardById = asyncHandler(async (req: Request, res: Response) => {
   const userId = req.query.userId as string | undefined;
   const reward = await rewardService.getRewardById(req.params.id, userId);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
-    
     message: 'Reward retrieved successfully',
     data: reward,
   });
@@ -54,40 +113,48 @@ export const getRewardById = asyncHandler(async (req: Request, res: Response) =>
 /**
  * Get all rewards with filters
  */
-export const getRewards = asyncHandler(async (req: Request, res: Response) => {
+const getRewards = asyncHandler(async (req: Request, res: Response) => {
   const result = await rewardService.getRewards(req.query);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
-    
     message: 'Rewards retrieved successfully',
-    data: result,
+    data: result.rewards,
+    meta: {
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+      totalPage: result.totalPages,
+    },
   });
 });
 
 /**
  * Get featured rewards
  */
-export const getFeaturedRewards = asyncHandler(
-  async (req: Request, res: Response) => {
-    const result = await rewardService.getRewards({
-      featured: true,
-      ...req.query,
-    });
+const getFeaturedRewards = asyncHandler(async (req: Request, res: Response) => {
+  const result = await rewardService.getRewards({
+    featured: true,
+    ...req.query,
+  });
 
-    sendResponse(res, {
-      statusCode: httpStatus.OK,
-      
-      message: 'Featured rewards retrieved successfully',
-      data: result,
-    });
-  }
-);
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Featured rewards retrieved successfully',
+    data: result.rewards,
+    meta: {
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+      totalPage: result.totalPages,
+    },
+  });
+});
 
 /**
  * Get rewards by business
  */
-export const getRewardsByBusiness = asyncHandler(
+const getRewardsByBusiness = asyncHandler(
   async (req: Request, res: Response) => {
     const result = await rewardService.getRewardsByBusiness(
       req.params.businessId,
@@ -96,63 +163,65 @@ export const getRewardsByBusiness = asyncHandler(
 
     sendResponse(res, {
       statusCode: httpStatus.OK,
-      
       message: 'Business rewards retrieved successfully',
-      data: result,
+      data: result.rewards,
+      meta: {
+        total: result.total,
+        page: result.page,
+        limit: result.limit,
+        totalPage: result.totalPages,
+      },
     });
   }
 );
 
 /**
- * Delete reward
+ * Delete reward (soft delete)
  */
-export const deleteReward = asyncHandler(async (req: Request, res: Response) => {
+const deleteReward = asyncHandler(async (req: Request, res: Response) => {
   await rewardService.deleteReward(req.params.id);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
-    
     message: REWARD_MESSAGES.DELETED,
     data: null,
   });
 });
 
 /**
- * Archive reward (permanent delete)
+ * Archive reward (hard delete)
  */
-export const archiveReward = asyncHandler(async (req: Request, res: Response) => {
+const archiveReward = asyncHandler(async (req: Request, res: Response) => {
   await rewardService.archiveReward(req.params.id);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
-    
     message: REWARD_MESSAGES.ARCHIVED,
     data: null,
   });
 });
 
 /**
- * Upload codes to reward (CSV/XLSX)
+ * Upload codes to reward (supports multiple files)
  */
-export const uploadCodes = asyncHandler(async (req: Request, res: Response) => {
-  if (!req.file) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'No file uploaded');
+const uploadCodes = asyncHandler(async (req: Request, res: Response) => {
+  const files = req.files as Express.Multer.File[] | undefined;
+
+  if (!files || files.length === 0) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'No file(s) uploaded');
   }
 
-  const result = await rewardService.uploadCodesToReward(
-    req.params.id,
-    req.file
-  );
+  const result = await rewardService.uploadCodesToReward(req.params.id, files);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
-    
     message: REWARD_MESSAGES.CODES_UPLOADED,
     data: {
-      reward: result.reward,
       codesAdded: result.codesAdded,
       codesDuplicated: result.codesDuplicated,
       totalCodes: result.reward.codes.length,
+      newRedemptionLimit: result.reward.redemptionLimit,
+      filesProcessed: result.filesProcessed,
     },
   });
 });
@@ -160,41 +229,248 @@ export const uploadCodes = asyncHandler(async (req: Request, res: Response) => {
 /**
  * Check reward availability
  */
-export const checkAvailability = asyncHandler(
-  async (req: Request, res: Response) => {
-    const userId = req.query.userId as string | undefined;
-    const availability = await rewardService.checkAvailability(
-      req.params.id,
-      userId
-    );
+const checkAvailability = asyncHandler(async (req: Request, res: Response) => {
+  const userId = req.query.userId as string | undefined;
+  const availability = await rewardService.checkAvailability(
+    req.params.id,
+    userId
+  );
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Availability checked successfully',
+    data: availability,
+  });
+});
+
+/**
+ * Get reward statistics
+ */
+const getRewardStats = asyncHandler(async (req: Request, res: Response) => {
+  const { businessId, startDate, endDate } = req.query;
+
+  const stats = await rewardService.getRewardStatistics(
+    businessId as string | undefined,
+    startDate ? new Date(startDate as string) : undefined,
+    endDate ? new Date(endDate as string) : undefined
+  );
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Statistics retrieved successfully',
+    data: stats,
+  });
+});
+
+/**
+ * Claim a reward (deduct points)
+ */
+const claimReward = asyncHandler(
+  async (req: ExtendedRequest, res: Response) => {
+    const userId = req.user?._id?.toString();
+
+    if (!userId) {
+      throw new AppError(httpStatus.UNAUTHORIZED, 'User not authenticated');
+    }
+
+    const { preferredCodeType, idempotencyKey } = req.body;
+
+    const result = await rewardService.claimReward({
+      rewardId: req.params.id,
+      userId,
+      preferredCodeType,
+      idempotencyKey,
+    });
 
     sendResponse(res, {
       statusCode: httpStatus.OK,
-      
-      message: 'Availability checked successfully',
-      data: availability,
+      message: result.message,
+      data: {
+        redemption: result.redemption,
+        qrCode: result.qrCode,
+        code: result.code,
+        isRetry: result.isRetry || false,
+      },
     });
   }
 );
 
 /**
- * Get reward statistics
+ * Cancel claimed reward (refund points)
  */
-export const getRewardStats = asyncHandler(
-  async (req: Request, res: Response) => {
-    const { businessId, startDate, endDate } = req.query;
+const cancelClaimedReward = asyncHandler(
+  async (req: ExtendedRequest, res: Response) => {
+    const userId = req.user?._id?.toString();
 
-    const stats = await rewardService.getRewardStatistics(
-      businessId as string | undefined,
-      startDate ? new Date(startDate as string) : undefined,
-      endDate ? new Date(endDate as string) : undefined
+    if (!userId) {
+      throw new AppError(httpStatus.UNAUTHORIZED, 'User not authenticated');
+    }
+
+    const { reason } = req.body;
+
+    const result = await rewardService.cancelClaimedReward({
+      redemptionId: req.params.redemptionId,
+      userId,
+      reason,
+    });
+
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      message: REWARD_MESSAGES.CANCELLED,
+      data: result,
+    });
+  }
+);
+
+/**
+ * Redeem a claimed reward (mark as used)
+ */
+const redeemReward = asyncHandler(
+  async (req: ExtendedRequest, res: Response) => {
+    const staffId = req.user?._id?.toString();
+    const { location, notes } = req.body;
+
+    const result = await rewardService.redeemReward({
+      redemptionId: req.params.redemptionId,
+      staffId,
+      location,
+      notes,
+    });
+
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      message: REWARD_MESSAGES.REDEEMED,
+      data: result,
+    });
+  }
+);
+
+/**
+ * Get user's claimed rewards
+ */
+const getUserClaimedRewards = asyncHandler(
+  async (req: ExtendedRequest, res: Response) => {
+    const userId = req.user?._id?.toString();
+
+    if (!userId) {
+      throw new AppError(httpStatus.UNAUTHORIZED, 'User not authenticated');
+    }
+
+    const { includeExpired, page, limit } = req.query;
+
+    const result = await rewardService.getUserClaimedRewards(userId, {
+      includeExpired: includeExpired === 'true',
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 20,
+    });
+
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      message: 'Claimed rewards retrieved successfully',
+      data: result.redemptions,
+      meta: {
+        total: result.total,
+        page: page ? Number(page) : 1,
+        limit: limit ? Number(limit) : 20,
+        totalPage: Math.ceil(result.total / (limit ? Number(limit) : 20)),
+      },
+    });
+  }
+);
+
+/**
+ * Get claimed reward by ID
+ */
+const getClaimedRewardById = asyncHandler(
+  async (req: ExtendedRequest, res: Response) => {
+    const userId = req.user?._id?.toString();
+
+    if (!userId) {
+      throw new AppError(httpStatus.UNAUTHORIZED, 'User not authenticated');
+    }
+
+    const redemption = await rewardService.getClaimedRewardById(
+      req.params.redemptionId,
+      userId
     );
 
     sendResponse(res, {
       statusCode: httpStatus.OK,
-      
-      message: 'Statistics retrieved successfully',
-      data: stats,
+      message: 'Claimed reward retrieved successfully',
+      data: redemption,
     });
   }
 );
+
+/**
+ * Verify redemption by code or QR
+ */
+const verifyRedemption = asyncHandler(
+  async (req: ExtendedRequest, res: Response) => {
+    const { code, redemptionId } = req.body;
+
+    // Find by code or redemptionId
+    let redemption;
+    if (code) {
+      redemption = await RewardRedemption.findOne({
+        assignedCode: code,
+        status: 'claimed',
+      }).populate(['reward', 'business', 'user']);
+    } else if (redemptionId) {
+      redemption = await RewardRedemption.findOne({
+        _id: redemptionId,
+        status: 'claimed',
+      }).populate(['reward', 'business', 'user']);
+    }
+
+    if (!redemption) {
+      throw new AppError(
+        httpStatus.NOT_FOUND,
+        REWARD_MESSAGES.REDEMPTION_NOT_FOUND
+      );
+    }
+
+    // Check if expired
+    if (new Date() > redemption.expiresAt) {
+      throw new AppError(httpStatus.GONE, REWARD_MESSAGES.CLAIM_EXPIRED);
+    }
+
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      message: 'Redemption verified successfully',
+      data: {
+        redemptionId: redemption._id,
+        user: redemption.user,
+        reward: redemption.reward,
+        status: redemption.status,
+        assignedCode: redemption.assignedCode,
+        claimedAt: redemption.claimedAt,
+        expiresAt: redemption.expiresAt,
+      },
+    });
+  }
+);
+
+export const RewardController = {
+  // CRUD
+  createReward,
+  updateReward,
+  updateRewardImage,
+  getRewardById,
+  getRewards,
+  getFeaturedRewards,
+  getRewardsByBusiness,
+  deleteReward,
+  archiveReward,
+  uploadCodes,
+  checkAvailability,
+  getRewardStats,
+
+  // Claiming & Redemption
+  claimReward,
+  cancelClaimedReward,
+  redeemReward,
+  getUserClaimedRewards,
+  getClaimedRewardById,
+  verifyRedemption,
+};

@@ -1,118 +1,178 @@
 // src/app/modules/Reward/reward.interface.ts
+
 import { Document, Model, Types } from 'mongoose';
 
+// Reward Code Interface
+export interface IRewardCode {
+  code: string;
+  isGiftCard: boolean;
+  isDiscountCode: boolean;
+  isUsed: boolean;
+  usedBy?: Types.ObjectId;
+  usedAt?: Date;
+  redemptionId?: Types.ObjectId;
+  redemptionMethod?: string;
+}
+
+// Limit Update History Record
+export interface ILimitUpdateRecord {
+  previousLimit: number;
+  newLimit: number;
+  changedBy: Types.ObjectId;
+  changedAt: Date;
+  reason?: string;
+}
+
+// Main Reward Interface
 export interface IReward {
   business: Types.ObjectId;
   title: string;
   description: string;
   image?: string;
 
-  // Reward Type (Only one type allowed at a time)
   type: 'in-store' | 'online';
-  category: string; // Required
+  category: string;
 
-  // Points & Availability (Static 500 points)
-  pointsCost: number; // Always 500
+  pointsCost: number;
   redemptionLimit: number;
   redeemedCount: number;
   remainingCount: number;
 
-  // Dates
-  startDate: Date; // Defaults to now
+  startDate: Date;
   expiryDate?: Date;
 
-  // Status
   status: 'active' | 'inactive' | 'expired' | 'upcoming' | 'sold-out';
   isActive: boolean;
 
-  // In-Store Specific (When type = 'in-store')
   inStoreRedemptionMethods?: {
     qrCode: boolean;
     staticCode: boolean;
     nfcTap: boolean;
   };
 
-  // Online Specific (When type = 'online')
   onlineRedemptionMethods?: {
     discountCode: boolean;
     giftCard: boolean;
   };
 
-  // Codes (for both in-store and online)
   codes: IRewardCode[];
-
-  // Terms & Conditions
   terms?: string;
 
-  // Metadata
   featured: boolean;
   priority: number;
 
-  // Statistics
   views: number;
   redemptions: number;
+
+  lastLimitUpdate?: Date;
+  limitUpdateHistory?: ILimitUpdateRecord[];
 
   createdAt: Date;
   updatedAt: Date;
 }
 
-export interface IRewardCode {
-  code: string; // Can be URL (gift card) or text code (discount code)
-  isGiftCard: boolean; // true = gift card URL, false = discount code
-  isDiscountCode: boolean; // true = discount code, false = gift card
-  isUsed: boolean;
-  usedBy?: Types.ObjectId;
-  usedAt?: Date;
-  redemptionMethod?: string; // Track which method was used
+// Reward Redemption Interface
+export interface IRewardRedemption {
+  user: Types.ObjectId;
+  reward: Types.ObjectId;
+  business: Types.ObjectId;
+
+  pointsSpent: number;
+  pointsTransactionId?: Types.ObjectId;
+
+  status: 'claimed' | 'redeemed' | 'expired' | 'cancelled';
+
+  claimedAt: Date;
+  redeemedAt?: Date;
+  expiredAt?: Date;
+  cancelledAt?: Date;
+
+  assignedCode?: string;
+  codeType?: 'discount' | 'giftcard' | 'static' | 'qr';
+  redemptionMethod?: string;
+
+  qrCode?: string;
+  qrCodeUrl?: string;
+
+  expiresAt: Date;
+
+  redeemedByStaff?: Types.ObjectId;
+  redemptionLocation?: string;
+  redemptionNotes?: string;
+
+  cancellationReason?: string;
+  refundTransactionId?: Types.ObjectId;
+
+  idempotencyKey?: string;
+
+  createdAt: Date;
+  updatedAt: Date;
 }
 
-// Document interface for instance methods
+// Document Interfaces
 export interface IRewardDocument extends IReward, Document {
+  _id: Types.ObjectId;
   incrementViews(): Promise<void>;
   incrementRedemptions(): Promise<void>;
   decrementStock(): Promise<boolean>;
-  getAvailableCode(type: 'discount' | 'giftcard'): Promise<IRewardCode | null>;
+  getAvailableCode(type?: 'discount' | 'giftcard'): IRewardCode | null;
   markCodeAsUsed(
     code: string,
     userId: Types.ObjectId,
-    redemptionMethod: string
+    redemptionId: Types.ObjectId
   ): Promise<void>;
+  returnCode(code: string): Promise<void>;
   checkAvailability(): boolean;
   updateStatus(): Promise<void>;
+  canUpdateLimit(newLimit: number): boolean;
 }
 
-// Model interface for static methods
+export interface IRewardRedemptionDocument extends IRewardRedemption, Document {
+  _id: Types.ObjectId;
+  markAsRedeemed(staffId?: Types.ObjectId, notes?: string): Promise<void>;
+  cancel(reason?: string): Promise<void>;
+  checkExpiry(): Promise<void>;
+  generateQRCode(): Promise<string>;
+}
+
+// Model Interfaces
 export interface IRewardModel extends Model<IRewardDocument> {
   findAvailable(filter?: Record<string, unknown>): Promise<IRewardDocument[]>;
+  checkCodeUniqueness(
+    businessId: Types.ObjectId,
+    codes: string[],
+    excludeRewardId?: Types.ObjectId
+  ): Promise<boolean>;
 }
 
+export interface IRewardRedemptionModel
+  extends Model<IRewardRedemptionDocument> {
+  findClaimedByUser(
+    userId: Types.ObjectId
+  ): Promise<IRewardRedemptionDocument[]>;
+  expireOldClaims(): Promise<number>;
+}
+
+// Payload Interfaces
 export interface ICreateRewardPayload {
   businessId: Types.ObjectId | string;
   title: string;
   description: string;
   image?: string;
   type: 'in-store' | 'online';
-  category: string; // Required
-  redemptionLimit?: number; // Made optional for online rewards with codes
-  startDate?: Date; // Defaults to new Date()
+  category: string;
+  redemptionLimit: number;
+  startDate?: Date;
   expiryDate?: Date;
-
-  // In-Store redemption methods (only when type = 'in-store')
   inStoreRedemptionMethods?: {
     qrCode: boolean;
     staticCode: boolean;
     nfcTap: boolean;
   };
-
-  // Online redemption methods (only when type = 'online')
   onlineRedemptionMethods?: {
     discountCode: boolean;
     giftCard: boolean;
   };
-
-  // For in-store: we'll auto-generate codes
-  // For online: codes come from CSV upload
-
   terms?: string;
   featured?: boolean;
 }
@@ -137,17 +197,41 @@ export interface IUpdateRewardPayload {
   terms?: string;
   featured?: boolean;
   isActive?: boolean;
+  updateReason?: string;
+}
+
+export interface IClaimRewardPayload {
+  rewardId: string;
+  userId: string;
+  preferredCodeType?: 'discount' | 'giftcard';
+  idempotencyKey?: string;
+}
+
+export interface IRedeemRewardPayload {
+  redemptionId: string;
+  staffId?: string;
+  location?: string;
+  notes?: string;
+}
+
+export interface ICancelClaimPayload {
+  redemptionId: string;
+  userId: string;
+  reason?: string;
 }
 
 export interface IUploadCodesPayload {
   rewardId: string;
-  codes: Array<{
-    code: string; // URL or code text
-    isGiftCard: boolean;
-    isDiscountCode: boolean;
-  }>;
+  codes: IParsedCodeFromCSV[];
 }
 
+export interface IParsedCodeFromCSV {
+  code: string;
+  isGiftCard: boolean;
+  isDiscountCode: boolean;
+}
+
+// Filter & Query Interfaces
 export interface IRewardFilterQuery {
   businessId?: Types.ObjectId | string;
   type?: 'in-store' | 'online';
@@ -162,10 +246,53 @@ export interface IRewardFilterQuery {
   sortOrder?: 'asc' | 'desc';
 }
 
+export interface IRedemptionFilterQuery {
+  userId?: string;
+  businessId?: string;
+  status?: string;
+  includeExpired?: boolean;
+  page?: number;
+  limit?: number;
+}
+
+// Response Interfaces
+export interface IRewardAvailability {
+  isAvailable: boolean;
+  reason?: string;
+  remainingCount: number;
+  userCanAfford: boolean;
+  userBalance?: number;
+  hasAlreadyClaimed?: boolean;
+  existingClaimId?: Types.ObjectId;
+}
+
+export interface IClaimResult {
+  redemption: IRewardRedemptionDocument;
+  message: string;
+  isRetry?: boolean;
+  qrCode?: string;
+  code?: string;
+}
+
+export interface IRewardsListResult {
+  rewards: Array<
+    IReward & {
+      isAvailable: boolean;
+      userCanAfford?: boolean;
+      claimStatus?: string;
+    }
+  >;
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
 export interface IRewardStatistics {
   totalRewards: number;
   activeRewards: number;
   expiredRewards: number;
+  soldOutRewards: number;
   totalRedemptions: number;
   totalViews: number;
   averageRedemptionRate: number;
@@ -178,18 +305,45 @@ export interface IRewardStatistics {
     category: string;
     count: number;
   }>;
+  rewardsByType: {
+    inStore: number;
+    online: number;
+  };
 }
 
-export interface IRewardAvailability {
-  isAvailable: boolean;
-  reason?: string;
-  remainingCount: number;
-  userCanAfford: boolean;
-  userBalance?: number;
+// Populated Types
+export interface IRewardPopulated extends Omit<IRewardDocument, 'business'> {
+  business: {
+    _id: Types.ObjectId;
+    name: string;
+    category?: string;
+    coverImage?: string;
+    locations?: string[];
+    businessEmail?: string;
+    businessPhoneNumber?: string;
+  };
 }
 
-export interface IParsedCodeFromCSV {
-  code: string;
-  isGiftCard: boolean;
-  isDiscountCode: boolean;
+export interface IRedemptionPopulated
+  extends Omit<IRewardRedemptionDocument, 'reward' | 'business' | 'user'> {
+  reward: {
+    _id: Types.ObjectId;
+    title: string;
+    description: string;
+    image?: string;
+    type: string;
+    category: string;
+    pointsCost: number;
+    terms?: string;
+  };
+  business: {
+    _id: Types.ObjectId;
+    name: string;
+    locations?: string[];
+  };
+  user: {
+    _id: Types.ObjectId;
+    name: string;
+    image?: string;
+  };
 }

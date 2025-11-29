@@ -1016,7 +1016,7 @@ const fetchProfileFromDB = async (user: IAuth) => {
 
     return client;
 
-    // return { ...client, preference };
+    // return { ...client,  preference};
     // return { ...client?.toObject(), preference };
   } else if (user?.role === ROLE.BUSINESS) {
     const business = await Business.findOne({ auth: user._id }).populate([
@@ -1027,9 +1027,14 @@ const fetchProfileFromDB = async (user: IAuth) => {
     ]);
     console.log({ business });
 
-    return business;
+    // return business;
+    const businessProfile = business?.toObject();
 
-    // return { ...business?.toObject(), preference };
+    return {
+      ...businessProfile,
+      coverImage: businessProfile?.coverImage || null,
+      logoImage: businessProfile?.logoImage || null,
+    };
   } else if (user?.role === ROLE.ORGANIZATION) {
     const organization = await Organization.findOne({
       auth: user._id,

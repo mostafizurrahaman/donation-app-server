@@ -100,12 +100,12 @@ const upload = multer({
   fileFilter,
   limits: {
     fileSize: 10 * 1024 * 1024,
-    files: 5,
+    files: 10,
   },
 });
 
 // Memory storage for CSV/Excel parsing
-export const uploadForParsing = multer({
+const uploadForParsing = multer({
   storage: multer.memoryStorage(),
   fileFilter: (req, file, callback) => {
     const allowedTypes = [
@@ -126,8 +126,31 @@ export const uploadForParsing = multer({
   },
   limits: {
     fileSize: 5 * 1024 * 1024,
-    files: 1,
+    files: 10, // Allow multiple code files
   },
 });
 
+/**
+ * Get the public URL path for an uploaded file
+ */
+const getFileUrl = (file: Express.Multer.File): string => {
+  // Remove 'public' prefix and normalize path separators
+  const relativePath = file.path.replace(/^\.?[\/\\]?public[\/\\]?/, '');
+  return `/${relativePath.replace(/\\/g, '/')}`;
+};
+
+/**
+ * Clean up uploaded file from disk
+ */
+const deleteFile = (filePath: string): void => {
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch (error) {
+    console.error('Error deleting file:', error);
+  }
+};
+
+export { upload, uploadForParsing, getFileUrl, deleteFile };
 export default upload;

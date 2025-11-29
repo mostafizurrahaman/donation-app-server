@@ -4,6 +4,7 @@ import {
   REWARD_TYPE_VALUES,
   REWARD_CATEGORY_VALUES,
   REWARD_STATUS_VALUES,
+  REDEMPTION_STATUS_VALUES,
   MIN_REDEMPTION_LIMIT,
   MAX_REDEMPTION_LIMIT,
   MAX_TITLE_LENGTH,
@@ -11,6 +12,7 @@ import {
   MAX_TERMS_LENGTH,
 } from './reward.constant';
 
+// Helper schemas
 const inStoreRedemptionMethodsSchema = z
   .object({
     qrCode: z.boolean().optional(),
@@ -30,6 +32,7 @@ const onlineRedemptionMethodsSchema = z
     message: 'At least one online redemption method must be selected',
   });
 
+// Create reward schema
 export const createRewardSchema = z.object({
   body: z
     .object({
@@ -48,27 +51,30 @@ export const createRewardSchema = z.object({
           MAX_DESCRIPTION_LENGTH,
           `Description cannot exceed ${MAX_DESCRIPTION_LENGTH} characters`
         ),
-      image: z.string().url().optional(),
-      type: z.enum(REWARD_TYPE_VALUES as [string, ...string[]]),
+      image: z.string().url('Invalid image URL').optional(),
+      type: z.enum(REWARD_TYPE_VALUES as [string, ...string[]], {
+        message: 'Invalid reward type',
+      }),
       category: z.enum(REWARD_CATEGORY_VALUES as [string, ...string[]], {
-        message: 'Category is required',
+        message: 'Invalid category',
       }),
       redemptionLimit: z
         .number()
-        .min(
-          MIN_REDEMPTION_LIMIT,
-          `Redemption limit must be at least ${MIN_REDEMPTION_LIMIT}`
-        )
-        .max(
-          MAX_REDEMPTION_LIMIT,
-          `Redemption limit cannot exceed ${MAX_REDEMPTION_LIMIT}`
-        )
+        .int('Redemption limit must be an integer')
+        .min(MIN_REDEMPTION_LIMIT, `Minimum limit is ${MIN_REDEMPTION_LIMIT}`)
+        .max(MAX_REDEMPTION_LIMIT, `Maximum limit is ${MAX_REDEMPTION_LIMIT}`)
         .optional(),
-      startDate: z.coerce.date().optional(), // Defaults to now
+      startDate: z.coerce.date().optional(),
       expiryDate: z.coerce.date().optional(),
       inStoreRedemptionMethods: inStoreRedemptionMethodsSchema.optional(),
       onlineRedemptionMethods: onlineRedemptionMethodsSchema.optional(),
-      terms: z.string().max(MAX_TERMS_LENGTH).optional(),
+      terms: z
+        .string()
+        .max(
+          MAX_TERMS_LENGTH,
+          `Terms cannot exceed ${MAX_TERMS_LENGTH} characters`
+        )
+        .optional(),
       featured: z.boolean().optional(),
     })
     .refine(
@@ -98,6 +104,7 @@ export const createRewardSchema = z.object({
     ),
 });
 
+// Update reward schema
 export const updateRewardSchema = z.object({
   params: z.object({
     id: z.string().min(1, 'Reward ID is required'),
@@ -111,6 +118,7 @@ export const updateRewardSchema = z.object({
       .optional(),
     redemptionLimit: z
       .number()
+      .int()
       .min(MIN_REDEMPTION_LIMIT)
       .max(MAX_REDEMPTION_LIMIT)
       .optional(),
@@ -121,15 +129,21 @@ export const updateRewardSchema = z.object({
     terms: z.string().max(MAX_TERMS_LENGTH).optional(),
     featured: z.boolean().optional(),
     isActive: z.boolean().optional(),
+    updateReason: z.string().max(500).optional(),
   }),
 });
 
+// Get reward by ID schema
 export const getRewardByIdSchema = z.object({
   params: z.object({
     id: z.string().min(1, 'Reward ID is required'),
   }),
+  query: z.object({
+    userId: z.string().optional(),
+  }),
 });
 
+// Get rewards schema
 export const getRewardsSchema = z.object({
   query: z.object({
     businessId: z.string().optional(),
@@ -141,45 +155,36 @@ export const getRewardsSchema = z.object({
     featured: z.coerce.boolean().optional(),
     userId: z.string().optional(),
     search: z.string().optional(),
-    page: z.coerce.number().min(1).default(1),
-    limit: z.coerce.number().min(1).max(100).default(20),
+    page: z.coerce.number().int().min(1).default(1),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
     sortBy: z.string().default('createdAt'),
     sortOrder: z.enum(['asc', 'desc']).default('desc'),
   }),
 });
 
+// Get rewards by business schema
 export const getRewardsByBusinessSchema = z.object({
   params: z.object({
     businessId: z.string().min(1, 'Business ID is required'),
   }),
-  query: z.object({
-    type: z.enum(REWARD_TYPE_VALUES as [string, ...string[]]).optional(),
-    category: z
-      .enum(REWARD_CATEGORY_VALUES as [string, ...string[]])
-      .optional(),
-    status: z.enum(REWARD_STATUS_VALUES as [string, ...string[]]).optional(),
-    featured: z.coerce.boolean().optional(),
-    userId: z.string().optional(),
-    search: z.string().optional(),
-    page: z.coerce.number().min(1).default(1),
-    limit: z.coerce.number().min(1).max(100).default(20),
-    sortBy: z.string().default('createdAt'),
-    sortOrder: z.enum(['asc', 'desc']).default('desc'),
-  }),
+  query: getRewardsSchema.shape.query,
 });
 
+// Delete reward schema
 export const deleteRewardSchema = z.object({
   params: z.object({
     id: z.string().min(1, 'Reward ID is required'),
   }),
 });
 
+// Upload codes schema
 export const uploadCodesSchema = z.object({
   params: z.object({
     id: z.string().min(1, 'Reward ID is required'),
   }),
 });
 
+// Check availability schema
 export const checkAvailabilitySchema = z.object({
   params: z.object({
     id: z.string().min(1, 'Reward ID is required'),
@@ -189,6 +194,7 @@ export const checkAvailabilitySchema = z.object({
   }),
 });
 
+// Get reward stats schema
 export const getRewardStatsSchema = z.object({
   query: z.object({
     businessId: z.string().optional(),
@@ -196,3 +202,90 @@ export const getRewardStatsSchema = z.object({
     endDate: z.coerce.date().optional(),
   }),
 });
+
+// Claim reward schema
+export const claimRewardSchema = z.object({
+  params: z.object({
+    id: z.string().min(1, 'Reward ID is required'),
+  }),
+  body: z.object({
+    preferredCodeType: z.enum(['discount', 'giftcard']).optional(),
+    idempotencyKey: z.string().max(100).optional(),
+  }),
+});
+
+// Cancel claimed reward schema
+export const cancelClaimedRewardSchema = z.object({
+  params: z.object({
+    redemptionId: z.string().min(1, 'Redemption ID is required'),
+  }),
+  body: z.object({
+    reason: z
+      .string()
+      .max(500, 'Reason cannot exceed 500 characters')
+      .optional(),
+  }),
+});
+
+// Redeem reward schema
+export const redeemRewardSchema = z.object({
+  params: z.object({
+    redemptionId: z.string().min(1, 'Redemption ID is required'),
+  }),
+  body: z.object({
+    location: z.string().max(200).optional(),
+    notes: z.string().max(500).optional(),
+  }),
+});
+
+// Get user claimed rewards schema
+export const getUserClaimedRewardsSchema = z.object({
+  query: z.object({
+    includeExpired: z.enum(['true', 'false']).optional(),
+    status: z
+      .enum([...REDEMPTION_STATUS_VALUES] as [string, ...string[]])
+      .optional(),
+    page: z.coerce.number().int().min(1).default(1),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+    sortBy: z.string().default('claimedAt'),
+    sortOrder: z.enum(['asc', 'desc']).default('desc'),
+  }),
+});
+
+// Get claimed reward by ID schema
+export const getClaimedRewardByIdSchema = z.object({
+  params: z.object({
+    redemptionId: z.string().min(1, 'Redemption ID is required'),
+  }),
+});
+
+// Verify redemption schema (for QR code scanning)
+export const verifyRedemptionSchema = z.object({
+  params: z.object({
+    redemptionId: z.string().min(1, 'Redemption ID is required'),
+  }),
+  body: z.object({
+    qrCode: z.string().optional(),
+    verificationCode: z.string().optional(),
+  }),
+});
+
+// Export validation object
+export const rewardValidation = {
+  createRewardSchema,
+  updateRewardSchema,
+  getRewardByIdSchema,
+  getRewardsSchema,
+  getRewardsByBusinessSchema,
+  deleteRewardSchema,
+  uploadCodesSchema,
+  checkAvailabilitySchema,
+  getRewardStatsSchema,
+  // Claim/redeem validations
+  claimRewardSchema,
+  cancelClaimedRewardSchema,
+  redeemRewardSchema,
+  getUserClaimedRewardsSchema,
+  getClaimedRewardByIdSchema,
+  verifyRedemptionSchema, // Added missing schema
+};
