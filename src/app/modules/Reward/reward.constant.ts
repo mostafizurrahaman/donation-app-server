@@ -61,7 +61,6 @@ export const MIN_REDEMPTION_LIMIT = 1;
 export const MAX_REDEMPTION_LIMIT = 10000;
 export const MAX_TITLE_LENGTH = 150;
 export const MAX_DESCRIPTION_LENGTH = 1000;
-export const MAX_TERMS_LENGTH = 2000;
 export const MAX_CODE_LENGTH = 500;
 export const MAX_CODES_PER_UPLOAD = 10000;
 

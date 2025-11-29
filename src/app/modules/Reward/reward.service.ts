@@ -290,7 +290,6 @@ const createReward = async (
     inStoreRedemptionMethods: rewardData.inStoreRedemptionMethods,
     onlineRedemptionMethods: rewardData.onlineRedemptionMethods,
     codes: generatedCodes,
-    terms: rewardData.terms,
     featured: rewardData.featured || false,
     priority: rewardData.featured ? 10 : 1,
     isActive: true,
@@ -458,7 +457,6 @@ const updateReward = async (
   if (payload.category !== undefined) reward.category = payload.category;
   if (payload.startDate !== undefined) reward.startDate = payload.startDate;
   if (payload.expiryDate !== undefined) reward.expiryDate = payload.expiryDate;
-  if (payload.terms !== undefined) reward.terms = payload.terms;
   if (payload.featured !== undefined) {
     reward.featured = payload.featured;
     reward.priority = payload.featured ? 10 : 1;
@@ -586,7 +584,7 @@ const getClaimedRewardById = async (
   })
     .populate(
       'reward',
-      'title description image type category pointsCost terms'
+      'title description image type category pointsCost'
     )
     .populate('business', 'name locations coverImage');
 
@@ -919,7 +917,7 @@ const claimReward = async (
 
     // Populate for response
     await redemption.populate([
-      { path: 'reward', select: 'title description image type category terms' },
+      { path: 'reward', select: 'title description image type category' },
       { path: 'business', select: 'name locations' },
     ]);
 
@@ -1087,7 +1085,7 @@ const getUserClaimedRewards = async (
     RewardRedemption.find(filter)
       .populate(
         'reward',
-        'title description image type category pointsCost terms'
+        'title description image type category pointsCost'
       )
       .populate('business', 'name locations coverImage')
       .sort('-claimedAt')

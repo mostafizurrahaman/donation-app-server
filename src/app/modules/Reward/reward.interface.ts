@@ -56,7 +56,6 @@ export interface IReward {
   };
 
   codes: IRewardCode[];
-  terms?: string;
 
   featured: boolean;
   priority: number;
@@ -172,7 +171,7 @@ export interface ICreateRewardPayload {
     discountCode: boolean;
     giftCard: boolean;
   };
-  terms?: string;
+
   featured?: boolean;
 }
 
@@ -193,7 +192,7 @@ export interface IUpdateRewardPayload {
     discountCode?: boolean;
     giftCard?: boolean;
   };
-  terms?: string;
+
   featured?: boolean;
   isActive?: boolean;
   updateReason?: string;
@@ -331,7 +330,6 @@ export interface IRedemptionPopulated
     type: string;
     category: string;
     pointsCost: number;
-    terms?: string;
   };
   business: {
     _id: Types.ObjectId;

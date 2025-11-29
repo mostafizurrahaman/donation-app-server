@@ -17,7 +17,6 @@ import {
   MAX_REDEMPTION_LIMIT,
   MAX_TITLE_LENGTH,
   MAX_DESCRIPTION_LENGTH,
-  MAX_TERMS_LENGTH,
   MAX_CODE_LENGTH,
   REDEMPTION_METHOD_VALUES,
 } from './reward.constant';
@@ -179,15 +178,6 @@ const rewardSchema = new Schema<IRewardDocument, IRewardModel>(
       default: [],
     },
 
-    terms: {
-      type: String,
-      maxlength: [
-        MAX_TERMS_LENGTH,
-        `Terms cannot exceed ${MAX_TERMS_LENGTH} characters`,
-      ],
-      trim: true,
-    },
-
     featured: {
       type: Boolean,
       default: false,
@@ -333,7 +323,9 @@ rewardSchema.methods.checkAvailability = function (): boolean {
 };
 
 // Check if a business can validate this reward (only creator business can validate)
-rewardSchema.methods.isCreatorBusiness = function (businessId: Types.ObjectId): boolean {
+rewardSchema.methods.isCreatorBusiness = function (
+  businessId: Types.ObjectId
+): boolean {
   return this.business.toString() === businessId.toString();
 };
 

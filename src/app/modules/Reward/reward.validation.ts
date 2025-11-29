@@ -9,7 +9,6 @@ import {
   MAX_REDEMPTION_LIMIT,
   MAX_TITLE_LENGTH,
   MAX_DESCRIPTION_LENGTH,
-  MAX_TERMS_LENGTH,
 } from './reward.constant';
 
 // Helper schemas
@@ -68,13 +67,6 @@ export const createRewardSchema = z.object({
       expiryDate: z.coerce.date().optional(),
       inStoreRedemptionMethods: inStoreRedemptionMethodsSchema.optional(),
       onlineRedemptionMethods: onlineRedemptionMethodsSchema.optional(),
-      terms: z
-        .string()
-        .max(
-          MAX_TERMS_LENGTH,
-          `Terms cannot exceed ${MAX_TERMS_LENGTH} characters`
-        )
-        .optional(),
       featured: z.boolean().optional(),
     })
     .refine(
@@ -126,7 +118,6 @@ export const updateRewardSchema = z.object({
     expiryDate: z.coerce.date().optional(),
     inStoreRedemptionMethods: inStoreRedemptionMethodsSchema.optional(),
     onlineRedemptionMethods: onlineRedemptionMethodsSchema.optional(),
-    terms: z.string().max(MAX_TERMS_LENGTH).optional(),
     featured: z.boolean().optional(),
     isActive: z.boolean().optional(),
     updateReason: z.string().max(500).optional(),
