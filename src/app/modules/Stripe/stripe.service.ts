@@ -4,7 +4,6 @@ import config from '../../config';
 import { AppError } from '../../utils';
 import httpStatus from 'http-status';
 import { OrganizationModel } from '../Organization/organization.model';
-
 import { Donation } from '../Donation/donation.model';
 import Cause from '../Causes/causes.model';
 import { CAUSE_STATUS_TYPE } from '../Causes/causes.constant';
@@ -18,6 +17,7 @@ import {
   ISetupIntentResponse,
   IAttachPaymentMethodRequest,
   ICreatePaymentIntentWithMethodRequest,
+  ICreateRoundUpPaymentIntentRequest,
 } from './stripe.interface';
 import PaymentMethod from '../PaymentMethod/paymentMethod.model';
 
@@ -32,10 +32,13 @@ const createCheckoutSession = async (
     userId,
     connectedAccountId,
     specialMessage,
+    isTaxable = false,
+    taxAmount = 0,
+    totalAmount,
   } = payload;
 
   // Validate amount is reasonable
-  if (amount < 0.01 || amount > 99999.99) {
+  if (totalAmount < 0.01 || totalAmount > 99999.99) {
     throw new AppError(httpStatus.BAD_REQUEST, 'Invalid donation amount!');
   }
 
@@ -53,7 +56,7 @@ const createCheckoutSession = async (
             name: causeId ? 'Donation for Cause' : 'General Donation',
             description: specialMessage || 'Thank you for your donation!',
           },
-          unit_amount: Math.round(amount * 100), // Convert to cents
+          unit_amount: Math.round(totalAmount * 100), // ✅ Use totalAmount (includes tax)
         },
         quantity: 1,
       },
@@ -62,6 +65,10 @@ const createCheckoutSession = async (
       causeId: causeId || '',
       organizationId,
       userId,
+      baseAmount: amount.toString(),
+      isTaxable: isTaxable.toString(),
+      taxAmount: taxAmount.toString(),
+      totalAmount: totalAmount.toString(),
     },
   };
 
@@ -72,6 +79,10 @@ const createCheckoutSession = async (
       organizationId,
       userId,
       specialMessage: specialMessage || '',
+      baseAmount: amount.toString(),
+      isTaxable: isTaxable.toString(),
+      taxAmount: taxAmount.toString(),
+      totalAmount: totalAmount.toString(),
     },
   };
 
@@ -111,10 +122,13 @@ const createCheckoutSessionWithDonation = async (
     userId,
     connectedAccountId,
     specialMessage,
+    isTaxable = false,
+    taxAmount = 0,
+    totalAmount,
   } = payload;
 
   // Validate amount is reasonable
-  if (amount < 0.01 || amount > 99999.99) {
+  if (totalAmount < 0.01 || totalAmount > 99999.99) {
     throw new AppError(httpStatus.BAD_REQUEST, 'Invalid donation amount!');
   }
 
@@ -132,7 +146,7 @@ const createCheckoutSessionWithDonation = async (
             name: causeId ? 'Donation for Cause' : 'General Donation',
             description: specialMessage || 'Thank you for your donation!',
           },
-          unit_amount: Math.round(amount * 100), // Convert to cents
+          unit_amount: Math.round(totalAmount * 100), //  Use totalAmount (includes tax)
         },
         quantity: 1,
       },
@@ -142,6 +156,10 @@ const createCheckoutSessionWithDonation = async (
       causeId: causeId || '',
       organizationId,
       userId,
+      baseAmount: amount.toString(),
+      isTaxable: isTaxable.toString(),
+      taxAmount: taxAmount.toString(),
+      totalAmount: totalAmount.toString(),
     },
   };
 
@@ -153,6 +171,10 @@ const createCheckoutSessionWithDonation = async (
       organizationId,
       userId,
       specialMessage: specialMessage || '',
+      baseAmount: amount.toString(),
+      isTaxable: isTaxable.toString(),
+      taxAmount: taxAmount.toString(),
+      totalAmount: totalAmount.toString(),
     },
   };
 
@@ -278,12 +300,16 @@ const getPaymentIntent = async (
   }
 };
 
+
 // 7. Create payment intent for one-time donation
 const createPaymentIntent = async (
   payload: IPaymentIntentRequest
 ): Promise<IPaymentIntentResponse> => {
   const {
-    amount,
+    amount, // Base amount (before tax)
+    isTaxable = false,
+    taxAmount = 0,
+    totalAmount, // Total amount to charge
     currency = 'usd',
     donorId,
     organizationId,
@@ -293,19 +319,28 @@ const createPaymentIntent = async (
   } = payload;
 
   // Validate amount is reasonable
-  if (amount < 0.01 || amount > 99999.99) {
+  if (totalAmount < 0.01 || totalAmount > 99999.99) {
     throw new AppError(httpStatus.BAD_REQUEST, 'Invalid donation amount!');
   }
 
+  console.log(`💰 Creating Payment Intent with Tax:`);
+  console.log(`   Base Amount: $${amount.toFixed(2)}`);
+  console.log(`   Is Taxable: ${isTaxable}`);
+  console.log(`   Tax Amount: $${taxAmount.toFixed(2)}`);
+  console.log(`   Total Amount: $${totalAmount.toFixed(2)}`);
+
   // Create Stripe Payment Intent
   const paymentIntentParams: Stripe.PaymentIntentCreateParams = {
-    amount: Math.round(amount * 100), // Convert to cents
-    currency,
+    amount: Math.round(totalAmount * 100), 
     metadata: {
       donorId,
       organizationId,
       causeId: causeId || '',
       specialMessage: specialMessage || '',
+      baseAmount: amount.toString(), 
+      isTaxable: isTaxable.toString(),
+      taxAmount: taxAmount.toString(),
+      totalAmount: totalAmount.toString(),
     },
     automatic_payment_methods: {
       enabled: true,
@@ -471,12 +506,16 @@ const detachPaymentMethod = async (
   }
 };
 
+
 // 13. Create payment intent with saved payment method (for direct charges)
 const createPaymentIntentWithMethod = async (
   payload: ICreatePaymentIntentWithMethodRequest
 ): Promise<IPaymentIntentResponse> => {
   const {
-    amount,
+    amount, 
+    isTaxable = false,
+    taxAmount = 0,
+    totalAmount, 
     currency = 'usd',
     customerId,
     paymentMethodId,
@@ -488,17 +527,23 @@ const createPaymentIntentWithMethod = async (
   } = payload;
 
   // Validate amount
-  if (amount < 1 || amount > 10000) {
+  if (totalAmount < 1 || totalAmount > 10000) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
       'Invalid donation amount! Amount must be between $1 and $10,000.'
     );
   }
 
+  console.log(`💳 Creating Payment Intent with Saved Method:`);
+  console.log(`   Base Amount: $${amount.toFixed(2)}`);
+  console.log(`   Is Taxable: ${isTaxable}`);
+  console.log(`   Tax Amount: $${taxAmount.toFixed(2)}`);
+  console.log(`   Total Amount: $${totalAmount.toFixed(2)}`);
+
   try {
     // Create payment intent with saved payment method
     const paymentIntentParams: Stripe.PaymentIntentCreateParams = {
-      amount: Math.round(amount * 100), // Convert to cents
+      amount: Math.round(totalAmount * 100), 
       currency,
       customer: customerId,
       payment_method: paymentMethodId,
@@ -509,6 +554,10 @@ const createPaymentIntentWithMethod = async (
         organizationId,
         causeId,
         specialMessage: specialMessage || '',
+        baseAmount: amount.toString(), // ✅ Store base amount
+        isTaxable: isTaxable.toString(),
+        taxAmount: taxAmount.toString(),
+        totalAmount: totalAmount.toString(),
       },
     };
 
@@ -679,22 +728,38 @@ const createAccountLink = async (
   }
 };
 
+
 // 18. Create payment intent for round-up donation (webhook-based approach)
-const createRoundUpPaymentIntent = async (payload: {
-  roundUpId: string;
-  userId: string;
-  charityId: string;
-  causeId?: string;
-  amount: number;
-  month: string;
-  year: number;
-  specialMessage?: string;
-  paymentMethodId?: string;
-  donationId?: string; // ⭐ Add this parameter
-}): Promise<{ client_secret: string; payment_intent_id: string }> => {
+const createRoundUpPaymentIntent = async (
+  payload: ICreateRoundUpPaymentIntentRequest
+): Promise<{ client_secret: string; payment_intent_id: string }> => {
   try {
+    const {
+      roundUpId,
+      userId,
+      charityId,
+      causeId,
+      amount, // Base amount (before tax)
+      isTaxable = false,
+      taxAmount = 0,
+      totalAmount, // Total amount to charge
+      month,
+      year,
+      specialMessage,
+      paymentMethodId,
+      donationId,
+    } = payload;
+
+    console.log(`🔄 Creating RoundUp Payment Intent with Tax:`);
+    console.log(`   RoundUp ID: ${roundUpId}`);
+    console.log(`   Base Amount: $${amount.toFixed(2)}`);
+    console.log(`   Is Taxable: ${isTaxable}`);
+    console.log(`   Tax Amount: $${taxAmount.toFixed(2)}`);
+    console.log(`   Total Amount: $${totalAmount.toFixed(2)}`);
+    console.log(`   Month: ${month} ${year}`);
+
     // Get charity's Stripe Connect account
-    const charity = await OrganizationModel.findById(payload.charityId);
+    const charity = await OrganizationModel.findById(charityId);
     if (!charity || !charity.stripeConnectAccountId) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
@@ -702,22 +767,21 @@ const createRoundUpPaymentIntent = async (payload: {
       );
     }
 
-    // Check is payment method exists for user:
-
-    if (!payload.paymentMethodId) {
+    // Check if payment method exists for user
+    if (!paymentMethodId) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
         'Payment method ID is required for round-up donation'
       );
     }
 
-    const paymentMethod = await PaymentMethod.findById(payload.paymentMethodId);
+    const paymentMethod = await PaymentMethod.findById(paymentMethodId);
 
     if (!paymentMethod) {
       throw new AppError(httpStatus.BAD_REQUEST, 'Payment method not found');
     }
 
-    if (String(paymentMethod.user) !== payload.userId) {
+    if (String(paymentMethod.user) !== userId) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
         'Payment method does not belong to the specified user'
@@ -725,15 +789,12 @@ const createRoundUpPaymentIntent = async (payload: {
     }
 
     if (!paymentMethod.isActive) {
-      throw new AppError(
-        httpStatus.BAD_REQUEST,
-        "Payment methoed isn't active "
-      );
+      throw new AppError(httpStatus.BAD_REQUEST, "Payment method isn't active");
     }
 
     // Create Stripe Payment Intent for off-session round-up donation
     const paymentIntentParams: Stripe.PaymentIntentCreateParams = {
-      amount: Math.round(payload.amount * 100),
+      amount: Math.round(totalAmount * 100), 
       currency: 'usd',
 
       // Off-session settings
@@ -745,18 +806,21 @@ const createRoundUpPaymentIntent = async (payload: {
       payment_method: paymentMethod.stripePaymentMethodId,
 
       metadata: {
-        donationId: String(payload.donationId || ''),
-        roundUpId: String(payload.roundUpId),
-        userId: String(payload.userId),
-        organizationId: String(payload.charityId),
-        causeId: String(payload.causeId || ''),
-        month: String(payload.month),
-        year: String(payload.year),
+        donationId: String(donationId || ''),
+        roundUpId: String(roundUpId),
+        userId: String(userId),
+        organizationId: String(charityId),
+        causeId: String(causeId || ''),
+        month: String(month),
+        year: String(year),
         type: 'roundup_donation',
         donationType: 'roundup',
         specialMessage:
-          payload.specialMessage ||
-          `Round-up donation for ${payload.month} ${payload.year}`,
+          specialMessage || `Round-up donation for ${month} ${year}`,
+        baseAmount: amount.toString(), 
+        isTaxable: isTaxable.toString(),
+        taxAmount: taxAmount.toString(),
+        totalAmount: totalAmount.toString(),
       },
 
       // For connected accounts
@@ -770,13 +834,12 @@ const createRoundUpPaymentIntent = async (payload: {
     );
 
     console.log(`✅ RoundUp payment intent created: ${paymentIntent.id}`);
-    console.log(`   Donation ID: ${payload.donationId}`);
-    console.log(`   RoundUp ID: ${payload.roundUpId}`);
-    console.log(`   Amount: $${payload.amount}`);
-    console.log(`   Charity: ${payload.charityId}`);
-    if (payload.donationId) {
-      console.log(`   Donation ID: ${payload.donationId}`); // ✅ NEW: Log donationId
-    }
+    console.log(`   Donation ID: ${donationId}`);
+    console.log(`   RoundUp ID: ${roundUpId}`);
+    console.log(`   Base Amount: $${amount.toFixed(2)}`);
+    console.log(`   Tax Amount: $${taxAmount.toFixed(2)}`);
+    console.log(`   Total Charged: $${totalAmount.toFixed(2)}`);
+    console.log(`   Charity: ${charityId}`);
 
     return {
       client_secret: paymentIntent.client_secret || '',
@@ -801,8 +864,8 @@ const processRoundUpDonation = async (payload: {
   year: number;
   specialMessage?: string;
 }): Promise<{ donationId: string; transferId: string }> => {
+
   try {
-    // Get charity's Stripe Connect account
     const charity = await OrganizationModel.findById(payload.charityId);
     if (!charity || !charity.stripeConnectAccountId) {
       throw new AppError(
@@ -811,7 +874,6 @@ const processRoundUpDonation = async (payload: {
       );
     }
 
-    // Validate cause exists and is verified (if causeId is provided)
     if (payload.causeId) {
       const cause = await Cause.findById(payload.causeId);
       if (!cause) {
@@ -825,13 +887,11 @@ const processRoundUpDonation = async (payload: {
       }
     }
 
-    // For round-up donations, we'll use a direct charge with transfer data
-    // This ensures funds go directly to the charity
     const transfer = await stripe.transfers.create({
-      amount: Math.round(payload.amount * 100), // Convert to cents
+      amount: Math.round(payload.amount * 100),
       currency: 'usd',
       destination: charity.stripeConnectAccountId,
-      source_transaction: 'tok_visa', // We'll need to implement actual payment processing
+      source_transaction: 'tok_visa',
       description: `Round-up donation for ${payload.month} ${payload.year}`,
       metadata: {
         roundUpId: payload.roundUpId,
@@ -843,17 +903,15 @@ const processRoundUpDonation = async (payload: {
       },
     });
 
-    // ✅ Find Client by auth ID (payload.userId is Auth._id)
     const donor = await Client.findOne({ auth: payload.userId });
     if (!donor?._id) {
       throw new AppError(httpStatus.NOT_FOUND, 'Donor not found!');
     }
 
-    // Create donation record in main donation model
     const mainDonation = await Donation.create({
       donor: donor._id,
       organization: payload.charityId,
-      cause: payload.causeId, // Cause specified during round-up setup
+      cause: payload.causeId,
       donationType: 'round-up',
       amount: payload.amount,
       currency: 'USD',
@@ -863,11 +921,10 @@ const processRoundUpDonation = async (payload: {
       specialMessage:
         payload.specialMessage ||
         `Round-up donation for ${payload.month} ${payload.year}`,
-      pointsEarned: Math.round(payload.amount * 10), // Example: 10 points per dollar
+      pointsEarned: Math.round(payload.amount * 100), // Points based on base amount
       connectedAccountId: charity.stripeConnectAccountId,
       roundUpId: payload.roundUpId,
       receiptGenerated: false,
-      // Additional round-up specific metadata
       metadata: {
         userId: payload.userId,
         month: payload.month,

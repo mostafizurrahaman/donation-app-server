@@ -50,6 +50,7 @@ const RoundUpSchema = new Schema(
     isTaxable: {
       type: Boolean,
       default: false,
+      index: true,
     },
 
     monthlyThreshold: {

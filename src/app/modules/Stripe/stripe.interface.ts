@@ -5,8 +5,6 @@ export interface ICheckoutSessionRequest {
   connectedAccountId?: string;
   specialMessage?: string;
   userId: string;
-
-  // ✅ NEW: Tax fields
   isTaxable?: boolean;
   taxAmount?: number;
   totalAmount: number; // This is what gets charged
@@ -18,7 +16,7 @@ export interface ICheckoutSessionResponse {
 }
 
 export interface IPaymentIntentRequest {
-  amount: number;
+  amount: number; 
   currency?: string;
   donorId: string;
   organizationId: string;
@@ -26,10 +24,10 @@ export interface IPaymentIntentRequest {
   connectedAccountId?: string;
   specialMessage?: string;
 
-  // ✅ NEW: Tax fields
+
   isTaxable?: boolean;
   taxAmount?: number;
-  totalAmount: number;
+  totalAmount: number; 
 }
 
 export interface IPaymentIntentResponse {
@@ -68,7 +66,7 @@ export interface IAttachPaymentMethodRequest {
 }
 
 export interface ICreatePaymentIntentWithMethodRequest {
-  amount: number;
+  amount: number; 
   currency?: string;
   customerId: string;
   paymentMethodId: string;
@@ -78,8 +76,27 @@ export interface ICreatePaymentIntentWithMethodRequest {
   connectedAccountId?: string;
   specialMessage?: string;
 
-  // ✅ NEW: Tax fields
+
   isTaxable?: boolean;
   taxAmount?: number;
-  totalAmount: number; // This is what gets charged to the customer
+  totalAmount: number; 
+}
+
+//  Interface for RoundUp payment intent
+export interface ICreateRoundUpPaymentIntentRequest {
+  roundUpId: string;
+  userId: string;
+  charityId: string;
+  causeId?: string;
+  amount: number; 
+  month: string;
+  year: number;
+  specialMessage?: string;
+  paymentMethodId?: string;
+  donationId?: string;
+
+ 
+  isTaxable?: boolean;
+  taxAmount?: number;
+  totalAmount: number; 
 }

@@ -5,6 +5,7 @@ export const monthlyThresholdSchema = z.union([
   z.number().min(3, 'Threshold amount must be at least $3'),
 ]);
 
+// ✅ MODIFIED: Added isTaxable field
 export const savePlaidConsentValidation = z.object({
   body: z.object({
     bankConnectionId: z.string().min(1, 'Bank connection ID is required'),

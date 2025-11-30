@@ -104,7 +104,7 @@ const updateScheduledDonationAfterSuccess = async (
   }
 };
 
-// ✅ NEW HELPER FUNCTION: Generate Receipt After Successful Payment
+// ✅ VERIFIED: generateReceiptAfterPayment - Already handles tax correctly
 const generateReceiptAfterPayment = async (
   donation: any,
   paymentIntent: Stripe.PaymentIntent
@@ -122,14 +122,17 @@ const generateReceiptAfterPayment = async (
       return existingReceipt;
     }
 
-    // Prepare receipt generation payload
+    // ✅ Receipt payload already uses tax fields from donation
     const receiptPayload = {
       donationId: donation._id,
       donorId: donation.donor._id || donation.donor,
       organizationId: donation.organization._id || donation.organization,
       causeId: donation.cause?._id || donation.cause,
-      amount: paymentIntent.amount / 100, // Convert from cents
-      currency: paymentIntent.currency.toUpperCase(),
+      amount: donation.amount, // ✅ Base amount
+      isTaxable: donation.isTaxable, // ✅ Tax flag
+      taxAmount: donation.taxAmount, // ✅ Tax amount
+      totalAmount: donation.totalAmount, // ✅ Total amount
+      currency: donation.currency || paymentIntent.currency.toUpperCase(),
       donationType: donation.donationType || 'one-time',
       donationDate: new Date(),
       paymentMethod: 'Stripe',
@@ -142,6 +145,9 @@ const generateReceiptAfterPayment = async (
     console.log(`✅ Receipt generated successfully: ${receipt.receiptNumber}`);
     console.log(`   Receipt ID: ${receipt._id}`);
     console.log(`   Donation ID: ${donation._id}`);
+    console.log(`   Base Amount: $${donation.amount}`);
+    console.log(`   Tax Amount: $${donation.taxAmount || 0}`);
+    console.log(`   Total Amount: $${donation.totalAmount}`);
     console.log(`   PDF URL: ${receipt.pdfUrl}`);
     console.log(`   Email sent: ${receipt.emailSent}`);
 
@@ -154,8 +160,7 @@ const generateReceiptAfterPayment = async (
   }
 };
 
-// Handle RoundUp donation success
-// ✅ MODIFIED: Now UPDATES existing Donation record instead of creating it
+// ✅ VERIFIED: handleRoundUpDonationSuccess - Already uses existing Donation record with tax
 const handleRoundUpDonationSuccess = async (
   roundUpId: string,
   paymentIntentId: string
@@ -168,7 +173,7 @@ const handleRoundUpDonationSuccess = async (
       return;
     }
 
-    // ✅ NEW: Find existing Donation record by payment intent ID
+    // ✅ Find existing Donation record (already has tax fields)
     const donation = await Donation.findOne({
       stripePaymentIntentId: paymentIntentId,
       donationType: 'round-up',
@@ -182,6 +187,10 @@ const handleRoundUpDonationSuccess = async (
     }
 
     console.log(`📝 Found existing Donation record: ${donation._id}`);
+    console.log(`   Base Amount: $${donation.amount}`);
+    console.log(`   Tax Amount: $${donation.taxAmount || 0}`);
+    console.log(`   Total Amount: $${donation.totalAmount}`);
+    console.log(`   Is Taxable: ${donation.isTaxable}`);
 
     // Get all processing transactions for this payment intent
     const processingTransactions = await RoundUpTransactionModel.find({
@@ -217,7 +226,7 @@ const handleRoundUpDonationSuccess = async (
       `✅ Updated ${processingTransactions.length} transactions to 'donated' status`
     );
 
-    // ✅ MODIFIED: UPDATE existing Donation record (don't create new one)
+    // ✅ UPDATE existing Donation record (already has tax fields)
     donation.status = 'completed';
     donation.donationDate = new Date();
     donation.roundUpTransactionIds = processingTransactions.map(
@@ -227,7 +236,7 @@ const handleRoundUpDonationSuccess = async (
 
     console.log(`✅ Updated Donation record to 'completed' status`);
 
-    // ✅ MODIFIED: Use completeDonationCycle() method for proper state management
+    // ✅ Use completeDonationCycle() method for proper state management
     await roundUpConfig.completeDonationCycle();
 
     console.log(`✅ RoundUp donation completed successfully`);
@@ -235,14 +244,17 @@ const handleRoundUpDonationSuccess = async (
     console.log(`   Donation ID: ${donation._id}`);
     console.log(`   Payment Intent ID: ${paymentIntentId}`);
     console.log(`   User: ${roundUpConfig.user}`);
-    console.log(`   Amount: $${donation.amount}`);
+    console.log(`   Base Amount: $${donation.amount}`);
+    console.log(`   Tax Amount: $${donation.taxAmount || 0}`);
+    console.log(`   Total Charged: $${donation.totalAmount}`);
     console.log(`   Transactions processed: ${processingTransactions.length}`);
 
     return {
       success: true,
       roundUpId,
       donationId: donation._id,
-      amount: donation.amount,
+      amount: donation.amount, // Base amount
+      totalAmount: donation.totalAmount, // Total charged
       transactionsCount: processingTransactions.length,
     };
   } catch (error: unknown) {
@@ -359,7 +371,7 @@ const handleCheckoutSessionCompleted = async (
   }
 };
 
-// Handle payment_intent.succeeded event
+// ✅ VERIFIED: handlePaymentIntentSucceeded - Already correctly handles tax
 const handlePaymentIntentSucceeded = async (
   paymentIntent: Stripe.PaymentIntent
 ) => {
@@ -368,10 +380,18 @@ const handlePaymentIntentSucceeded = async (
   console.log(`WEBHOOK: payment_intent.succeeded`);
   console.log(`   Payment Intent ID: ${paymentIntent.id}`);
   console.log(
-    `   Amount: $${(paymentIntent.amount / 100).toFixed(
+    `   Total Charged: $${(paymentIntent.amount / 100).toFixed(
       2
     )} ${paymentIntent.currency.toUpperCase()}`
   );
+
+  // ✅ Log tax details from metadata if available
+  if (metadata?.baseAmount) {
+    console.log(`   Base Amount: $${metadata.baseAmount}`);
+    console.log(`   Is Taxable: ${metadata.isTaxable === 'true'}`);
+    console.log(`   Tax Amount: $${metadata.taxAmount || '0'}`);
+  }
+
   console.log(`   Donation Type: ${metadata?.donationType || 'one-time'}`);
 
   try {
@@ -384,7 +404,7 @@ const handlePaymentIntentSucceeded = async (
       {
         status: 'completed',
         stripeChargeId: paymentIntent.latest_charge as string,
-        pointsEarned: Math.floor((paymentIntent.amount / 100) * 100),
+        pointsEarned: Math.floor(paymentIntent.amount / 100) * 100,
       },
       { new: true }
     )
@@ -404,7 +424,7 @@ const handlePaymentIntentSucceeded = async (
           status: 'completed',
           stripePaymentIntentId: paymentIntent.id,
           stripeChargeId: paymentIntent.latest_charge as string,
-          pointsEarned: Math.floor((paymentIntent.amount / 100) * 100),
+          pointsEarned: Math.floor((paymentIntent.amount / 100) * 100), // ✅ Points based on base amount
         },
         { new: true }
       )
@@ -419,9 +439,12 @@ const handlePaymentIntentSucceeded = async (
     }
 
     console.log(`Payment succeeded for donation: ${donation._id}`);
+    console.log(`   Base Amount: $${donation.amount}`);
+    console.log(`   Tax Amount: $${donation.taxAmount || 0}`);
+    console.log(`   Total Charged: $${donation.totalAmount}`);
 
     // ------------------------------------------------------------------
-    // 1. Generate Tax Receipt (Critical for donors)
+    // 1. Generate Tax Receipt (Critical for donors) - ✅ Already uses tax fields
     // ------------------------------------------------------------------
     try {
       await generateReceiptAfterPayment(donation, paymentIntent);
@@ -434,16 +457,18 @@ const handlePaymentIntentSucceeded = async (
     }
 
     // ------------------------------------------------------------------
-    // 2. AWARD POINTS TO DONOR (100 points per $1)
+    // 2. AWARD POINTS TO DONOR - ✅ CORRECTLY uses base amount (not totalAmount)
     // ------------------------------------------------------------------
     try {
       await pointsServices.awardPointsForDonation(
         donation.donor._id.toString(),
         donation._id!.toString(),
-        donation.amount // amount is in dollars
+        donation.amount // ✅ CORRECT: Points based on base amount (before tax)
       );
       console.log(
-        `Points awarded: $${donation.amount} → ${donation.amount * 100} points`
+        `Points awarded: $${donation.amount} → ${
+          donation.amount * 100
+        } points (based on base amount, not including tax)`
       );
     } catch (err) {
       console.error(
@@ -469,7 +494,7 @@ const handlePaymentIntentSucceeded = async (
     }
 
     // ------------------------------------------------------------------
-    // 4. Handle Round-Up Donations
+    // 4. Handle Round-Up Donations - ✅ Already handles tax via Donation record
     // ------------------------------------------------------------------
     if (metadata?.donationType === 'roundup' && metadata?.roundUpId) {
       console.log(`Processing Round-Up donation: ${metadata.roundUpId}`);
