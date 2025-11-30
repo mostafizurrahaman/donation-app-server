@@ -8,7 +8,12 @@ export interface IReceipt {
 
   receiptNumber: string;
 
-  amount: number;
+  // ✅ MODIFIED: Amount fields with tax support
+  amount: number; // Base amount (before tax)
+  isTaxable: boolean;
+  taxAmount: number;
+  totalAmount: number; // Total amount (amount + tax)
+
   currency: string;
   donationType: 'one-time' | 'recurring' | 'round-up';
   donationDate: Date;
@@ -49,7 +54,13 @@ export interface IReceiptGenerationPayload {
   donorId: Types.ObjectId | string;
   organizationId: Types.ObjectId | string;
   causeId?: Types.ObjectId | string;
+
+  // ✅ MODIFIED: Amount fields with tax
   amount: number;
+  isTaxable: boolean;
+  taxAmount: number;
+  totalAmount: number;
+
   currency: string;
   donationType: 'one-time' | 'recurring' | 'round-up';
   donationDate: Date;
@@ -63,7 +74,12 @@ export interface IReceiptEmailPayload {
   donorName: string;
   organizationName: string;
   pdfUrl: string;
+
+  // ✅ NEW: Include tax info in email
   amount: number;
+  taxAmount: number;
+  totalAmount: number;
+
   currency: string;
   donationDate: Date;
 }
@@ -92,7 +108,13 @@ export interface IReceiptPDFData {
   abnNumber?: string;
   taxDeductible: boolean;
   zakatEligible: boolean;
+
+  // ✅ MODIFIED: Amount fields with tax
   amount: number;
+  isTaxable: boolean;
+  taxAmount: number;
+  totalAmount: number;
+
   currency: string;
   donationType: string;
   donationDate: Date;

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-// Custom interval schema
+// Custom interval schema (no changes)
 const customIntervalSchema = z.object({
   value: z
     .number()
@@ -9,7 +9,7 @@ const customIntervalSchema = z.object({
   unit: z.enum(['days', 'weeks', 'months']),
 });
 
-// 1. Create scheduled donation schema
+//  Create scheduled donation schema with tax support
 const createScheduledDonationSchema = z.object({
   body: z
     .object({
@@ -23,6 +23,10 @@ const createScheduledDonationSchema = z.object({
         .number({ message: 'Amount is required!' })
         .min(0.01, 'Amount must be at least $0.01')
         .positive('Amount must be positive'),
+
+      // ✅ NEW: Tax field
+      isTaxable: z.boolean().optional().default(false),
+
       frequency: z.enum(
         ['daily', 'weekly', 'monthly', 'quarterly', 'yearly', 'custom'],
         {
@@ -60,7 +64,8 @@ const createScheduledDonationSchema = z.object({
         return true;
       },
       {
-        message: 'Custom interval should only be provided when frequency is "custom"',
+        message:
+          'Custom interval should only be provided when frequency is "custom"',
         path: ['customInterval'],
       }
     ),
@@ -80,6 +85,9 @@ const updateScheduledDonationSchema = z.object({
         .min(0.01, 'Amount must be at least $0.01')
         .positive('Amount must be positive')
         .optional(),
+
+      isTaxable: z.boolean().optional(),
+
       frequency: z
         .enum(['daily', 'weekly', 'monthly', 'quarterly', 'yearly', 'custom'])
         .optional(),
@@ -129,23 +137,28 @@ const getUserScheduledDonationsSchema = z.object({
       .max(100, 'Limit cannot exceed 100!')
       .optional()
       .default(10),
-    
+
     // QueryBuilder search
     searchTerm: z.string().optional(),
-    
+
     // QueryBuilder sort
     sort: z.string().optional(),
-    
+
     // QueryBuilder fields selection
     fields: z.string().optional(),
-    
+
     // Filters
-    isActive: z
-      .enum(['true', 'false', 'all'])
-      .optional()
-      .default('all'),
+    isActive: z.enum(['true', 'false', 'all']).optional().default('all'),
     frequency: z
-      .enum(['daily', 'weekly', 'monthly', 'quarterly', 'yearly', 'custom', 'all'])
+      .enum([
+        'daily',
+        'weekly',
+        'monthly',
+        'quarterly',
+        'yearly',
+        'custom',
+        'all',
+      ])
       .optional()
       .default('all'),
   }),

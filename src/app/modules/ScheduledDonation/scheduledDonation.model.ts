@@ -40,6 +40,22 @@ const scheduledDonationSchema = new Schema<IScheduledDonationModel>(
       required: [true, 'Amount is required'],
       min: [0.01, 'Amount must be at least 0.01'],
     },
+
+    isTaxable: {
+      type: Boolean,
+      default: false,
+    },
+    taxAmount: {
+      type: Number,
+      default: 0,
+      min: [0, 'Tax amount cannot be negative'],
+    },
+    totalAmount: {
+      type: Number,
+      required: [true, 'Total amount is required'],
+      min: [0.01, 'Total amount must be at least 0.01'],
+    },
+
     currency: {
       type: String,
       default: DEFAULT_CURRENCY,
@@ -133,8 +149,9 @@ const scheduledDonationSchema = new Schema<IScheduledDonationModel>(
 // Compound indexes for efficient queries
 scheduledDonationSchema.index({ user: 1, isActive: 1 });
 scheduledDonationSchema.index({ organization: 1, isActive: 1 });
-scheduledDonationSchema.index({ nextDonationDate: 1, isActive: 1 }); // Critical for cron jobs
+scheduledDonationSchema.index({ nextDonationDate: 1, isActive: 1 });
 scheduledDonationSchema.index({ stripeCustomerId: 1, isActive: 1 });
+scheduledDonationSchema.index({ isTaxable: 1 });
 
 export const ScheduledDonation = model<IScheduledDonationModel>(
   'ScheduledDonation',

@@ -34,7 +34,7 @@ import {
 import { IAuth } from '../Auth/auth.interface';
 import Cause from '../Causes/causes.model';
 import { CAUSE_STATUS_TYPE } from '../Causes/causes.constant';
-import { monthAbbreviations } from './donation.constant';
+import { calculateTax, monthAbbreviations } from './donation.constant';
 import { path } from 'pdfkit';
 
 // Helper function to generate unique idempotency key
@@ -56,6 +56,7 @@ const createOneTimeDonation = async (
 }> => {
   const {
     amount,
+    isTaxable = false,
     causeId,
     organizationId,
     userId,
@@ -63,10 +64,19 @@ const createOneTimeDonation = async (
     specialMessage,
   } = payload;
 
-  // Generate idempotency key on backend
-  const idempotencyKey = generateIdempotencyKey();
+  // Calculate tax and total amount
+  const { taxAmount, totalAmount } = calculateTax(amount, isTaxable);
 
-  // check is donar exists ?:
+  console.log(`💰 Donation Amount Breakdown:`);
+  console.log(`   Base Amount: $${amount.toFixed(2)}`);
+  console.log(`   Tax Amount: $${taxAmount.toFixed(2)}`);
+  console.log(`   Total Amount: $${totalAmount.toFixed(2)}`);
+  console.log(`   Is Taxable: ${isTaxable}`);
+
+  // Generate idempotency key on backend
+  const idempotencyKey = `don-${new Types.ObjectId().toString()}-${Date.now()}`;
+
+  // Check if donor exists
   const donor = await Client?.findOne({
     auth: userId,
   });
@@ -125,7 +135,7 @@ const createOneTimeDonation = async (
     // Generate unique ID for the donation
     const donationUniqueId = new Types.ObjectId();
 
-    // Create donation record with pending status
+    // ✅ MODIFIED: Create donation record with tax fields
     const donation = new Donation({
       _id: donationUniqueId,
       donor: new Types.ObjectId(donor?._id),
@@ -133,10 +143,14 @@ const createOneTimeDonation = async (
       cause: new Types.ObjectId(causeId),
       donationType: 'one-time',
       amount,
+      isTaxable,
+      taxAmount,
+      totalAmount, // Total amount to charge
+
       currency: 'USD',
       status: 'pending',
       specialMessage,
-      pointsEarned: Math.floor(amount * 100), // 100 points per dollar
+      pointsEarned: Math.floor(amount * 100), // ✅ Points based on base amount, NOT total
       connectedAccountId,
       stripeCustomerId: paymentMethod.stripeCustomerId,
       stripePaymentMethodId: paymentMethod.stripePaymentMethodId,
@@ -147,9 +161,12 @@ const createOneTimeDonation = async (
     // Save donation within transaction
     const savedDonation = await donation.save({ session });
 
-    // Create payment intent with saved payment method
+    // Create payment intent with TOTAL AMOUNT (including tax)
     const paymentIntent = await StripeService.createPaymentIntentWithMethod({
-      amount,
+      amount, // Base amount
+      isTaxable,
+      taxAmount,
+      totalAmount,
       currency: 'usd',
       customerId: paymentMethod.stripeCustomerId,
       paymentMethodId: paymentMethod.stripePaymentMethodId,
@@ -167,6 +184,15 @@ const createOneTimeDonation = async (
 
     // Commit transaction
     await session.commitTransaction();
+
+    console.log(`✅ One-time donation created successfully:`);
+    console.log(`   Donation ID: ${savedDonation._id}`);
+    console.log(`   Base Amount: $${amount.toFixed(2)}`);
+    console.log(`   Tax Amount: $${taxAmount.toFixed(2)}`);
+    console.log(`   Total Charged: $${totalAmount.toFixed(2)}`);
+    console.log(
+      `   Points Earned: ${savedDonation.pointsEarned} (based on base amount)`
+    );
 
     return {
       donation: savedDonation,
@@ -570,6 +596,9 @@ const retryFailedPayment = async (
 
   // Create a new payment intent for retry
   const paymentIntent = await StripeService.createPaymentIntentWithMethod({
+    totalAmount: donation.totalAmount,
+    isTaxable: donation.isTaxable,
+    taxAmount: donation.taxAmount,
     amount: donation.amount,
     currency: 'usd',
     customerId: donation.stripeCustomerId,

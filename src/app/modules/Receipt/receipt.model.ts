@@ -1,4 +1,3 @@
-// src/app/modules/Receipt/receipt.model.ts
 import { Schema, model } from 'mongoose';
 import { IReceiptModel } from './receipt.interface';
 
@@ -34,11 +33,23 @@ const receiptSchema = new Schema<IReceiptModel>(
       unique: true,
       index: true,
     },
-
     amount: {
       type: Number,
       required: [true, 'Amount is required'],
     },
+    isTaxable: {
+      type: Boolean,
+      default: false,
+    },
+    taxAmount: {
+      type: Number,
+      default: 0,
+    },
+    totalAmount: {
+      type: Number,
+      required: [true, 'Total amount is required'],
+    },
+
     currency: {
       type: String,
       default: 'USD',
@@ -145,5 +156,7 @@ receiptSchema.index({ receiptNumber: 1 });
 receiptSchema.index({ emailSent: 1 });
 receiptSchema.index({ status: 1 });
 receiptSchema.index({ donationDate: -1 });
+receiptSchema.index({ isTaxable: 1 });
+receiptSchema.index({ totalAmount: 1 });
 
 export const Receipt = model<IReceiptModel>('Receipt', receiptSchema);

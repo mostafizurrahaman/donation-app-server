@@ -12,6 +12,7 @@ export interface IRoundUp {
   bankConnection: string;
   paymentMethod?: string;
   monthlyThreshold?: number | 'no-limit';
+  isTaxable: boolean;
   specialMessage?: string;
   status: TRoundUpStatus;
   isActive: boolean;

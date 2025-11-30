@@ -1,10 +1,15 @@
 export interface ICheckoutSessionRequest {
   amount: number;
-  causeId: string; // Made required
+  causeId: string;
   organizationId: string;
   connectedAccountId?: string;
   specialMessage?: string;
   userId: string;
+
+  // ✅ NEW: Tax fields
+  isTaxable?: boolean;
+  taxAmount?: number;
+  totalAmount: number; // This is what gets charged
 }
 
 export interface ICheckoutSessionResponse {
@@ -17,9 +22,14 @@ export interface IPaymentIntentRequest {
   currency?: string;
   donorId: string;
   organizationId: string;
-  causeId: string; // Made required
+  causeId: string;
   connectedAccountId?: string;
   specialMessage?: string;
+
+  // ✅ NEW: Tax fields
+  isTaxable?: boolean;
+  taxAmount?: number;
+  totalAmount: number;
 }
 
 export interface IPaymentIntentResponse {
@@ -37,7 +47,7 @@ export interface IDonationUpdateRequest {
 export interface IStripeWebhookEvent {
   type: string;
   data: {
-    object: Record<string, unknown>; // Stripe.PaymentIntent | Stripe.Charge
+    object: Record<string, unknown>;
   };
 }
 
@@ -67,4 +77,9 @@ export interface ICreatePaymentIntentWithMethodRequest {
   causeId: string;
   connectedAccountId?: string;
   specialMessage?: string;
+
+  // ✅ NEW: Tax fields
+  isTaxable?: boolean;
+  taxAmount?: number;
+  totalAmount: number; // This is what gets charged to the customer
 }

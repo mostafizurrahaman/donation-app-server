@@ -58,3 +58,44 @@ export const monthAbbreviations = [
   'NOV',
   'DEC',
 ];
+
+/**
+ * Calculate tax amount and total amount for a donation
+ * @param amount - Base donation amount (before tax)
+ * @param isTaxable - Whether the donation is subject to tax
+ * @returns Object with taxAmount and totalAmount
+ */
+export const calculateTax = (
+  amount: number,
+  isTaxable: boolean
+): { taxAmount: number; totalAmount: number } => {
+  if (!isTaxable) {
+    return {
+      taxAmount: 0,
+      totalAmount: amount,
+    };
+  }
+
+  // Get tax rate from environment
+  const taxRate = Number(process.env.TAX_PERCENTAGE) || 0;
+
+  // Calculate tax amount and round to 2 decimal places
+  const taxAmount = parseFloat((amount * taxRate).toFixed(2));
+
+  // Calculate total amount and round to 2 decimal places
+  const totalAmount = parseFloat((amount + taxAmount).toFixed(2));
+
+  return {
+    taxAmount,
+    totalAmount,
+  };
+};
+
+/**
+ * Get current tax rate as a percentage string
+ * @returns Tax rate as percentage (e.g., "10%")
+ */
+export const getTaxRateDisplay = (): string => {
+  const taxRate = Number(process.env.TAX_PERCENTAGE) || 0;
+  return `${(taxRate * 100).toFixed(0)}%`;
+};

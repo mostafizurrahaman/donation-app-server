@@ -373,6 +373,8 @@ const createOneTimeDonationSchema = z.object({
       .min(1, { message: 'Amount must be at least $1!' })
       .max(10000, { message: 'Amount cannot exceed $10,000!' }),
 
+    isTaxable: z.boolean().optional().default(false),
+
     currency: z
       .string()
       .min(3, { message: 'Currency must be 3 characters (e.g., USD)!' })
@@ -395,6 +397,7 @@ const createOneTimeDonationSchema = z.object({
     paymentMethodId: z.string({
       error: 'Payment method ID is required!',
     }),
+
     specialMessage: z
       .string()
       .max(500, { message: 'Message must be less than 500 characters!' })
@@ -469,13 +472,10 @@ export const DonationValidation = {
   createRecurringDonationSchema,
   createRoundUpSchema,
   createDonationRecordSchema,
-  // processPaymentForDonationSchema,
   retryFailedPaymentSchema,
   updatePaymentStatusSchema,
   cancelDonationSchema,
   refundDonationSchema,
-
-  // stats and analytics
   getDonationAnalyticsSchema,
   getOrganizationDonationYearlyTrends,
 };

@@ -40,15 +40,20 @@ const RoundUpSchema = new Schema(
       ref: 'BankConnection',
       index: true,
     },
-    // ⭐ NEW FIELD
     paymentMethod: {
       type: Schema.Types.ObjectId,
       ref: 'PaymentMethod',
       required: [true, 'Payment method is required for RoundUp donations'],
       index: true,
     },
+
+    isTaxable: {
+      type: Boolean,
+      default: false,
+    },
+
     monthlyThreshold: {
-      type: Schema.Types.Mixed, // Can be Number or "no-limit" string
+      type: Schema.Types.Mixed,
       validate: {
         validator: function (value: unknown) {
           return (
@@ -58,7 +63,7 @@ const RoundUpSchema = new Schema(
         },
         message: 'Monthly threshold must be "no-limit" or a number at least $3',
       },
-      default: undefined, // undefined for 'No-limit' option
+      default: undefined,
     },
     specialMessage: {
       type: String,
@@ -96,6 +101,7 @@ const RoundUpSchema = new Schema(
     lastCharitySwitch: {
       type: Date,
     },
+
     // Webhook-based donation tracking fields
     lastDonationAttempt: {
       type: Date,
@@ -121,6 +127,7 @@ const RoundUpSchema = new Schema(
     toObject: { virtuals: true },
   }
 );
+
 // Virtual for checking if monthly threshold is met
 RoundUpSchema.virtual('isThresholdMet').get(function (this: IRoundUpDocument) {
   return (
@@ -211,7 +218,7 @@ RoundUpSchema.methods.completeDonationCycle = async function (
   setTimeout(async () => {
     this.status = 'pending';
     await this.save();
-  }, 1000); // Small delay to ensure completion is recorded
+  }, 1000);
 };
 
 // Method to cancel round-up (user initiated or bank connection lost)
@@ -300,6 +307,7 @@ RoundUpSchema.index({ user: 1, isActive: 1 });
 RoundUpSchema.index({ organization: 1, isActive: 1 });
 RoundUpSchema.index({ bankConnection: 1, isActive: 1 });
 RoundUpSchema.index({ isActive: 1, enabled: 1 });
+RoundUpSchema.index({ isTaxable: 1 });
 
 export const RoundUpModel = mongoose.model<IRoundUpDocument>(
   'RoundUp',

@@ -11,6 +11,11 @@ export const savePlaidConsentValidation = z.object({
     organizationId: z.string().min(1, 'Organization ID is required'),
     causeId: z.string().min(1, 'Cause ID is required'),
     monthlyThreshold: monthlyThresholdSchema,
+    isTaxable: z
+      .boolean({
+        message: 'isTaxable must be a boolean value',
+      })
+      .default(false),
     specialMessage: z
       .string()
       .max(250, 'Special message must not exceed 250 characters')

@@ -32,6 +32,22 @@ const donationSchema = new Schema<IDonationModel>(
       required: [true, 'Amount is required'],
       min: [0.01, 'Amount must be at least 0.01'],
     },
+    isTaxable: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    taxAmount: {
+      type: Number,
+      default: 0,
+      min: [0, 'Tax amount cannot be negative'],
+    },
+    totalAmount: {
+      type: Number,
+      required: [true, 'Total amount is required'],
+      min: [0.01, 'Total amount must be at least 0.01'],
+    },
+
     currency: {
       type: String,
       default: DEFAULT_CURRENCY,
@@ -79,6 +95,7 @@ const donationSchema = new Schema<IDonationModel>(
     connectedAccountId: {
       type: String,
     },
+
     // Additional fields for recurring and round-up donations
     scheduledDonationId: {
       type: Schema.Types.ObjectId,
@@ -100,6 +117,7 @@ const donationSchema = new Schema<IDonationModel>(
       type: Schema.Types.ObjectId,
       ref: 'Receipt',
     },
+
     // New fields for idempotency and payment tracking
     idempotencyKey: {
       type: String,
@@ -127,6 +145,8 @@ donationSchema.index({ scheduledDonationId: 1 });
 donationSchema.index({ roundUpId: 1 });
 donationSchema.index({ idempotencyKey: 1, donor: 1 }, { unique: true });
 donationSchema.index({ lastPaymentAttempt: 1 });
+donationSchema.index({ isTaxable: 1 });
+donationSchema.index({ totalAmount: 1 });
 
 export const Donation = model<IDonationModel>('Donation', donationSchema);
 export default Donation;

@@ -5,7 +5,13 @@ export interface IDonation {
   organization: Types.ObjectId;
   cause: Types.ObjectId;
   donationType: 'one-time' | 'recurring' | 'round-up';
-  amount: number;
+
+  // ✅ MODIFIED: Amount fields with tax support
+  amount: number; // Base amount (before tax)
+  isTaxable: boolean; // Whether tax should be applied
+  taxAmount: number; // Calculated tax amount
+  totalAmount: number; // Total amount charged (amount + taxAmount)
+
   currency: string;
   status:
     | 'pending'
@@ -25,12 +31,14 @@ export interface IDonation {
   refundReason?: string;
   pointsEarned: number;
   connectedAccountId?: string;
+
   // Additional fields for recurring and round-up donations
   scheduledDonationId?: Types.ObjectId;
   roundUpId?: Types.ObjectId;
   roundUpTransactionIds?: Types.ObjectId[];
   receiptGenerated: boolean;
   receiptId?: Types.ObjectId;
+
   // New fields for idempotency and payment tracking
   idempotencyKey?: string;
   paymentAttempts?: number;
@@ -52,7 +60,13 @@ export interface IDonationWithPopulated {
   organization: { _id: Types.ObjectId; name: string };
   cause?: { _id: Types.ObjectId; name: string; description?: string };
   donationType: 'one-time' | 'recurring' | 'round-up';
+
+  // ✅ MODIFIED: Include tax fields
   amount: number;
+  isTaxable: boolean;
+  taxAmount: number;
+  totalAmount: number;
+
   currency: string;
   status: 'pending' | 'processing' | 'completed' | 'failed' | 'refunded';
   donationDate: Date;
@@ -78,6 +92,7 @@ export interface ICheckoutSessionRequest {
   userId: string;
   connectedAccountId?: string;
   specialMessage?: string;
+  isTaxable?: boolean; // ✅ NEW
 }
 
 /**
@@ -91,6 +106,12 @@ export interface IScheduledDonation {
   user: Types.ObjectId;
   organization: Types.ObjectId;
   amount: number;
+
+  // ✅ NEW: Tax fields
+  isTaxable: boolean;
+  taxAmount: number;
+  totalAmount: number;
+
   currency: string;
   cause: Types.ObjectId;
   specialMessage?: string;
@@ -120,6 +141,10 @@ export interface IRoundUp {
   user: Types.ObjectId;
   organization: Types.ObjectId;
   bankConnection: Types.ObjectId;
+
+  // ✅ NEW: Tax field
+  isTaxable: boolean;
+
   thresholdAmount?: number;
   monthlyLimit?: number;
   autoDonateTrigger: {
@@ -135,9 +160,6 @@ export interface IRoundUp {
   cycleStartDate: Date;
 }
 
-// Note: IRoundUpTransaction interface is handled by the existing RoundUpTransaction module
-// The existing module has a more comprehensive interface with additional fields
-
 // Extended model interfaces
 export interface IScheduledDonationModel extends IScheduledDonation, Document {
   createdAt: Date;
@@ -149,8 +171,7 @@ export interface IRoundUpModel extends IRoundUp, Document {
   updatedAt: Date;
 }
 
-// src/app/modules/Donation/donation.interface.ts (add these)
-
+// Analytics interfaces (no tax changes needed)
 export interface IAnalyticsPeriod {
   startDate?: Date;
   endDate?: Date;
@@ -204,14 +225,17 @@ export interface CategoryData {
   totalDonationAmount: number;
   causes: CauseData[];
 }
+
 export interface IOrganizationStatsResponse {
   totalDonationAmount: number;
   categories: CategoryData[];
 }
+
 export interface ICauseMonthlyStat {
   month: string;
   totalAmount: number;
 }
+
 export interface IDonationAnalytics {
   totalDonatedAmount: IPercentageChange;
   averageDonationPerUser: IPercentageChange;
