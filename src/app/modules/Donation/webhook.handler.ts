@@ -110,6 +110,7 @@ const generateReceiptAfterPayment = async (
   paymentIntent: Stripe.PaymentIntent
 ) => {
   try {
+    console.log({ donation });
     console.log(`📄 Generating receipt for donation: ${donation._id}`);
 
     // Check if receipt already exists
@@ -138,6 +139,7 @@ const generateReceiptAfterPayment = async (
       paymentMethod: 'Stripe',
       specialMessage: donation.specialMessage,
     };
+    console.log({ receiptPayload });
 
     // Generate receipt
     const receipt = await receiptServices.generateReceipt(receiptPayload);

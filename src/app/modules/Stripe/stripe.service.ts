@@ -5,9 +5,11 @@ import { AppError } from '../../utils';
 import httpStatus from 'http-status';
 import { OrganizationModel } from '../Organization/organization.model';
 import { Donation } from '../Donation/donation.model';
+import { calculateTax } from '../Donation/donation.constant'; // Add import for calculateTax
 import Cause from '../Causes/causes.model';
 import { CAUSE_STATUS_TYPE } from '../Causes/causes.constant';
 import Client from '../Client/client.model';
+import { RoundUpModel } from '../RoundUp/roundUp.model'; // Add import for RoundUpModel
 import {
   ICheckoutSessionRequest,
   ICheckoutSessionResponse,
@@ -332,6 +334,7 @@ const createPaymentIntent = async (
   // Create Stripe Payment Intent
   const paymentIntentParams: Stripe.PaymentIntentCreateParams = {
     amount: Math.round(totalAmount * 100), 
+    currency: 'usd', // ✅ Add required currency
     metadata: {
       donorId,
       organizationId,
@@ -864,8 +867,14 @@ const processRoundUpDonation = async (payload: {
   year: number;
   specialMessage?: string;
 }): Promise<{ donationId: string; transferId: string }> => {
-
   try {
+    // Get round-up config to check tax settings
+    const roundUpConfig = await RoundUpModel.findById(payload.roundUpId);
+    const isTaxable = roundUpConfig?.isTaxable || false;
+    
+    // Calculate tax
+    const { taxAmount, totalAmount } = calculateTax(payload.amount, isTaxable);
+    
     const charity = await OrganizationModel.findById(payload.charityId);
     if (!charity || !charity.stripeConnectAccountId) {
       throw new AppError(
@@ -914,6 +923,9 @@ const processRoundUpDonation = async (payload: {
       cause: payload.causeId,
       donationType: 'round-up',
       amount: payload.amount,
+      isTaxable,
+      taxAmount,
+      totalAmount,
       currency: 'USD',
       status: 'completed',
       donationDate: new Date(),

@@ -2,6 +2,7 @@ import httpStatus from 'http-status';
 import { Request, Response } from 'express';
 import { StripeService } from './stripe.service';
 import { asyncHandler, sendResponse, AppError } from '../../utils';
+import { calculateTax } from '../Donation/donation.constant'; // Add import for calculateTax
 
 // 1. Create checkout session for one-time donation
 const createCheckoutSession = asyncHandler(
@@ -13,7 +14,10 @@ const createCheckoutSession = asyncHandler(
     }
 
     // Extract validated body (validated by middleware)
-    const { amount, causeId, organizationId, specialMessage } = req.body;
+    const { amount, causeId, organizationId, specialMessage, isTaxable = true } = req.body; // Default to taxable for one-time donations
+
+    // Calculate tax for one-time donation
+    const { taxAmount, totalAmount } = calculateTax(amount, isTaxable);
 
     // Fetch organization to get Stripe Connect account
     const Organization = (await import('../Organization/organization.model'))
@@ -32,9 +36,12 @@ const createCheckoutSession = asyncHandler(
       );
     }
 
-    // Prepare data for service with fetched connectedAccountId
+    // Prepare data for service with fetched connectedAccountId and tax info
     const checkoutData = {
       amount,
+      isTaxable,
+      taxAmount,
+      totalAmount,
       causeId,
       organizationId,
       connectedAccountId,

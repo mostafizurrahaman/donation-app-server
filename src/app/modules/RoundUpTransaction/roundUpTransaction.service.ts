@@ -12,6 +12,8 @@ import { IRoundUpDocument } from '../RoundUp/roundUp.model';
 
 import { StripeService } from '../Stripe/stripe.service';
 import { Donation } from '../Donation/donation.model';
+// ✅ Import calculateTax
+import { calculateTax } from '../Donation/donation.constant';
 
 import Cause from '../Causes/causes.model';
 import { CAUSE_STATUS_TYPE } from '../Causes/causes.constant';
@@ -85,11 +87,6 @@ const triggerDonation = async (
     );
     console.log(`   User: ${roundUpConfig.user}`);
     console.log(`   Organization: ${roundUpConfig.organization}`);
-    console.log(`   Total Amount: $${totalAmount.toFixed(2)}`);
-    console.log(`   Transaction Count: ${pendingTransactions.length}`);
-    console.log(`   Month: ${currentMonth}`);
-
-    // Validate cause exists and is verified
     const cause = await Cause.findById(roundUpConfig.cause);
     if (!cause) {
       throw new AppError(httpStatus.NOT_FOUND, 'Cause not found!');
@@ -107,6 +104,21 @@ const triggerDonation = async (
       throw new AppError(httpStatus.NOT_FOUND, 'Donor not found!');
     }
 
+    // Calculate tax and total amount
+    const { taxAmount, totalAmount: donationTotalAmount } = calculateTax(
+      totalAmount,
+      roundUpConfig.isTaxable || false
+    );
+
+    console.log(`   Base Amount: $${totalAmount.toFixed(2)}`);
+    console.log(`   Is Taxable: ${roundUpConfig.isTaxable || false}`);
+    if (roundUpConfig.isTaxable) {
+      console.log(`   Tax Amount: $${taxAmount.toFixed(2)}`);
+      console.log(`   Total Charged: $${donationTotalAmount.toFixed(2)}`);
+    }
+    console.log(`   Transaction Count: ${pendingTransactions.length}`);
+    console.log(`   Month: ${currentMonth}`);
+
     // STEP 1: Create Donation record with PENDING status
     const donation = await Donation.create({
       donor: donor._id,
@@ -114,6 +126,9 @@ const triggerDonation = async (
       cause: roundUpConfig.cause,
       donationType: 'round-up',
       amount: totalAmount,
+      isTaxable: roundUpConfig.isTaxable || false,
+      taxAmount,
+      totalAmount: donationTotalAmount,
       currency: 'USD',
       status: 'pending',
       donationDate: new Date(),
@@ -145,6 +160,10 @@ const triggerDonation = async (
         charityId: String(roundUpConfig.organization),
         causeId: String(roundUpConfig.cause),
         amount: totalAmount,
+        // Additional tax fields for metadata
+        isTaxable: roundUpConfig.isTaxable || false,
+        taxAmount: taxAmount,
+        totalAmount: donationTotalAmount,
         month: currentMonth,
         year: now.getFullYear(),
         specialMessage: roundUpConfig.specialMessage,
@@ -241,7 +260,11 @@ const triggerDonation = async (
     console.log(`   RoundUp ID: ${roundUpConfig._id}`);
     console.log(`   Donation ID: ${donation._id}`);
     console.log(`   Payment Intent ID: ${paymentResult.payment_intent_id}`);
-    console.log(`   Amount: $${totalAmount.toFixed(2)}`);
+    console.log(`   Base Amount: $${totalAmount.toFixed(2)}`);
+    if (roundUpConfig.isTaxable) {
+      console.log(`   Tax Amount: $${taxAmount.toFixed(2)}`);
+      console.log(`   Total Charged: $${donationTotalAmount.toFixed(2)}`);
+    }
     console.log(`   Charity: ${roundUpConfig.organization}`);
     console.log(`   Status: Awaiting webhook confirmation...\n`);
 

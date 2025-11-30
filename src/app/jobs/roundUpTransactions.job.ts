@@ -10,6 +10,7 @@ import { cronJobTracker } from './cronJobTracker';
 import { StripeService } from '../modules/Stripe/stripe.service';
 import { RoundUpTransactionModel } from '../modules/RoundUpTransaction/roundUpTransaction.model';
 import Donation from '../modules/Donation/donation.model';
+import { calculateTax } from '../modules/Donation/donation.constant'; // Add import for calculateTax
 import { IAuth } from '../modules/Auth/auth.interface';
 import Client from '../modules/Client/client.model';
 import { AppError } from '../utils';
@@ -75,6 +76,11 @@ const processEndOfMonthDonations = async () => {
 
     try {
       const totalAmount = config.currentMonthTotal;
+      const isTaxable = config.isTaxable || false; // Get tax setting from config
+      
+      // Calculate tax
+      const { taxAmount, totalAmount: donationTotalAmount } = calculateTax(totalAmount, isTaxable);
+      
       const now = new Date();
       const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
       const monthStr = String(lastMonth.getMonth() + 1).padStart(2, '0');
@@ -83,6 +89,9 @@ const processEndOfMonthDonations = async () => {
       console.log(
         `   Initiating month-end donation of $${totalAmount} for user ${userId}...`
       );
+      console.log(`   Base Amount: $${totalAmount.toFixed(2)}`);
+      console.log(`   Tax Amount: $${taxAmount.toFixed(2)}`);
+      console.log(`   Total Charged: $${donationTotalAmount.toFixed(2)}`);
 
       // Get all processed transactions for this round-up config for the month
       const monthTransactions = await RoundUpTransactionModel.find({
@@ -122,6 +131,9 @@ const processEndOfMonthDonations = async () => {
         cause: config.cause,
         donationType: 'round-up',
         amount: totalAmount,
+        isTaxable,
+        taxAmount,
+        totalAmount: donationTotalAmount,
         currency: 'USD',
         status: 'pending', // ⭐ Start with PENDING
         donationDate: new Date(),
@@ -152,6 +164,9 @@ const processEndOfMonthDonations = async () => {
         charityId: String(config.organization),
         causeId: String(config.cause),
         amount: totalAmount,
+        isTaxable,
+        taxAmount,
+        totalAmount: donationTotalAmount,
         month: `${year}-${monthStr}`,
         year: year,
         specialMessage: `Automatic monthly round-up for ${monthStr}/${year}`,

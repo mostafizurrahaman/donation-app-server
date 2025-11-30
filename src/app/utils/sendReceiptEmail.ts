@@ -10,6 +10,9 @@ export interface IReceiptEmailPayload {
   organizationName: string;
   receiptNumber: string;
   amount: number;
+  isTaxable: boolean;
+  taxAmount: number;
+  totalAmount: number;
   currency: string;
   donationDate: Date;
   pdfUrl: string;
@@ -47,300 +50,586 @@ const generateReceiptEmailHTML = (
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="x-apple-disable-message-reformatting">
+  <meta name="format-detection" content="telephone=no,address=no,email=no,date=no,url=no">
+  
   <style>
-    body {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background-color: #f7f9fc;
+    /* Reset and Base Styles */
+    * {
       margin: 0;
       padding: 0;
-      line-height: 1.6;
+      box-sizing: border-box;
     }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      font-size: 16px;
+      line-height: 1.6;
+      color: #1a1a1a;
+      background-color: #f5f6fa;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    
+    /* Mobile First: Base styles for mobile */
+    .wrapper {
+      width: 100%;
+      background-color: #f5f6fa;
+      padding: 20px 0;
+    }
+    
     .container {
       width: 100%;
-      max-width: 650px;
+      max-width: 600px;
       margin: 0 auto;
       background-color: #ffffff;
-      padding: 40px;
-      border-radius: 15px;
-      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+      border-radius: 0;
+      overflow: hidden;
     }
+    
+    /* Header */
     .header {
+      background: linear-gradient(135deg, ${
+        config.preferredWebsite.emailColor || '#667eea'
+      } 0%, ${config.preferredWebsite.emailColor || '#764ba2'} 100%);
+      padding: 30px 20px;
       text-align: center;
-      padding-bottom: 30px;
-      border-bottom: 3px solid ${
-        config.preferredWebsite.emailColor || '#3498DB'
-      };
     }
-    .header img {
-      max-width: 180px;
-      margin-bottom: 20px;
+    
+    .logo {
+      display: inline-block;
+      max-width: 140px;
+      height: auto;
+      margin-bottom: 15px;
     }
-    .header h1 {
-      color: ${config.preferredWebsite.emailColor || '#3498DB'};
-      font-size: 32px;
-      margin: 10px 0;
-      font-weight: bold;
+    
+    .header-title {
+      color: #ffffff;
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 5px;
+      letter-spacing: -0.5px;
     }
-    .header p {
-      color: #7F8C8D;
-      font-size: 16px;
+    
+    .header-subtitle {
+      color: rgba(255, 255, 255, 0.9);
+      font-size: 14px;
+      font-weight: 400;
     }
+    
+    /* Content Container */
+    .content {
+      padding: 30px 20px;
+    }
+    
+    /* Greeting Section */
     .greeting {
       font-size: 18px;
-      color: #2C3E50;
-      margin: 30px 0 20px;
-    }
-    .thank-you {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      padding: 25px;
-      border-radius: 10px;
-      text-align: center;
-      margin: 25px 0;
-      box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
-    }
-    .thank-you h2 {
-      margin: 0 0 10px;
-      font-size: 24px;
-    }
-    .thank-you p {
-      margin: 0;
-      font-size: 16px;
-      opacity: 0.95;
-    }
-    .donation-details {
-      background-color: #f8f9fa;
-      border-left: 5px solid ${config.preferredWebsite.emailColor || '#3498DB'};
-      padding: 20px;
-      margin: 25px 0;
-      border-radius: 8px;
-    }
-    .donation-details h3 {
-      color: #2C3E50;
-      margin-top: 0;
-      margin-bottom: 15px;
-      font-size: 20px;
-    }
-    .detail-row {
-      display: flex;
-      justify-content: space-between;
-      padding: 10px 0;
-      border-bottom: 1px solid #e0e0e0;
-    }
-    .detail-row:last-child {
-      border-bottom: none;
-    }
-    .detail-label {
-      color: #7F8C8D;
+      color: #1a1a1a;
+      margin-bottom: 20px;
       font-weight: 500;
     }
-    .detail-value {
-      color: #2C3E50;
+    
+    .greeting-name {
+      color: ${config.preferredWebsite.emailColor || '#667eea'};
       font-weight: 600;
     }
-    .amount-highlight {
-      background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-      color: white;
+    
+    /* Thank You Card */
+    .thank-you-card {
+      background: #f8f9ff;
+      border-radius: 12px;
       padding: 20px;
-      border-radius: 10px;
-      text-align: center;
-      margin: 25px 0;
-      box-shadow: 0 4px 15px rgba(17, 153, 142, 0.3);
+      margin-bottom: 25px;
+      border-left: 4px solid ${config.preferredWebsite.emailColor || '#667eea'};
     }
-    .amount-highlight .amount {
-      font-size: 36px;
-      font-weight: bold;
-      margin: 10px 0;
+    
+    .thank-you-title {
+      font-size: 20px;
+      color: #1a1a1a;
+      font-weight: 700;
+      margin-bottom: 8px;
     }
-    .amount-highlight .label {
+    
+    .thank-you-text {
       font-size: 14px;
-      opacity: 0.9;
+      color: #4a5568;
+      line-height: 1.6;
+    }
+    
+    /* Amount Display */
+    .amount-container {
+      background: #ffffff;
+      border: 2px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 25px 20px;
+      text-align: center;
+      margin-bottom: 25px;
+    }
+    
+    .amount-label {
+      font-size: 12px;
+      color: #718096;
       text-transform: uppercase;
-      letter-spacing: 1px;
+      letter-spacing: 0.5px;
+      font-weight: 600;
+      margin-bottom: 8px;
     }
-    .download-button {
-      display: inline-block;
-      background: ${config.preferredWebsite.buttonColor || '#3498DB'};
-      color: white;
-      padding: 15px 40px;
-      text-decoration: none;
-      border-radius: 50px;
-      font-size: 16px;
-      font-weight: bold;
-      margin: 25px 0;
-      box-shadow: 0 4px 15px rgba(52, 152, 219, 0.3);
-      transition: all 0.3s ease;
-      text-align: center;
+    
+    .amount-value {
+      font-size: 32px;
+      font-weight: 700;
+      color: #10b981;
+      margin-bottom: 5px;
     }
-    .download-button:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 20px rgba(52, 152, 219, 0.4);
-    }
-    .special-message {
-      background-color: #FFF8E1;
-      border-left: 5px solid #FFC107;
-      padding: 20px;
-      margin: 25px 0;
-      border-radius: 8px;
-      font-style: italic;
-      color: #856404;
-    }
-    .tax-info {
-      background-color: #E8F5E9;
-      border: 1px solid #4CAF50;
-      padding: 20px;
-      margin: 25px 0;
-      border-radius: 8px;
-    }
-    .tax-info h4 {
-      color: #2E7D32;
-      margin-top: 0;
-      margin-bottom: 10px;
-    }
-    .tax-info p {
-      color: #1B5E20;
-      margin: 5px 0;
-      font-size: 14px;
-    }
-    .footer {
-      text-align: center;
+    
+    .amount-date {
       font-size: 13px;
-      color: #95a5a6;
-      padding-top: 30px;
-      border-top: 2px solid #ecf0f1;
-      margin-top: 40px;
+      color: #718096;
     }
-    .footer p {
-      margin: 5px 0;
+    
+    /* Details Section */
+    .details-section {
+      background: #fafbfc;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 25px;
     }
-    .footer a {
-      color: ${config.preferredWebsite.emailColor || '#3498DB'};
-      text-decoration: none;
+    
+    .details-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #1a1a1a;
+      margin-bottom: 15px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
-    .button-container {
+    
+    .detail-item {
+      padding: 12px 0;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    
+    .detail-item:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+    
+    .detail-label {
+      font-size: 13px;
+      color: #718096;
+      margin-bottom: 4px;
+      display: block;
+    }
+    
+    .detail-value {
+      font-size: 15px;
+      color: #1a1a1a;
+      font-weight: 600;
+      display: block;
+    }
+    
+    /* Special Message */
+    .message-box {
+      background: #fef3c7;
+      border-radius: 12px;
+      padding: 15px;
+      margin-bottom: 25px;
+      border-left: 4px solid #f59e0b;
+    }
+    
+    .message-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: #92400e;
+      margin-bottom: 8px;
+    }
+    
+    .message-text {
+      font-size: 14px;
+      color: #78350f;
+      font-style: italic;
+    }
+    
+    /* Tax Info */
+    .tax-info {
+      background: #ecfdf5;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 25px;
+      border: 1px solid #86efac;
+    }
+    
+    .tax-info-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #14532d;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .tax-info-text {
+      font-size: 13px;
+      color: #166534;
+      line-height: 1.6;
+      margin-bottom: 5px;
+    }
+    
+    /* CTA Button */
+    .cta-container {
       text-align: center;
       margin: 30px 0;
     }
-    @media only screen and (max-width: 600px) {
+    
+    .cta-button {
+      display: inline-block;
+      background: ${config.preferredWebsite.buttonColor || '#667eea'};
+      color: #ffffff;
+      padding: 14px 32px;
+      text-decoration: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      transition: all 0.3s ease;
+    }
+    
+    .cta-button:hover {
+      background: ${
+        config.preferredWebsite.buttonColor
+          ? `${config.preferredWebsite.buttonColor}dd`
+          : '#5a67d8'
+      };
+    }
+    
+    .cta-helper {
+      font-size: 13px;
+      color: #718096;
+      margin-top: 12px;
+    }
+    
+    /* Footer */
+    .footer {
+      background: #f7fafc;
+      padding: 30px 20px;
+      text-align: center;
+      border-top: 1px solid #e2e8f0;
+    }
+    
+    .footer-logo {
+      font-size: 18px;
+      font-weight: 700;
+      color: #1a1a1a;
+      margin-bottom: 8px;
+    }
+    
+    .footer-tagline {
+      font-size: 13px;
+      color: #718096;
+      margin-bottom: 15px;
+    }
+    
+    .footer-contact {
+      font-size: 13px;
+      color: #4a5568;
+      margin-bottom: 15px;
+    }
+    
+    .footer-link {
+      color: ${config.preferredWebsite.emailColor || '#667eea'};
+      text-decoration: none;
+      font-weight: 500;
+    }
+    
+    .footer-link:hover {
+      text-decoration: underline;
+    }
+    
+    .footer-legal {
+      font-size: 11px;
+      color: #a0aec0;
+      margin-top: 20px;
+      padding-top: 20px;
+      border-top: 1px solid #e2e8f0;
+    }
+    
+    /* Tablet and Desktop Styles */
+    @media screen and (min-width: 480px) {
+      .wrapper {
+        padding: 40px 20px;
+      }
+      
       .container {
-        padding: 20px;
+        border-radius: 16px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07);
       }
-      .header h1 {
-        font-size: 26px;
+      
+      .header {
+        padding: 40px 30px;
       }
-      .amount-highlight .amount {
+      
+      .logo {
+        max-width: 160px;
+      }
+      
+      .header-title {
         font-size: 28px;
       }
-      .download-button {
-        padding: 12px 30px;
-        font-size: 14px;
+      
+      .header-subtitle {
+        font-size: 16px;
       }
-      .detail-row {
-        flex-direction: column;
+      
+      .content {
+        padding: 40px 30px;
       }
-      .detail-value {
-        margin-top: 5px;
+      
+      .amount-value {
+        font-size: 36px;
+      }
+      
+      .detail-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      
+      .detail-label {
+        margin-bottom: 0;
+      }
+      
+      .cta-button {
+        padding: 16px 40px;
+        font-size: 16px;
+      }
+    }
+    
+    @media screen and (min-width: 600px) {
+      .content {
+        padding: 40px;
+      }
+      
+      .header {
+        padding: 50px 40px;
+      }
+      
+      .header-title {
+        font-size: 32px;
+      }
+      
+      .amount-value {
+        font-size: 42px;
+      }
+      
+      .footer {
+        padding: 40px;
+      }
+    }
+    
+    /* Dark mode support */
+    @media (prefers-color-scheme: dark) {
+      body {
+        background-color: #1a202c;
+      }
+      
+      .container {
+        background-color: #2d3748;
+      }
+      
+      .header-title,
+      .header-subtitle {
+        color: #ffffff;
+      }
+      
+      .greeting,
+      .thank-you-title,
+      .details-title,
+      .detail-value,
+      .footer-logo {
+        color: #f7fafc;
+      }
+      
+      .thank-you-text,
+      .detail-label,
+      .footer-tagline,
+      .footer-contact,
+      .cta-helper {
+        color: #cbd5e0;
+      }
+      
+      .thank-you-card,
+      .details-section {
+        background: #374151;
+      }
+      
+      .amount-container {
+        background: #374151;
+        border-color: #4b5563;
+      }
+      
+      .detail-item {
+        border-color: #4b5563;
+      }
+      
+      .footer {
+        background: #2d3748;
+        border-color: #4b5563;
+      }
+    }
+    
+    /* Print styles */
+    @media print {
+      body {
+        background: white;
+      }
+      
+      .cta-button {
+        display: none;
       }
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <!-- Header -->
-    <div class="header">
-      <img src="cid:${logoCid}" alt="${config.preferredWebsite.name} Logo">
-      <h1>🎉 Thank You for Your Donation!</h1>
-      <p>Your generosity makes a difference</p>
-    </div>
-
-    <!-- Greeting -->
-    <p class="greeting">Dear ${data.donorName},</p>
-
-    <!-- Thank You Message -->
-    <div class="thank-you">
-      <h2>Your Kindness Changes Lives</h2>
-      <p>Thank you for supporting ${
-        data.organizationName
-      }. Your contribution helps us continue our mission and make a positive impact.</p>
-    </div>
-
-    <!-- Amount Highlight -->
-    <div class="amount-highlight">
-      <div class="label">Donation Amount</div>
-      <div class="amount">${data.currency} ${data.amount.toFixed(2)}</div>
-      <div class="label">Received on ${formattedDate}</div>
-    </div>
-
-    <!-- Donation Details -->
-    <div class="donation-details">
-      <h3>📋 Donation Details</h3>
-      <div class="detail-row">
-        <span class="detail-label">Receipt Number:</span>
-        <span class="detail-value">${data.receiptNumber}</span>
-      </div>
-      <div class="detail-row">
-        <span class="detail-label">Organization:</span>
-        <span class="detail-value">${data.organizationName}</span>
-      </div>
-      <div class="detail-row">
-        <span class="detail-label">Donation Type:</span>
-        <span class="detail-value">${formatDonationType(
-          data.donationType
-        )}</span>
-      </div>
-      <div class="detail-row">
-        <span class="detail-label">Date:</span>
-        <span class="detail-value">${formattedDate}</span>
-      </div>
-    </div>
-
-    ${
-      data.specialMessage
-        ? `
-    <div class="special-message">
-      <strong>📝 Your Message:</strong><br>
-      "${data.specialMessage}"
-    </div>
-    `
-        : ''
-    }
-
-    <!-- Tax Information -->
-    <div class="tax-info">
-      <h4>💼 Tax Deduction Information</h4>
-      <p>This receipt is for tax purposes. Please retain it for your records.</p>
-      <p>This donation may be tax-deductible. Consult with your tax advisor for specific guidance.</p>
-    </div>
-
-    <!-- Download Button -->
-    <div class="button-container">
-      <a href="${data.pdfUrl}" class="download-button">
-        📥 Download Receipt PDF
-      </a>
-    </div>
-
-    <p style="text-align: center; color: #7F8C8D; font-size: 14px; margin-top: 20px;">
-      Click the button above to download your official receipt PDF for your tax records.
-    </p>
-
-    <!-- Footer -->
-    <div class="footer">
-      <p><strong>${config.preferredWebsite.name}</strong></p>
-      <p>Empowering change, one donation at a time 🌙</p>
-      <p>
-        If you have any questions, please contact us at 
-        <a href="mailto:${config.email.contactUsEmail}">${
-    config.email.contactUsEmail
-  }</a>
-      </p>
-      <p style="margin-top: 15px; font-size: 11px;">
-        This is an automated email. Please do not reply directly to this message.
-      </p>
-      <p style="color: #bdc3c7;">
-        © ${new Date().getFullYear()} ${
+  <div class="wrapper">
+    <div class="container">
+      <!-- Header -->
+      <div class="header">
+        <img src="cid:${logoCid}" alt="${
     config.preferredWebsite.name
-  }. All rights reserved.
-      </p>
+  }" class="logo">
+        <h1 class="header-title">Donation Receipt</h1>
+        <p class="header-subtitle">Thank you for your generosity</p>
+      </div>
+      
+      <!-- Main Content -->
+      <div class="content">
+        <!-- Greeting -->
+        <div class="greeting">
+          Hello <span class="greeting-name">${data.donorName}</span>,
+        </div>
+        
+        <!-- Thank You Message -->
+        <div class="thank-you-card">
+          <h2 class="thank-you-title">Thank You for Your Support!</h2>
+          <p class="thank-you-text">
+            Your generous donation to ${
+              data.organizationName
+            } helps us continue our mission 
+            and create meaningful impact in our community. We are deeply grateful for your support.
+          </p>
+        </div>
+        
+        <!-- Amount Display -->
+        <div class="amount-container">
+          <div class="amount-label">Donation Amount</div>
+          <div class="amount-value">${data.currency} ${data.amount.toFixed(
+    2
+  )}</div>
+          <div class="amount-date">${formattedDate}</div>
+        </div>
+        
+        <!-- Transaction Details -->
+        <div class="details-section">
+          <h3 class="details-title">
+            <span>📋</span> Transaction Details
+          </h3>
+          
+          <div class="detail-item">
+            <span class="detail-label">Receipt Number</span>
+            <span class="detail-value">${data.receiptNumber}</span>
+          </div>
+          
+          <div class="detail-item">
+            <span class="detail-label">Organization</span>
+            <span class="detail-value">${data.organizationName}</span>
+          </div>
+          
+          <div class="detail-item">
+            <span class="detail-label">Donation Type</span>
+            <span class="detail-value">${formatDonationType(
+              data.donationType
+            )}</span>
+          </div>
+          
+          ${
+            data.isTaxable
+              ? `
+          <div class="detail-item">
+            <span class="detail-label">Tax Amount</span>
+            <span class="detail-value">${
+              data.currency
+            } ${data.taxAmount.toFixed(2)}</span>
+          </div>
+          `
+              : ''
+          }
+          
+          <div class="detail-item">
+            <span class="detail-label">Total Amount</span>
+            <span class="detail-value" style="color: #10b981; font-size: 16px;">
+              ${data.currency} ${data.totalAmount.toFixed(2)}
+            </span>
+          </div>
+        </div>
+        
+        ${
+          data.specialMessage
+            ? `
+        <!-- Special Message -->
+        <div class="message-box">
+          <div class="message-label">📝 Your Message</div>
+          <div class="message-text">"${data.specialMessage}"</div>
+        </div>
+        `
+            : ''
+        }
+        
+        <!-- Tax Information -->
+        <div class="tax-info">
+          <h4 class="tax-info-title">
+            <span>💼</span> Tax Information
+          </h4>
+          <p class="tax-info-text">
+            This receipt serves as official documentation for tax purposes.
+          </p>
+          <p class="tax-info-text">
+            ${
+              data.isTaxable
+                ? 'This donation may be eligible for tax deduction.'
+                : 'Please consult your tax advisor regarding deductibility.'
+            }
+          </p>
+        </div>
+        
+        <!-- CTA Button -->
+        <div class="cta-container">
+          <a href="${data.pdfUrl}" class="cta-button">
+            📥 Download PDF Receipt
+          </a>
+          <p class="cta-helper">Save this receipt for your records</p>
+        </div>
+      </div>
+      
+      <!-- Footer -->
+      <div class="footer">
+        <div class="footer-logo">${config.preferredWebsite.name}</div>
+        <p class="footer-tagline">Making a difference together</p>
+        <p class="footer-contact">
+          Questions? Contact us at 
+          <a href="mailto:${config.email.contactUsEmail}" class="footer-link">
+            ${config.email.contactUsEmail}
+          </a>
+        </p>
+        <div class="footer-legal">
+          <p>This is an automated email. Please do not reply directly.</p>
+          <p>© ${new Date().getFullYear()} ${
+    config.preferredWebsite.name
+  }. All rights reserved.</p>
+        </div>
+      </div>
     </div>
   </div>
 </body>

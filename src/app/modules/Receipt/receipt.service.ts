@@ -53,6 +53,9 @@ interface ISendReceiptEmailServicePayload {
   organizationName: string;
   pdfUrl: string;
   amount: number;
+  isTaxable: boolean;
+  taxAmount: number;
+  totalAmount: number;
   currency: string;
   donationDate: Date;
   receiptNumber?: string;
@@ -96,11 +99,15 @@ const generateReceipt = async (payload: IReceiptGenerationPayload) => {
       donorEmail: (donor.auth as unknown as { email: string }).email,
       organizationName: organization.name,
       organizationAddress: organization.address,
-      organizationEmail: (organization.auth as unknown as { email: string }).email,
+      organizationEmail: (organization.auth as unknown as { email: string })
+        .email,
       abnNumber: organization.tfnOrAbnNumber,
       taxDeductible: true,
       zakatEligible: !!organization.zakatLicenseHolderNumber,
       amount: payload.amount,
+      isTaxable: payload.isTaxable,
+      taxAmount: payload.taxAmount,
+      totalAmount: payload.totalAmount,
       currency: payload.currency,
       donationType: payload.donationType,
       donationDate: payload.donationDate,
@@ -131,6 +138,9 @@ const generateReceipt = async (payload: IReceiptGenerationPayload) => {
       cause: payload.causeId,
       receiptNumber,
       amount: payload.amount,
+      isTaxable: payload.isTaxable,
+      taxAmount: payload.taxAmount,
+      totalAmount: payload.totalAmount,
       currency: payload.currency,
       donationType: payload.donationType,
       donationDate: payload.donationDate,
@@ -166,6 +176,9 @@ const generateReceipt = async (payload: IReceiptGenerationPayload) => {
       organizationName: pdfData.organizationName,
       pdfUrl: url,
       amount: payload.amount,
+      isTaxable: payload.isTaxable,
+      taxAmount: payload.taxAmount,
+      totalAmount: payload.totalAmount,
       currency: payload.currency,
       donationDate: payload.donationDate,
       receiptNumber: receipt.receiptNumber,
@@ -213,6 +226,9 @@ const sendReceiptEmailService = async (
       organizationName: payload.organizationName,
       receiptNumber: payload.receiptNumber || receipt.receiptNumber,
       amount: payload.amount,
+      isTaxable: payload.isTaxable,
+      taxAmount: payload.taxAmount,
+      totalAmount: payload.totalAmount,
       currency: payload.currency,
       donationDate: payload.donationDate,
       pdfUrl: payload.pdfUrl,
@@ -265,6 +281,9 @@ const resendReceiptEmail = async (receiptId: string) => {
     organizationName: receipt.organizationName,
     pdfUrl: receipt.pdfUrl,
     amount: receipt.amount,
+    isTaxable: receipt.isTaxable,
+    taxAmount: receipt.taxAmount,
+    totalAmount: receipt.totalAmount,
     currency: receipt.currency,
     donationDate: receipt.donationDate,
     receiptNumber: receipt.receiptNumber,
