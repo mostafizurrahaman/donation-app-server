@@ -18,8 +18,6 @@ const updateBusinessProfileSchema = z.object({
         message: 'Category must be a string.',
       })
       .trim()
-      .min(2, { message: 'Category must be at least 2 characters long.' })
-      .max(50, { message: 'Category cannot exceed 50 characters.' })
       .optional(),
 
     tagLine: z
@@ -27,7 +25,7 @@ const updateBusinessProfileSchema = z.object({
         message: 'Tagline must be a string.',
       })
       .trim()
-      .min(5, { message: 'Tagline must be at least 5 characters long.' })
+      .min(1, { message: 'Tagline must be at least 5 characters long.' })
       .max(150, { message: 'Tagline cannot exceed 150 characters.' })
       .optional(),
 
@@ -36,8 +34,7 @@ const updateBusinessProfileSchema = z.object({
         message: 'Description must be a string.',
       })
       .trim()
-      .min(10, { message: 'Description must be at least 10 characters long.' })
-      .max(2000, { message: 'Description cannot exceed 2000 characters.' })
+      .max(500, { message: 'Description cannot exceed 2000 characters.' })
       .optional(),
 
     // Contact & Online Presence
