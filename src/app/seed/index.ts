@@ -10,6 +10,7 @@ const adminData = {
   otp: config.admin.otp,
   otpExpiry: new Date(),
   isVerifiedByOTP: true,
+  status: AUTH_STATUS.VERIFIED,
 };
 
 const seedAdmin = async () => {
