@@ -1,6 +1,6 @@
 /* eslint-disable no-console */
 import config from '../config';
-import { ROLE } from '../modules/Auth/auth.constant';
+import { AUTH_STATUS, ROLE } from '../modules/Auth/auth.constant';
 import Auth from '../modules/Auth/auth.model';
 
 const adminData = {
@@ -18,6 +18,7 @@ const seedAdmin = async () => {
     const admin = await Auth.findOne({
       role: ROLE.ADMIN,
       email: config.admin.email,
+      status: AUTH_STATUS.VERIFIED,
     });
 
     if (!admin) {
