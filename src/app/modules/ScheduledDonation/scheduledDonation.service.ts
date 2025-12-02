@@ -18,7 +18,7 @@ import { stripe } from '../../lib/stripeHelper';
 import { IDonationModel } from '../Donation/donation.interface';
 import { IPaymentMethodModel } from '../PaymentMethod/paymentMethod.interface';
 import { IORGANIZATION } from '../Organization/organization.interface';
-import { calculateTax } from '../Donation/donation.constant'; // ✅ NEW import
+import { calculateTax } from '../Donation/donation.constant';
 
 // Helper function to calculate next donation date
 const calculateNextDonationDate = (
@@ -70,7 +70,7 @@ const calculateNextDonationDate = (
   return nextDate;
 };
 
-//  Create scheduled donation with tax calculation
+// Create scheduled donation with tax calculation
 const createScheduledDonation = async (
   userId: string,
   payload: TCreateScheduledDonation
@@ -79,14 +79,13 @@ const createScheduledDonation = async (
     organizationId,
     causeId,
     amount,
-    isTaxable = false, 
+    isTaxable = false,
     frequency,
     customInterval,
     specialMessage,
     paymentMethodId,
   } = payload;
 
-  // Calculate tax and total amount for template
   const { taxAmount, totalAmount } = calculateTax(amount, isTaxable);
 
   console.log(`📅 Scheduled Donation Created:`);
@@ -96,19 +95,16 @@ const createScheduledDonation = async (
   console.log(`   Is Taxable: ${isTaxable}`);
   console.log(`   Frequency: ${frequency}`);
 
-  // Validate user exists
   const user = await Client.findOne({ auth: userId });
   if (!user) {
     throw new AppError(httpStatus.NOT_FOUND, 'User not found!');
   }
 
-  // Validate organization exists
   const organization = await Organization.findById(organizationId);
   if (!organization) {
     throw new AppError(httpStatus.NOT_FOUND, 'Organization not found!');
   }
 
-  // Validate cause exists and is verified
   const cause = await Cause.findById(causeId);
   if (!cause) {
     throw new AppError(httpStatus.NOT_FOUND, 'Cause not found!');
@@ -120,7 +116,6 @@ const createScheduledDonation = async (
     );
   }
 
-  // Verify payment method exists and belongs to user
   const paymentMethod = await PaymentMethodService.getPaymentMethodById(
     paymentMethodId,
     userId
@@ -130,29 +125,22 @@ const createScheduledDonation = async (
     throw new AppError(httpStatus.BAD_REQUEST, 'Payment method is not active!');
   }
 
-  // Get Stripe customer ID from payment method
   const stripeCustomerId = paymentMethod.stripeCustomerId;
-
-  // Set start date to current date
   const startDate = new Date();
-
-  // Calculate next donation date
   const nextDonationDate = calculateNextDonationDate(
     startDate,
     frequency,
     customInterval
   );
 
-  //  Create scheduled donation with tax fields
   const scheduledDonation = await ScheduledDonation.create({
     user: user._id,
     organization: new Types.ObjectId(organizationId),
     cause: new Types.ObjectId(causeId),
-    amount, // Base amount
+    amount,
     isTaxable,
     taxAmount,
     totalAmount,
-
     currency: 'USD',
     frequency,
     customInterval,
@@ -168,7 +156,6 @@ const createScheduledDonation = async (
   return scheduledDonation;
 };
 
-// 2. Get user's scheduled donations with filters and pagination 
 const getUserScheduledDonations = async (
   userId: string,
   query: Record<string, unknown>
@@ -223,7 +210,6 @@ const getUserScheduledDonations = async (
   };
 };
 
-// 3. Get scheduled donation by ID 
 const getScheduledDonationById = async (
   userId: string,
   scheduledDonationId: string
@@ -247,7 +233,6 @@ const getScheduledDonationById = async (
   return scheduledDonation;
 };
 
-// Update scheduled donation - recalculate tax if amount or isTaxable changes
 const updateScheduledDonation = async (
   userId: string,
   scheduledDonationId: string,
@@ -267,26 +252,22 @@ const updateScheduledDonation = async (
     throw new AppError(httpStatus.NOT_FOUND, 'Scheduled donation not found!');
   }
 
-  // Track if we need to recalculate tax
   let needsTaxRecalculation = false;
   let newAmount = scheduledDonation.amount;
   let newIsTaxable = scheduledDonation.isTaxable;
 
-  // Update amount if provided
   if (payload.amount !== undefined) {
     scheduledDonation.amount = payload.amount;
     newAmount = payload.amount;
     needsTaxRecalculation = true;
   }
 
-  // Update isTaxable if provided
   if (payload.isTaxable !== undefined) {
     scheduledDonation.isTaxable = payload.isTaxable;
     newIsTaxable = payload.isTaxable;
     needsTaxRecalculation = true;
   }
 
-  // Recalculate tax if needed
   if (needsTaxRecalculation) {
     const { taxAmount, totalAmount } = calculateTax(newAmount, newIsTaxable);
     scheduledDonation.taxAmount = taxAmount;
@@ -298,7 +279,6 @@ const updateScheduledDonation = async (
     console.log(`   Total Amount: $${totalAmount.toFixed(2)}`);
   }
 
-  // Update other fields
   if (payload.frequency !== undefined) {
     scheduledDonation.frequency = payload.frequency;
   }
@@ -315,7 +295,6 @@ const updateScheduledDonation = async (
     scheduledDonation.isActive = payload.isActive;
   }
 
-  // Recalculate next donation date if frequency or customInterval changed
   if (payload.frequency !== undefined || payload.customInterval !== undefined) {
     const nextDate = calculateNextDonationDate(
       new Date(),
@@ -330,7 +309,6 @@ const updateScheduledDonation = async (
   return scheduledDonation;
 };
 
-// 5. Pause scheduled donation 
 const pauseScheduledDonation = async (
   userId: string,
   scheduledDonationId: string
@@ -355,7 +333,6 @@ const pauseScheduledDonation = async (
   return scheduledDonation;
 };
 
-// 6. Resume scheduled donation 
 const resumeScheduledDonation = async (
   userId: string,
   scheduledDonationId: string
@@ -391,7 +368,6 @@ const resumeScheduledDonation = async (
   return scheduledDonation;
 };
 
-// 7. Cancel scheduled donation 
 const cancelScheduledDonation = async (
   userId: string,
   scheduledDonationId: string
@@ -411,7 +387,6 @@ const cancelScheduledDonation = async (
   }
 };
 
-// 8. Get scheduled donations due for execution 
 const getScheduledDonationsDueForExecution = async (): Promise<
   IScheduledDonationModel[]
 > => {
@@ -428,7 +403,7 @@ const getScheduledDonationsDueForExecution = async (): Promise<
   return scheduledDonations;
 };
 
-// Execute scheduled donation - use stored tax values
+// Execute scheduled donation
 const executeScheduledDonation = async (
   scheduledDonationId: string
 ): Promise<IDonationModel> => {
@@ -486,25 +461,6 @@ const executeScheduledDonation = async (
 
   const organization =
     scheduledDonation.organization as unknown as IORGANIZATION;
-  const connectedAccountId = organization.stripeConnectAccountId;
-
-  if (!connectedAccountId) {
-    throw new AppError(
-      httpStatus.BAD_REQUEST,
-      `Organization "${organization.name}" has not set up payment receiving. Scheduled donation paused.`
-    );
-  }
-
-  if (
-    !scheduledDonation.user ||
-    !scheduledDonation.organization ||
-    !scheduledDonation.cause
-  ) {
-    throw new AppError(
-      httpStatus.BAD_REQUEST,
-      'Scheduled donation has invalid references. Missing user, organization, or cause.'
-    );
-  }
 
   const cause = await Cause.findById(causeId);
   if (!cause) {
@@ -517,7 +473,6 @@ const executeScheduledDonation = async (
     );
   }
 
-  // ✅  Use stored tax values from scheduled donation template
   const amount = scheduledDonation.amount;
   const isTaxable = scheduledDonation.isTaxable;
   const taxAmount = scheduledDonation.taxAmount;
@@ -540,15 +495,12 @@ const executeScheduledDonation = async (
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       if (attempt > 1) {
-        console.log(
-          `🔄 Retry attempt ${attempt}/${MAX_RETRIES} for donation ${scheduledDonationId}`
-        );
         await new Promise((resolve) =>
           setTimeout(resolve, Math.pow(2, attempt) * 1000)
         );
       }
 
-      // Create payment intent with TOTAL AMOUNT (tax included)
+      // Create payment intent with TOTAL AMOUNT
       const paymentIntentParams: {
         amount: number;
         currency: string;
@@ -558,9 +510,8 @@ const executeScheduledDonation = async (
         off_session: boolean;
         metadata: Record<string, string>;
         description: string;
-        transfer_data: { destination: string };
       } = {
-        amount: Math.round(totalAmount * 100), 
+        amount: Math.round(totalAmount * 100),
         currency: scheduledDonation.currency.toLowerCase(),
         customer: scheduledDonation.stripeCustomerId,
         payment_method: stripePaymentMethodId,
@@ -579,9 +530,6 @@ const executeScheduledDonation = async (
           totalAmount: totalAmount.toString(),
         },
         description: scheduledDonation.specialMessage || 'Recurring donation',
-        transfer_data: {
-          destination: connectedAccountId,
-        },
       };
 
       const paymentIntent = await stripe.paymentIntents.create(
@@ -591,16 +539,16 @@ const executeScheduledDonation = async (
         }
       );
 
-      // Create Donation record with tax fields
+      // Create Donation record
       const donation = await Donation.create({
         donor: userId,
         organization: organizationId,
         cause: causeId,
         donationType: 'recurring',
-        amount, // Base amount
+        amount,
         isTaxable,
         taxAmount,
-        totalAmount, // Total amount charged
+        totalAmount,
 
         currency: scheduledDonation.currency,
         status: 'processing',
@@ -610,8 +558,7 @@ const executeScheduledDonation = async (
         stripeCustomerId: scheduledDonation.stripeCustomerId,
         stripePaymentMethodId: stripePaymentMethodId,
         specialMessage: scheduledDonation.specialMessage,
-        pointsEarned: 0, 
-        connectedAccountId,
+        pointsEarned: 0,
         scheduledDonationId: scheduledDonationId,
         idempotencyKey,
         paymentAttempts: attempt,
@@ -622,14 +569,6 @@ const executeScheduledDonation = async (
       console.log(
         `✅ Created payment intent for donation ${donation._id} (status: processing)`
       );
-      console.log(`   Payment Intent ID: ${paymentIntent.id}`);
-      console.log(`   Total Charged: $${totalAmount.toFixed(2)}`);
-      console.log(
-        `   Points will be awarded on webhook: ${Math.floor(
-          amount * 100
-        )} (based on base amount)`
-      );
-      console.log(`   Waiting for webhook confirmation...`);
 
       return donation;
     } catch (error: unknown) {
@@ -650,9 +589,6 @@ const executeScheduledDonation = async (
         err.type === 'api_error';
 
       if (!isRetryable && attempt < MAX_RETRIES) {
-        console.log(
-          `⏭️  Error not retryable, stopping attempts for ${scheduledDonationId}`
-        );
         break;
       }
 
@@ -663,13 +599,10 @@ const executeScheduledDonation = async (
             organization: organizationId,
             cause: causeId,
             donationType: 'recurring',
-
-            //  Include tax fields in failed donation
             amount,
             isTaxable,
             taxAmount,
             totalAmount,
-
             currency: scheduledDonation.currency,
             status: 'failed',
             donationDate: new Date(),
@@ -677,18 +610,15 @@ const executeScheduledDonation = async (
             stripePaymentMethodId: stripePaymentMethodId,
             specialMessage: scheduledDonation.specialMessage,
             pointsEarned: 0,
-            connectedAccountId,
+
             scheduledDonationId: scheduledDonationId,
             idempotencyKey: `${idempotencyKey}_failed_${attempt}`,
             paymentAttempts: attempt,
             lastPaymentAttempt: new Date(),
             receiptGenerated: false,
           });
-        } catch (createError: unknown) {
-          const createErr = createError as Error;
-          console.error(
-            `⚠️  Failed to create failed donation record: ${createErr.message}`
-          );
+        } catch (createError) {
+          // ignore
         }
 
         throw new AppError(
@@ -707,7 +637,6 @@ const executeScheduledDonation = async (
   );
 };
 
-// 10. Update scheduled donation after execution 
 const updateScheduledDonationAfterExecution = async (
   scheduledDonationId: string,
   success: boolean

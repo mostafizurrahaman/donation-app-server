@@ -44,15 +44,15 @@ const createBankConnection = catchAsync(async (req: Request, res: Response) => {
   });
 
   // Check if user already has active connection
-  const hasActiveConnection =
-    await bankConnectionService.hasActiveBankConnection(userId);
-  if (hasActiveConnection) {
-    return sendResponse(res, StatusCodes.BAD_REQUEST, {
-      success: false,
-      message: 'You already have an active bank connection',
-      data: null,
-    });
-  }
+  // const hasActiveConnection =
+  //   await bankConnectionService.hasActiveBankConnection(userId);
+  // if (hasActiveConnection) {
+  //   return sendResponse(res, StatusCodes.BAD_REQUEST, {
+  //     success: false,
+  //     message: 'You already have an active bank connection',
+  //     data: null,
+  //   });
+  // }
 
   const bankConnection =
     await bankConnectionService.exchangePublicTokenForAccessToken(

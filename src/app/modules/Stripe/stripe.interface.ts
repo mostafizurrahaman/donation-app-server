@@ -2,7 +2,7 @@ export interface ICheckoutSessionRequest {
   amount: number;
   causeId: string;
   organizationId: string;
-  connectedAccountId?: string;
+
   specialMessage?: string;
   userId: string;
   isTaxable?: boolean;
@@ -16,18 +16,16 @@ export interface ICheckoutSessionResponse {
 }
 
 export interface IPaymentIntentRequest {
-  amount: number; 
+  amount: number;
   currency?: string;
   donorId: string;
   organizationId: string;
   causeId: string;
-  connectedAccountId?: string;
   specialMessage?: string;
-
 
   isTaxable?: boolean;
   taxAmount?: number;
-  totalAmount: number; 
+  totalAmount: number;
 }
 
 export interface IPaymentIntentResponse {
@@ -66,20 +64,18 @@ export interface IAttachPaymentMethodRequest {
 }
 
 export interface ICreatePaymentIntentWithMethodRequest {
-  amount: number; 
+  amount: number;
   currency?: string;
   customerId: string;
   paymentMethodId: string;
   donationId: string;
   organizationId: string;
   causeId: string;
-  connectedAccountId?: string;
   specialMessage?: string;
-
 
   isTaxable?: boolean;
   taxAmount?: number;
-  totalAmount: number; 
+  totalAmount: number;
 }
 
 //  Interface for RoundUp payment intent
@@ -88,15 +84,14 @@ export interface ICreateRoundUpPaymentIntentRequest {
   userId: string;
   charityId: string;
   causeId?: string;
-  amount: number; 
+  amount: number;
   month: string;
   year: number;
   specialMessage?: string;
   paymentMethodId?: string;
   donationId?: string;
 
- 
   isTaxable?: boolean;
   taxAmount?: number;
-  totalAmount: number; 
+  totalAmount: number;
 }

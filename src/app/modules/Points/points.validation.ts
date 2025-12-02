@@ -27,7 +27,7 @@ export const createTransactionSchema = z.object({
     rewardRedemptionId: z.string().optional(),
     badgeId: z.string().optional(),
     description: z.string().max(MAX_DESCRIPTION_LENGTH).optional(),
-    metadata: z.record(z.any()).optional(),
+    metadata: z.record(z.any(), z.unknown()).optional(),
     adjustedBy: z.string().optional(),
     adjustmentReason: z.string().max(MAX_ADJUSTMENT_REASON_LENGTH).optional(),
     expiresAt: z.coerce.date().optional(),
@@ -76,7 +76,7 @@ export const deductPointsSchema = z.object({
     source: z.enum(POINTS_SOURCE_VALUES as [string, ...string[]]),
     rewardRedemptionId: z.string().optional(),
     description: z.string().max(MAX_DESCRIPTION_LENGTH).optional(),
-    metadata: z.record(z.any()).optional(),
+    metadata: z.record(z.any(), z.unknown()).optional(),
   }),
 });
 
@@ -96,7 +96,7 @@ export const refundPointsSchema = z.object({
     source: z.enum(POINTS_SOURCE_VALUES as [string, ...string[]]),
     rewardRedemptionId: z.string().optional(),
     reason: z.string().max(MAX_ADJUSTMENT_REASON_LENGTH),
-    metadata: z.record(z.any()).optional(),
+    metadata: z.record(z.any(), z.unknown()).optional(),
   }),
 });
 

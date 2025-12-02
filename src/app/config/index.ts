@@ -8,7 +8,11 @@ interface IConfig {
   host: string;
   dbUrl: string;
   clientUrl: string;
-  percentage: number;
+  paymentSetting: {
+    platformFeePercent: number;
+    taxPercentage: number;
+    clearingPeriodDays: number;
+  };
   jwt: {
     accessTokenSecret: string;
     refreshTokenSecret: string;
@@ -83,7 +87,11 @@ const config: IConfig = {
   host: process.env.HOST || 'localhost',
   dbUrl: process.env.DB_URL || 'mongodb://localhost:27017/crescent_change',
   clientUrl: process.env.CLIENT_URL || 'http://localhost:3000',
-  percentage: Number(process.env.TAX_PERCENTAGE) || 0,
+  paymentSetting: {
+    platformFeePercent: Number(process.env.PLATFORM_FEE_PERCENTAGE) || 0.05,
+    taxPercentage: Number(process.env.TAX_PERCENTAGE) || 0,
+    clearingPeriodDays: Number(process.env.CLEARING_PERIOD_DAYS) || 7,
+  },
   jwt: {
     accessTokenSecret: process.env.JWT_ACCESS_SECRET || 'default_access_secret',
     refreshTokenSecret:

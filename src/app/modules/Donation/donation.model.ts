@@ -92,9 +92,7 @@ const donationSchema = new Schema<IDonationModel>(
       type: Number,
       default: 0,
     },
-    connectedAccountId: {
-      type: String,
-    },
+  
 
     // Additional fields for recurring and round-up donations
     scheduledDonationId: {

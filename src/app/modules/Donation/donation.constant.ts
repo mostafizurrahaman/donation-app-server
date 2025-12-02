@@ -1,3 +1,5 @@
+import config from '../../config';
+
 export const DONATION_STATUS = [
   'pending',
   'processing',
@@ -44,6 +46,8 @@ export const BANK_ACCOUNT_STATUS = [
   'disconnected',
 ] as const;
 
+export const REFUND_WINDOW_DAYS = config.paymentSetting.clearingPeriodDays;
+
 export const monthAbbreviations = [
   'JAN',
   'FEB',
@@ -77,7 +81,7 @@ export const calculateTax = (
   }
 
   // Get tax rate from environment
-  const taxRate = Number(process.env.TAX_PERCENTAGE) || 0;
+  const taxRate = Number(config.paymentSetting.taxPercentage) || 0;
 
   // Calculate tax amount and round to 2 decimal places
   const taxAmount = parseFloat((amount * taxRate).toFixed(2));

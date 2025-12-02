@@ -30,7 +30,7 @@ export interface IDonation {
   specialMessage?: string;
   refundReason?: string;
   pointsEarned: number;
-  connectedAccountId?: string;
+
 
   // Additional fields for recurring and round-up donations
   scheduledDonationId?: Types.ObjectId;
@@ -76,7 +76,7 @@ export interface IDonationWithPopulated {
   stripeCustomerId?: string;
   specialMessage?: string;
   pointsEarned: number;
-  connectedAccountId?: string;
+
   paidAmount?: number;
 }
 
@@ -90,7 +90,6 @@ export interface ICheckoutSessionRequest {
   causeId?: string;
   organizationId: string;
   userId: string;
-  connectedAccountId?: string;
   specialMessage?: string;
   isTaxable?: boolean; // ✅ NEW
 }
