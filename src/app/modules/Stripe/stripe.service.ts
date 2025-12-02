@@ -5,11 +5,10 @@ import { AppError } from '../../utils';
 import httpStatus from 'http-status';
 import { OrganizationModel } from '../Organization/organization.model';
 import { Donation } from '../Donation/donation.model';
-import { calculateTax } from '../Donation/donation.constant'; // Add import for calculateTax
 import Cause from '../Causes/causes.model';
 import { CAUSE_STATUS_TYPE } from '../Causes/causes.constant';
 import Client from '../Client/client.model';
-import { RoundUpModel } from '../RoundUp/roundUp.model'; // Add import for RoundUpModel
+import { RoundUpModel } from '../RoundUp/roundUp.model';
 import {
   ICheckoutSessionRequest,
   ICheckoutSessionResponse,
@@ -105,15 +104,19 @@ const createPaymentIntent = async (
   payload: IPaymentIntentRequest
 ): Promise<IPaymentIntentResponse> => {
   const {
-    amount, // Base amount (before tax)
-    isTaxable = false,
-    taxAmount = 0,
+    amount, // Base amount
     totalAmount, // Total amount to charge
     currency = 'usd',
     donorId,
     organizationId,
     causeId,
     specialMessage,
+
+    // ✅ New Fields for Metadata
+    coverFees = true,
+    platformFee = 0,
+    gstOnFee = 0,
+    netToOrg = 0,
   } = payload;
 
   // Validate amount is reasonable
@@ -121,11 +124,10 @@ const createPaymentIntent = async (
     throw new AppError(httpStatus.BAD_REQUEST, 'Invalid donation amount!');
   }
 
-  console.log(`💰 Creating Payment Intent with Tax:`);
+  console.log(`💰 Creating Payment Intent:`);
   console.log(`   Base Amount: $${amount.toFixed(2)}`);
-  console.log(`   Is Taxable: ${isTaxable}`);
-  console.log(`   Tax Amount: $${taxAmount.toFixed(2)}`);
-  console.log(`   Total Amount: $${totalAmount.toFixed(2)}`);
+  console.log(`   Total Charge: $${totalAmount.toFixed(2)}`);
+  console.log(`   Cover Fees: ${coverFees}`);
 
   // Create Stripe Payment Intent
   const paymentIntentParams: Stripe.PaymentIntentCreateParams = {
@@ -137,9 +139,13 @@ const createPaymentIntent = async (
       causeId: causeId || '',
       specialMessage: specialMessage || '',
       baseAmount: amount.toString(),
-      isTaxable: isTaxable.toString(),
-      taxAmount: taxAmount.toString(),
       totalAmount: totalAmount.toString(),
+
+      // ✅ Store fee breakdown for audit
+      platformFee: platformFee.toString(),
+      gstOnFee: gstOnFee.toString(),
+      netToOrg: netToOrg.toString(),
+      coverFees: coverFees.toString(),
     },
     automatic_payment_methods: {
       enabled: true,
@@ -303,10 +309,8 @@ const createPaymentIntentWithMethod = async (
   payload: ICreatePaymentIntentWithMethodRequest
 ): Promise<IPaymentIntentResponse> => {
   const {
-    amount,
-    isTaxable = false,
-    taxAmount = 0,
-    totalAmount,
+    amount, // Base
+    totalAmount, // Total to charge
     currency = 'usd',
     customerId,
     paymentMethodId,
@@ -314,6 +318,12 @@ const createPaymentIntentWithMethod = async (
     organizationId,
     causeId,
     specialMessage,
+
+    // ✅ New Fields
+    coverFees = true,
+    platformFee = 0,
+    gstOnFee = 0,
+    netToOrg = 0,
   } = payload;
 
   // Validate amount
@@ -325,10 +335,8 @@ const createPaymentIntentWithMethod = async (
   }
 
   console.log(`💳 Creating Payment Intent with Saved Method:`);
-  console.log(`   Base Amount: $${amount.toFixed(2)}`);
-  console.log(`   Is Taxable: ${isTaxable}`);
-  console.log(`   Tax Amount: $${taxAmount.toFixed(2)}`);
-  console.log(`   Total Amount: $${totalAmount.toFixed(2)}`);
+  console.log(`   Base: $${amount.toFixed(2)}`);
+  console.log(`   Total: $${totalAmount.toFixed(2)}`);
 
   try {
     // Create payment intent with saved payment method
@@ -338,16 +346,20 @@ const createPaymentIntentWithMethod = async (
       customer: customerId,
       payment_method: paymentMethodId,
       confirm: true, // Automatically confirm the payment
-      return_url: config.stripe.stripeSuccessUrl, // Required for certain payment methods
+      return_url: config.stripe.stripeSuccessUrl,
       metadata: {
         donationId,
         organizationId,
         causeId,
         specialMessage: specialMessage || '',
-        baseAmount: amount.toString(), // ✅ Store base amount
-        isTaxable: isTaxable.toString(),
-        taxAmount: taxAmount.toString(),
-        totalAmount: totalAmount.toString(),
+        baseAmount: amount.toString(), // Base amount
+        totalAmount: totalAmount.toString(), // Charged Amount
+
+        // ✅ Fee Breakdown
+        platformFee: platformFee.toString(),
+        gstOnFee: gstOnFee.toString(),
+        netToOrg: netToOrg.toString(),
+        coverFees: coverFees.toString(),
       },
     };
 
@@ -433,7 +445,7 @@ const createConnectAccount = async (
   try {
     // Create Connect account
     const account = await stripe.accounts.create({
-      type: 'express', // Express accounts are easier to onboard
+      type: 'express',
       country,
       email,
       capabilities: {
@@ -521,24 +533,23 @@ const createRoundUpPaymentIntent = async (
       userId,
       charityId,
       causeId,
-      amount, // Base amount (before tax)
-      isTaxable = false,
-      taxAmount = 0,
-      totalAmount, // Total amount to charge
+      amount, // Base amount
+      totalAmount, // Total charge
       month,
       year,
       specialMessage,
       paymentMethodId,
       donationId,
+      // ✅ New fields
+      coverFees = false,
+      platformFee = 0,
+      gstOnFee = 0,
+      netToOrg = 0,
     } = payload;
 
-    console.log(`🔄 Creating RoundUp Payment Intent with Tax:`);
-    console.log(`   RoundUp ID: ${roundUpId}`);
-    console.log(`   Base Amount: $${amount.toFixed(2)}`);
-    console.log(`   Is Taxable: ${isTaxable}`);
-    console.log(`   Tax Amount: $${taxAmount.toFixed(2)}`);
-    console.log(`   Total Amount: $${totalAmount.toFixed(2)}`);
-    console.log(`   Month: ${month} ${year}`);
+    console.log(`🔄 Creating RoundUp Payment Intent:`);
+    console.log(`   Base: $${amount.toFixed(2)}`);
+    console.log(`   Total: $${totalAmount.toFixed(2)}`);
 
     // Get charity's Stripe Connect account
     const charity = await OrganizationModel.findById(charityId);
@@ -597,23 +608,18 @@ const createRoundUpPaymentIntent = async (
         specialMessage:
           specialMessage || `Round-up donation for ${month} ${year}`,
         baseAmount: amount.toString(),
-        isTaxable: isTaxable.toString(),
-        taxAmount: taxAmount.toString(),
         totalAmount: totalAmount.toString(),
+        // ✅ Fee Breakdown
+        platformFee: platformFee.toString(),
+        gstOnFee: gstOnFee.toString(),
+        netToOrg: netToOrg.toString(),
+        coverFees: coverFees.toString(),
       },
     };
 
     const paymentIntent = await stripe.paymentIntents.create(
       paymentIntentParams
     );
-
-    console.log(`✅ RoundUp payment intent created: ${paymentIntent.id}`);
-    console.log(`   Donation ID: ${donationId}`);
-    console.log(`   RoundUp ID: ${roundUpId}`);
-    console.log(`   Base Amount: $${amount.toFixed(2)}`);
-    console.log(`   Tax Amount: $${taxAmount.toFixed(2)}`);
-    console.log(`   Total Charged: $${totalAmount.toFixed(2)}`);
-    console.log(`   Charity: ${charityId}`);
 
     return {
       client_secret: paymentIntent.client_secret || '',

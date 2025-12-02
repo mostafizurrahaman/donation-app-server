@@ -47,10 +47,10 @@ const RoundUpSchema = new Schema(
       index: true,
     },
 
-    isTaxable: {
+    // ✅ NEW: Fee preference
+    coverFees: {
       type: Boolean,
-      default: false,
-      index: true,
+      default: false, 
     },
 
     monthlyThreshold: {
@@ -308,7 +308,6 @@ RoundUpSchema.index({ user: 1, isActive: 1 });
 RoundUpSchema.index({ organization: 1, isActive: 1 });
 RoundUpSchema.index({ bankConnection: 1, isActive: 1 });
 RoundUpSchema.index({ isActive: 1, enabled: 1 });
-RoundUpSchema.index({ isTaxable: 1 });
 
 export const RoundUpModel = mongoose.model<IRoundUpDocument>(
   'RoundUp',

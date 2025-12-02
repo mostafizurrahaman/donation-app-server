@@ -6,11 +6,13 @@ export interface IDonation {
   cause: Types.ObjectId;
   donationType: 'one-time' | 'recurring' | 'round-up';
 
-  // ✅ MODIFIED: Amount fields with tax support
-  amount: number; // Base amount (before tax)
-  isTaxable: boolean; // Whether tax should be applied
-  taxAmount: number; // Calculated tax amount
-  totalAmount: number; // Total amount charged (amount + taxAmount)
+  // ✅ Financial Fields (Australian Logic)
+  amount: number; // Base Donation Amount (Tax Deductible for Donor)
+  coverFees: boolean; // Did donor choose to cover fees?
+  platformFee: number; // Platform Revenue (e.g. 5%)
+  gstOnFee: number; // 10% GST on the Platform Fee
+  netAmount: number; // The clean amount credited to the Organization
+  totalAmount: number; // The actual charge to the card (Base + Fees if covered)
 
   currency: string;
   status:
@@ -30,7 +32,6 @@ export interface IDonation {
   specialMessage?: string;
   refundReason?: string;
   pointsEarned: number;
-
 
   // Additional fields for recurring and round-up donations
   scheduledDonationId?: Types.ObjectId;
@@ -61,10 +62,8 @@ export interface IDonationWithPopulated {
   cause?: { _id: Types.ObjectId; name: string; description?: string };
   donationType: 'one-time' | 'recurring' | 'round-up';
 
-  // ✅ MODIFIED: Include tax fields
   amount: number;
-  isTaxable: boolean;
-  taxAmount: number;
+  coverFees: boolean;
   totalAmount: number;
 
   currency: string;
@@ -91,14 +90,11 @@ export interface ICheckoutSessionRequest {
   organizationId: string;
   userId: string;
   specialMessage?: string;
-  isTaxable?: boolean; // ✅ NEW
+  coverFees?: boolean;
 }
 
 /**
- * ScheduledDonation interface - Minimal Approach
- *
- * Stores ONLY scheduling configuration, execution tracking, and template data.
- * When executed, creates full Donation records with donationType: 'recurring'
+ * ScheduledDonation interface
  */
 export interface IScheduledDonation {
   // Template Data (what to donate)
@@ -106,10 +102,8 @@ export interface IScheduledDonation {
   organization: Types.ObjectId;
   amount: number;
 
-  // ✅ NEW: Tax fields
-  isTaxable: boolean;
-  taxAmount: number;
-  totalAmount: number;
+  // ✅ NEW: Fee Preference
+  coverFees: boolean;
 
   currency: string;
   cause: Types.ObjectId;
@@ -141,8 +135,8 @@ export interface IRoundUp {
   organization: Types.ObjectId;
   bankConnection: Types.ObjectId;
 
-  // ✅ NEW: Tax field
-  isTaxable: boolean;
+  // ✅ NEW: Fee Preference
+  coverFees: boolean;
 
   thresholdAmount?: number;
   monthlyLimit?: number;
@@ -170,7 +164,7 @@ export interface IRoundUpModel extends IRoundUp, Document {
   updatedAt: Date;
 }
 
-// Analytics interfaces (no tax changes needed)
+// Analytics interfaces
 export interface IAnalyticsPeriod {
   startDate?: Date;
   endDate?: Date;

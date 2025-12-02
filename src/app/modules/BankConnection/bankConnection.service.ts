@@ -13,13 +13,17 @@ import {
 } from 'plaid';
 import { BankConnectionModel } from './bankConnection.model';
 import {
+  IBankAccountWithRoundUpStatus,
   IBankConnection,
   IPlaidLinkTokenRequest,
   IPlaidPublicTokenExchange,
   IPlaidTransaction,
   ISyncResponse,
+  IUserBankAccountsResponse,
 } from './bankConnection.interface';
 import plaidClient, { encryptData, decryptData } from '../../config/plaid';
+import { RoundUpModel } from '../RoundUp/roundUp.model';
+import QueryBuilder from '../../builders/QueryBuilder';
 
 // Initialize Plaid client
 const plaidApi = plaidClient.client as PlaidApi;
@@ -389,6 +393,112 @@ async function handleWebhook(
   }
 }
 
+//  get all banks connection:
+async function getUserBankAccountsWithRoundUpStatus(
+  userId: string,
+  queryParams: Record<string, unknown> = {}
+): Promise<IUserBankAccountsResponse> {
+  try {
+    // Step 1: Build query for user's bank connections using QueryBuilder
+    const bankConnectionQuery = BankConnectionModel.find({ user: userId });
+
+    const queryBuilder = new QueryBuilder(bankConnectionQuery, queryParams)
+      .filter()
+      .sort()
+      .paginate()
+      .fields();
+
+    // Execute query and get pagination meta
+    const [bankConnections, paginationMeta] = await Promise.all([
+      queryBuilder.modelQuery.select('-accessToken').lean().exec(),
+      queryBuilder.countTotal(),
+    ]);
+
+    if (!bankConnections || bankConnections.length === 0) {
+      return {
+        accounts: [],
+        totalAccounts: 0,
+        activeRoundUps: 0,
+        meta: paginationMeta,
+      };
+    }
+
+    // Extract bank connection IDs for efficient lookup
+    const bankConnectionIds = bankConnections.map((bc) => String(bc._id));
+
+    // Step 2: Build query for active RoundUps using QueryBuilder
+    const roundUpQuery = RoundUpModel.find({
+      user: userId,
+      bankConnection: { $in: bankConnectionIds },
+      isActive: true,
+    });
+
+    const roundUpQueryBuilder = new QueryBuilder(roundUpQuery, {}).fields(); // Only select necessary fields
+
+    const activeRoundUps = await roundUpQueryBuilder.modelQuery
+      .populate('organization', 'name logo')
+      .populate('cause', 'name description')
+      .select(
+        'bankConnection monthlyThreshold currentMonthTotal organization cause status enabled isTaxable'
+      )
+      .lean()
+      .exec();
+
+    // Step 3: Create a Map for O(1) lookup of RoundUp details by bankConnectionId
+    const roundUpMap = new Map<string, any>();
+
+    activeRoundUps.forEach((roundUp: any) => {
+      const bankConnId = String(roundUp.bankConnection);
+      roundUpMap.set(bankConnId, {
+        roundUpId: String(roundUp._id),
+        monthlyThreshold: roundUp.monthlyThreshold,
+        currentMonthTotal: roundUp.currentMonthTotal,
+        organization: String(roundUp.organization?._id || roundUp.organization),
+        organizationName: roundUp.organization?.name || 'Unknown Organization',
+        cause: roundUp.cause
+          ? String(roundUp.cause?._id || roundUp.cause)
+          : undefined,
+        causeName: roundUp.cause?.name || undefined,
+        status: roundUp.status,
+        enabled: roundUp.enabled,
+        isTaxable: roundUp.isTaxable || false,
+      });
+    });
+
+    // Step 4: Map bank connections with RoundUp status
+    const accountsWithStatus: IBankAccountWithRoundUpStatus[] =
+      bankConnections.map((bankConnection: any) => {
+        const bankConnectionId = String(bankConnection._id);
+        const roundUpDetails = roundUpMap.get(bankConnectionId);
+
+        return {
+          ...bankConnection,
+          isLinkedToActiveRoundUp: !!roundUpDetails,
+          activeRoundUpId: roundUpDetails?.roundUpId,
+          roundUpDetails: roundUpDetails || undefined,
+        } as IBankAccountWithRoundUpStatus;
+      });
+
+    // Step 5: Calculate active RoundUps count
+    const activeRoundUpCount = accountsWithStatus.filter(
+      (account) => account.isLinkedToActiveRoundUp
+    ).length;
+
+    return {
+      accounts: accountsWithStatus,
+      totalAccounts: paginationMeta.total,
+      activeRoundUps: activeRoundUpCount,
+      meta: paginationMeta,
+    };
+  } catch (error) {
+    console.error(
+      'Error getting user bank accounts with RoundUp status:',
+      error
+    );
+    throw new Error('Failed to retrieve bank accounts with RoundUp status');
+  }
+}
+
 // Get bank connection details
 async function getBankConnectionById(
   id: string
@@ -434,6 +544,7 @@ export const bankConnectionServices = {
   getBankConnectionByUserId,
   updateBankConnection,
   hasActiveBankConnection,
+  getUserBankAccountsWithRoundUpStatus,
 };
 
 export default bankConnectionServices;

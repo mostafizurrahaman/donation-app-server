@@ -38,6 +38,12 @@ router.get(
   bankConnectionController.getUserBankConnection
 );
 
+router.get(
+  '/accounts',
+  auth(ROLE.CLIENT),
+  bankConnectionController.getUserBankAccounts
+);
+
 // Sync transactions
 router.post(
   '/:bankConnectionId/sync',

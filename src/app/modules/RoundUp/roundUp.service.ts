@@ -15,7 +15,7 @@ import httpStatus from 'http-status';
 import Auth from '../Auth/auth.model';
 import PaymentMethod from '../PaymentMethod/paymentMethod.model';
 import Client from '../Client/client.model';
-import { calculateTax } from '../Donation/donation.constant';
+import { calculateAustralianFees } from '../Donation/donation.constant'; // ✅ Use new calculator
 import { Logger } from '../../utils/logger';
 
 const savePlaidConsent = async (
@@ -29,7 +29,9 @@ const savePlaidConsent = async (
     monthlyThreshold,
     specialMessage,
     paymentMethodId,
-    isTaxable = false,
+    isTaxable = false, // Legacy
+    // ✅ NEW
+    coverFees = false, // Default false for RoundUp
   } = payload as {
     bankConnectionId?: string;
     organizationId?: string;
@@ -38,6 +40,7 @@ const savePlaidConsent = async (
     specialMessage?: string;
     paymentMethodId?: string;
     isTaxable?: boolean;
+    coverFees?: boolean;
   };
 
   const client = await Auth.findById(userId);
@@ -148,7 +151,11 @@ const savePlaidConsent = async (
     bankConnection: bankConnectionId,
     paymentMethod: String(paymentMethod._id),
     monthlyThreshold: monthlyThreshold || undefined,
-    isTaxable,
+
+    // ✅ Store preferences
+    coverFees,
+    isTaxable, // Kept for legacy
+
     specialMessage: specialMessage || undefined,
     status: 'pending',
     isActive: true,
@@ -238,7 +245,7 @@ const syncTransactions = async (
   };
 };
 
-// Trigger Donation - Updated for Platform Holding
+// Trigger Donation - Updated for Australian Financial Logic
 const triggerDonation = async (
   roundUpConfig: any
 ): Promise<{ paymentIntentId: string; donationId: string }> => {
@@ -264,6 +271,7 @@ const triggerDonation = async (
       throw new Error('No processed transactions found for donation');
     }
 
+    // Sum up the original round-up amounts (Base Amount)
     const baseAmount = pendingTransactions.reduce(
       (sum, transaction) => sum + (transaction as any).roundUpAmount,
       0
@@ -273,14 +281,17 @@ const triggerDonation = async (
       throw new Error('Invalid donation amount');
     }
 
-    const isTaxable = roundUpConfig.isTaxable || false;
-    const { taxAmount, totalAmount } = calculateTax(baseAmount, isTaxable);
+    // ✅ Apply Australian Fee Logic
+    const financials = calculateAustralianFees(
+      baseAmount,
+      roundUpConfig.coverFees || false
+    );
 
     console.log(
       `\n🎯 Creating donation record for RoundUp ${roundUpConfig._id}`
     );
-    console.log(`   Base Amount: $${baseAmount.toFixed(2)}`);
-    console.log(`   Total Amount: $${totalAmount.toFixed(2)}`);
+    console.log(`   Base Amount: $${financials.baseAmount.toFixed(2)}`);
+    console.log(`   Total Charged: $${financials.totalCharge.toFixed(2)}`);
 
     const cause = await Cause.findById(roundUpConfig.cause);
     if (!cause) {
@@ -303,16 +314,25 @@ const triggerDonation = async (
       organization: roundUpConfig.organization,
       cause: roundUpConfig.cause,
       donationType: 'round-up',
-      amount: baseAmount,
-      isTaxable,
-      taxAmount,
-      totalAmount,
+
+      // ✅ Breakdown
+      amount: financials.baseAmount,
+      coverFees: financials.coverFees,
+      platformFee: financials.platformFee,
+      gstOnFee: financials.gstOnFee,
+      netAmount: financials.netToOrg,
+      totalAmount: financials.totalCharge,
+
+      // Legacy
+      isTaxable: roundUpConfig.isTaxable,
+      taxAmount: financials.gstOnFee,
+
       currency: 'USD',
       status: 'pending',
       donationDate: new Date(),
       specialMessage:
         roundUpConfig.specialMessage || `Round-up donation for ${currentMonth}`,
-      pointsEarned: Math.round(baseAmount * 100),
+      pointsEarned: Math.round(financials.baseAmount * 100),
       roundUpId: roundUpConfig._id,
       roundUpTransactionIds: pendingTransactions.map((t) => t._id),
       receiptGenerated: false,
@@ -334,10 +354,19 @@ const triggerDonation = async (
         userId: String(roundUpConfig.user),
         charityId: String(roundUpConfig.organization),
         causeId: String(roundUpConfig.cause),
-        amount: baseAmount,
-        isTaxable,
-        taxAmount,
-        totalAmount,
+        amount: financials.baseAmount,
+
+        // ✅ Fee Breakdown
+        coverFees: financials.coverFees,
+        platformFee: financials.platformFee,
+        gstOnFee: financials.gstOnFee,
+        netToOrg: financials.netToOrg,
+        totalAmount: financials.totalCharge,
+
+        // Legacy
+        isTaxable: roundUpConfig.isTaxable,
+        taxAmount: financials.gstOnFee,
+
         month: currentMonth,
         year: now.getFullYear(),
         specialMessage: roundUpConfig.specialMessage,
@@ -422,8 +451,7 @@ const triggerDonation = async (
     Logger.info(`   Donation ID: ${donation._id}`);
     Logger.info(`   Payment Intent ID: ${paymentResult.payment_intent_id}`);
     Logger.info(`   Base Amount: $${baseAmount.toFixed(2)}`);
-    Logger.info(`   Tax Amount: $${taxAmount.toFixed(2)}`);
-    Logger.info(`   Total Charged: $${totalAmount.toFixed(2)}`);
+    Logger.info(`   Total Charged: $${financials.totalCharge.toFixed(2)}`);
     Logger.info(`   Charity: ${roundUpConfig.organization}`);
     Logger.info(`   Status: Awaiting webhook confirmation...\n`);
 
@@ -531,13 +559,16 @@ const processMonthlyDonation = async (
     0
   );
 
-  const isTaxable = roundUpConfig.isTaxable || false;
-  const { taxAmount, totalAmount } = calculateTax(baseAmount, isTaxable);
-  Logger.info(`\n💰 Manual RoundUp Donation Tax Calculation:`);
-  Logger.info(`   Base Amount: $${baseAmount.toFixed(2)}`);
-  Logger.info(`   Is Taxable: ${isTaxable}`);
-  Logger.info(`   Tax Amount: $${taxAmount.toFixed(2)}`);
-  Logger.info(`   Total Amount: $${totalAmount.toFixed(2)}`);
+  // ✅ Apply Fee Calculation
+  const financials = calculateAustralianFees(
+    baseAmount,
+    roundUpConfig.coverFees || false
+  );
+
+  Logger.info(`\n💰 Manual RoundUp Donation Breakdown:`);
+  Logger.info(`   Base Amount: $${financials.baseAmount.toFixed(2)}`);
+  Logger.info(`   Total Charge: $${financials.totalCharge.toFixed(2)}`);
+
   const session = await mongoose.startSession();
 
   try {
@@ -595,10 +626,19 @@ const processMonthlyDonation = async (
       organization: roundUpConfig.organization,
       cause: roundUpConfig.cause,
       donationType: 'round-up',
-      amount: baseAmount,
-      isTaxable,
-      taxAmount,
-      totalAmount,
+
+      // ✅ Breakdown
+      amount: financials.baseAmount,
+      coverFees: financials.coverFees,
+      platformFee: financials.platformFee,
+      gstOnFee: financials.gstOnFee,
+      netAmount: financials.netToOrg,
+      totalAmount: financials.totalCharge,
+
+      // Legacy
+      isTaxable: roundUpConfig.isTaxable || false,
+      taxAmount: financials.gstOnFee,
+
       currency: 'USD',
       status: 'pending',
       specialMessage:
@@ -622,9 +662,18 @@ const processMonthlyDonation = async (
       charityId: roundUpConfig.organization,
       causeId: roundUpConfig.cause,
       amount: baseAmount,
-      isTaxable,
-      taxAmount,
-      totalAmount,
+
+      // ✅ Pass Breakdown
+      coverFees: financials.coverFees,
+      platformFee: financials.platformFee,
+      gstOnFee: financials.gstOnFee,
+      netToOrg: financials.netToOrg,
+      totalAmount: financials.totalCharge,
+
+      // Legacy
+      isTaxable: roundUpConfig.isTaxable,
+      taxAmount: financials.gstOnFee,
+
       month: currentMonth,
       year: now.getFullYear(),
       specialMessage:
@@ -673,8 +722,8 @@ const processMonthlyDonation = async (
         donationId: String(donationUniqueId),
         paymentIntentId: paymentResult.payment_intent_id,
         baseAmount,
-        taxAmount,
-        totalAmount,
+        taxAmount: financials.gstOnFee,
+        totalAmount: financials.totalCharge,
         status: 'processing',
       },
       statusCode: StatusCodes.OK,

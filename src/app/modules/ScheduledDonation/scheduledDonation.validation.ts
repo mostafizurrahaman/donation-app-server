@@ -9,7 +9,7 @@ const customIntervalSchema = z.object({
   unit: z.enum(['days', 'weeks', 'months']),
 });
 
-//  Create scheduled donation schema with tax support
+// 1. Create scheduled donation schema
 const createScheduledDonationSchema = z.object({
   body: z
     .object({
@@ -24,8 +24,8 @@ const createScheduledDonationSchema = z.object({
         .min(0.01, 'Amount must be at least $0.01')
         .positive('Amount must be positive'),
 
-      // ✅ NEW: Tax field
-      isTaxable: z.boolean().optional().default(false),
+      // ✅ NEW: Fee preference (Default to true in AU)
+      coverFees: z.boolean().optional().default(true),
 
       frequency: z.enum(
         ['daily', 'weekly', 'monthly', 'quarterly', 'yearly', 'custom'],
@@ -86,7 +86,7 @@ const updateScheduledDonationSchema = z.object({
         .positive('Amount must be positive')
         .optional(),
 
-      isTaxable: z.boolean().optional(),
+      coverFees: z.boolean().optional(),
 
       frequency: z
         .enum(['daily', 'weekly', 'monthly', 'quarterly', 'yearly', 'custom'])

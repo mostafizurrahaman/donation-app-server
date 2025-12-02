@@ -10,8 +10,9 @@ interface IConfig {
   clientUrl: string;
   paymentSetting: {
     platformFeePercent: number;
-    taxPercentage: number;
+
     clearingPeriodDays: number;
+    gstPercentage: number;
   };
   jwt: {
     accessTokenSecret: string;
@@ -88,9 +89,9 @@ const config: IConfig = {
   dbUrl: process.env.DB_URL || 'mongodb://localhost:27017/crescent_change',
   clientUrl: process.env.CLIENT_URL || 'http://localhost:3000',
   paymentSetting: {
-    platformFeePercent: Number(process.env.PLATFORM_FEE_PERCENTAGE) || 0.05,
-    taxPercentage: Number(process.env.TAX_PERCENTAGE) || 0,
-    clearingPeriodDays: Number(process.env.CLEARING_PERIOD_DAYS) || 7,
+    platformFeePercent: Number(process.env.PLATFORM_FEE_PERCENTAGE) || 0,
+    gstPercentage: Number(process.env.GST_PERCENTAGE) || 0,
+    clearingPeriodDays: Number(process.env.CLEARING_PERIOD_DAYS) || 0,
   },
   jwt: {
     accessTokenSecret: process.env.JWT_ACCESS_SECRET || 'default_access_secret',
@@ -99,7 +100,7 @@ const config: IConfig = {
     otpSecret: process.env.JWT_OTP_SECRET || 'default_otp_secret',
     accessTokenExpiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '15m',
     refreshTokenExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
-    otpSecretExpiresIn: process.env.JWT_OTP_SECRET_EXPIRES_IN || '5',
+    otpSecretExpiresIn: process.env.JWT_OTP_SECRET_EXPIRES_IN || '5m',
   },
   bcrypt: {
     saltRounds: parseInt(process.env.BCRYPT_SALT_ROUNDS || '12', 10),

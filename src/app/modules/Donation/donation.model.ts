@@ -27,24 +27,32 @@ const donationSchema = new Schema<IDonationModel>(
       enum: DONATION_TYPE,
       required: true,
     },
+
+    // ✅ Financial Fields (Australian Logic)
     amount: {
       type: Number,
-      required: [true, 'Amount is required'],
-      min: [0.01, 'Amount must be at least 0.01'],
+      required: [true, 'Base Amount is required'],
+      min: [0.01, 'Amount must be at least 0.01'], // This is the donation amount
     },
-    isTaxable: {
+    coverFees: {
       type: Boolean,
-      default: false,
-      index: true,
+      default: true, // In Australia, usually defaults to True (Opt-out)
     },
-    taxAmount: {
+    platformFee: {
       type: Number,
-      default: 0,
-      min: [0, 'Tax amount cannot be negative'],
+      default: 0, // Revenue for the platform
+    },
+    gstOnFee: {
+      type: Number,
+      default: 0, // 10% GST on the platformFee (Liability)
+    },
+    netAmount: {
+      type: Number,
+      required: true, // The exact amount the Organization receives (for payout)
     },
     totalAmount: {
       type: Number,
-      required: [true, 'Total amount is required'],
+      required: [true, 'Total amount is required'], // The amount charged to the card
       min: [0.01, 'Total amount must be at least 0.01'],
     },
 
@@ -92,7 +100,6 @@ const donationSchema = new Schema<IDonationModel>(
       type: Number,
       default: 0,
     },
-  
 
     // Additional fields for recurring and round-up donations
     scheduledDonationId: {
@@ -136,6 +143,7 @@ const donationSchema = new Schema<IDonationModel>(
   }
 );
 
+// Indexes
 donationSchema.index({ donor: 1, donationDate: -1 });
 donationSchema.index({ organization: 1, donationDate: -1 });
 donationSchema.index({ status: 1, donationDate: -1 });
@@ -143,8 +151,8 @@ donationSchema.index({ scheduledDonationId: 1 });
 donationSchema.index({ roundUpId: 1 });
 donationSchema.index({ idempotencyKey: 1, donor: 1 }, { unique: true });
 donationSchema.index({ lastPaymentAttempt: 1 });
-donationSchema.index({ isTaxable: 1 });
 donationSchema.index({ totalAmount: 1 });
+donationSchema.index({ netAmount: 1 }); // Important for calculating payouts
 
 export const Donation = model<IDonationModel>('Donation', donationSchema);
 export default Donation;

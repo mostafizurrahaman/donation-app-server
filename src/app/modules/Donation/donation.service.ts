@@ -35,7 +35,7 @@ import { IAuth } from '../Auth/auth.interface';
 import Cause from '../Causes/causes.model';
 import { CAUSE_STATUS_TYPE } from '../Causes/causes.constant';
 import {
-  calculateTax,
+  calculateAustralianFees,
   monthAbbreviations,
   REFUND_WINDOW_DAYS,
 } from './donation.constant';
@@ -59,7 +59,7 @@ const createOneTimeDonation = async (
 }> => {
   const {
     amount,
-    isTaxable = false,
+    coverFees = true, // Default to true (Opt-out model)
     causeId,
     organizationId,
     userId,
@@ -67,14 +67,15 @@ const createOneTimeDonation = async (
     specialMessage,
   } = payload;
 
-  // Calculate tax and total amount
-  const { taxAmount, totalAmount } = calculateTax(amount, isTaxable);
+  // ✅ Apply Australian Financial Logic
+  const financials = calculateAustralianFees(amount, coverFees);
 
   console.log(`💰 Donation Amount Breakdown:`);
-  console.log(`   Base Amount: $${amount.toFixed(2)}`);
-  console.log(`   Tax Amount: $${taxAmount.toFixed(2)}`);
-  console.log(`   Total Amount: $${totalAmount.toFixed(2)}`);
-  console.log(`   Is Taxable: ${isTaxable}`);
+  console.log(`   Base Amount: $${financials.baseAmount.toFixed(2)}`);
+  console.log(`   Platform Fee: $${financials.platformFee.toFixed(2)}`);
+  console.log(`   GST on Fee: $${financials.gstOnFee.toFixed(2)}`);
+  console.log(`   Total Charged: $${financials.totalCharge.toFixed(2)}`);
+  console.log(`   Net To Org: $${financials.netToOrg.toFixed(2)}`);
 
   // Generate idempotency key on backend
   const idempotencyKey = `don-${new Types.ObjectId().toString()}-${Date.now()}`;
@@ -136,15 +137,19 @@ const createOneTimeDonation = async (
       organization: new Types.ObjectId(organizationId),
       cause: new Types.ObjectId(causeId),
       donationType: 'one-time',
-      amount,
-      isTaxable,
-      taxAmount,
-      totalAmount, // Total amount to charge
+
+      // ✅ Financials
+      amount: financials.baseAmount,
+      coverFees: financials.coverFees,
+      platformFee: financials.platformFee,
+      gstOnFee: financials.gstOnFee,
+      netAmount: financials.netToOrg,
+      totalAmount: financials.totalCharge,
 
       currency: 'USD',
       status: 'pending',
       specialMessage,
-      pointsEarned: Math.floor(amount * 100), // Points based on base amount
+      pointsEarned: Math.floor(financials.baseAmount * 100), // Points based on base amount
 
       stripeCustomerId: paymentMethod.stripeCustomerId,
       stripePaymentMethodId: paymentMethod.stripePaymentMethodId,
@@ -155,13 +160,17 @@ const createOneTimeDonation = async (
     // Save donation within transaction
     const savedDonation = await donation.save({ session });
 
-    // Create payment intent with TOTAL AMOUNT (including tax)
-
+    // Create payment intent with TOTAL AMOUNT
     const paymentIntent = await StripeService.createPaymentIntentWithMethod({
-      amount, // Base amount
-      isTaxable,
-      taxAmount,
-      totalAmount,
+      amount: financials.baseAmount,
+      totalAmount: financials.totalCharge,
+
+      // Pass breakdown to Stripe for metadata
+      coverFees: financials.coverFees,
+      platformFee: financials.platformFee,
+      gstOnFee: financials.gstOnFee,
+      netToOrg: financials.netToOrg,
+
       currency: 'usd',
       customerId: paymentMethod.stripeCustomerId,
       paymentMethodId: paymentMethod.stripePaymentMethodId,
@@ -181,9 +190,6 @@ const createOneTimeDonation = async (
 
     console.log(`✅ One-time donation created successfully:`);
     console.log(`   Donation ID: ${savedDonation._id}`);
-    console.log(`   Base Amount: $${amount.toFixed(2)}`);
-    console.log(`   Tax Amount: $${taxAmount.toFixed(2)}`);
-    console.log(`   Total Charged: $${totalAmount.toFixed(2)}`);
 
     return {
       donation: savedDonation,
@@ -423,7 +429,7 @@ const getDonationStatistics = async (
       $group: {
         _id: null,
         totalDonations: { $sum: 1 },
-        totalAmount: { $sum: '$amount' },
+        totalAmount: { $sum: '$amount' }, 
         completedDonations: {
           $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] },
         },
@@ -549,12 +555,17 @@ const retryFailedPayment = async (
   }
 
   // Create a new payment intent for retry
-  // NOTE: Removed transfer_data implicitly via Service
+  // ✅ Reuse the calculated values from the failed donation
   const paymentIntent = await StripeService.createPaymentIntentWithMethod({
-    totalAmount: donation.totalAmount,
-    isTaxable: donation.isTaxable,
-    taxAmount: donation.taxAmount,
     amount: donation.amount,
+    totalAmount: donation.totalAmount, // Use the stored total charge
+
+    // Pass metadata from existing donation
+    coverFees: donation.coverFees,
+    platformFee: donation.platformFee,
+    gstOnFee: donation.gstOnFee,
+    netToOrg: donation.netAmount,
+
     currency: 'usd',
     customerId: donation.stripeCustomerId,
     paymentMethodId: donation.stripePaymentMethodId,

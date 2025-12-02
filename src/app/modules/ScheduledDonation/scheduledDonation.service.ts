@@ -18,7 +18,7 @@ import { stripe } from '../../lib/stripeHelper';
 import { IDonationModel } from '../Donation/donation.interface';
 import { IPaymentMethodModel } from '../PaymentMethod/paymentMethod.interface';
 import { IORGANIZATION } from '../Organization/organization.interface';
-import { calculateTax } from '../Donation/donation.constant';
+import { calculateAustralianFees } from '../Donation/donation.constant';
 
 // Helper function to calculate next donation date
 const calculateNextDonationDate = (
@@ -79,21 +79,20 @@ const createScheduledDonation = async (
     organizationId,
     causeId,
     amount,
-    isTaxable = false,
+    coverFees = true, // Default to true
     frequency,
     customInterval,
     specialMessage,
     paymentMethodId,
   } = payload;
 
-  const { taxAmount, totalAmount } = calculateTax(amount, isTaxable);
+  // ✅ Calculate purely for logging/checking
+  const financials = calculateAustralianFees(amount, coverFees);
 
   console.log(`📅 Scheduled Donation Created:`);
-  console.log(`   Base Amount: $${amount.toFixed(2)}`);
-  console.log(`   Tax Amount: $${taxAmount.toFixed(2)}`);
-  console.log(`   Total Amount: $${totalAmount.toFixed(2)}`);
-  console.log(`   Is Taxable: ${isTaxable}`);
-  console.log(`   Frequency: ${frequency}`);
+  console.log(`   Base Amount: $${financials.baseAmount.toFixed(2)}`);
+  console.log(`   Total Charge: $${financials.totalCharge.toFixed(2)}`);
+  console.log(`   Cover Fees: ${coverFees}`);
 
   const user = await Client.findOne({ auth: userId });
   if (!user) {
@@ -137,10 +136,12 @@ const createScheduledDonation = async (
     user: user._id,
     organization: new Types.ObjectId(organizationId),
     cause: new Types.ObjectId(causeId),
-    amount,
-    isTaxable,
-    taxAmount,
-    totalAmount,
+
+    amount: financials.baseAmount, // Save Base Amount
+    coverFees, // Save preference
+
+    // We don't save calculated totals here anymore as per model update
+
     currency: 'USD',
     frequency,
     customInterval,
@@ -252,32 +253,25 @@ const updateScheduledDonation = async (
     throw new AppError(httpStatus.NOT_FOUND, 'Scheduled donation not found!');
   }
 
-  let needsTaxRecalculation = false;
   let newAmount = scheduledDonation.amount;
-  let newIsTaxable = scheduledDonation.isTaxable;
+  let newCoverFees = scheduledDonation.coverFees;
 
   if (payload.amount !== undefined) {
     scheduledDonation.amount = payload.amount;
     newAmount = payload.amount;
-    needsTaxRecalculation = true;
   }
 
-  if (payload.isTaxable !== undefined) {
-    scheduledDonation.isTaxable = payload.isTaxable;
-    newIsTaxable = payload.isTaxable;
-    needsTaxRecalculation = true;
+  if (payload.coverFees !== undefined) {
+    scheduledDonation.coverFees = payload.coverFees;
+    newCoverFees = payload.coverFees;
   }
 
-  if (needsTaxRecalculation) {
-    const { taxAmount, totalAmount } = calculateTax(newAmount, newIsTaxable);
-    scheduledDonation.taxAmount = taxAmount;
-    scheduledDonation.totalAmount = totalAmount;
-
-    console.log(`📝 Scheduled Donation Updated with new tax calculation:`);
-    console.log(`   Base Amount: $${newAmount.toFixed(2)}`);
-    console.log(`   Tax Amount: $${taxAmount.toFixed(2)}`);
-    console.log(`   Total Amount: $${totalAmount.toFixed(2)}`);
-  }
+  // Log calculation for debugging (not saved to DB)
+  const financials = calculateAustralianFees(newAmount, newCoverFees);
+  console.log(`📝 Scheduled Donation Updated:`);
+  console.log(`   Base: $${newAmount.toFixed(2)}`);
+  console.log(`   Cover Fees: ${newCoverFees}`);
+  console.log(`   Projected Total: $${financials.totalCharge.toFixed(2)}`);
 
   if (payload.frequency !== undefined) {
     scheduledDonation.frequency = payload.frequency;
@@ -403,7 +397,7 @@ const getScheduledDonationsDueForExecution = async (): Promise<
   return scheduledDonations;
 };
 
-// Execute scheduled donation
+// Execute scheduled donation (Cron Job Logic)
 const executeScheduledDonation = async (
   scheduledDonationId: string
 ): Promise<IDonationModel> => {
@@ -473,17 +467,18 @@ const executeScheduledDonation = async (
     );
   }
 
-  const amount = scheduledDonation.amount;
-  const isTaxable = scheduledDonation.isTaxable;
-  const taxAmount = scheduledDonation.taxAmount;
-  const totalAmount = scheduledDonation.totalAmount;
+  //  Recalculate Fees at Execution Time
+  // Rates might have changed, but user's preference (coverFees) remains
+  const financials = calculateAustralianFees(
+    scheduledDonation.amount,
+    scheduledDonation.coverFees
+  );
 
   console.log(`🔄 Executing Scheduled Donation:`);
-  console.log(`   Scheduled Donation ID: ${scheduledDonationId}`);
-  console.log(`   Base Amount: $${amount.toFixed(2)}`);
-  console.log(`   Tax Amount: $${taxAmount.toFixed(2)}`);
-  console.log(`   Total Amount to Charge: $${totalAmount.toFixed(2)}`);
-  console.log(`   Is Taxable: ${isTaxable}`);
+  console.log(`   ID: ${scheduledDonationId}`);
+  console.log(`   Base: $${financials.baseAmount.toFixed(2)}`);
+  console.log(`   Total Charge: $${financials.totalCharge.toFixed(2)}`);
+  console.log(`   Cover Fees: ${financials.coverFees}`);
 
   const idempotencyKey = `scheduled_${scheduledDonationId}_${Date.now()}_${Math.random()
     .toString(36)
@@ -500,7 +495,7 @@ const executeScheduledDonation = async (
         );
       }
 
-      // Create payment intent with TOTAL AMOUNT
+      // Create payment intent with TOTAL CHARGE
       const paymentIntentParams: {
         amount: number;
         currency: string;
@@ -511,7 +506,7 @@ const executeScheduledDonation = async (
         metadata: Record<string, string>;
         description: string;
       } = {
-        amount: Math.round(totalAmount * 100),
+        amount: Math.round(financials.totalCharge * 100), 
         currency: scheduledDonation.currency.toLowerCase(),
         customer: scheduledDonation.stripeCustomerId,
         payment_method: stripePaymentMethodId,
@@ -524,10 +519,14 @@ const executeScheduledDonation = async (
           causeId: causeId,
           donationType: 'recurring',
           specialMessage: scheduledDonation.specialMessage || '',
-          baseAmount: amount.toString(),
-          isTaxable: isTaxable.toString(),
-          taxAmount: taxAmount.toString(),
-          totalAmount: totalAmount.toString(),
+          baseAmount: financials.baseAmount.toString(),
+          totalAmount: financials.totalCharge.toString(),
+
+          // ✅ Fee Breakdown for Stripe Audit
+          coverFees: financials.coverFees.toString(),
+          platformFee: financials.platformFee.toString(),
+          gstOnFee: financials.gstOnFee.toString(),
+          netToOrg: financials.netToOrg.toString(),
         },
         description: scheduledDonation.specialMessage || 'Recurring donation',
       };
@@ -545,10 +544,14 @@ const executeScheduledDonation = async (
         organization: organizationId,
         cause: causeId,
         donationType: 'recurring',
-        amount,
-        isTaxable,
-        taxAmount,
-        totalAmount,
+
+        // ✅ Save calculated fields
+        amount: financials.baseAmount,
+        coverFees: financials.coverFees,
+        platformFee: financials.platformFee,
+        gstOnFee: financials.gstOnFee,
+        netAmount: financials.netToOrg,
+        totalAmount: financials.totalCharge,
 
         currency: scheduledDonation.currency,
         status: 'processing',
@@ -599,10 +602,14 @@ const executeScheduledDonation = async (
             organization: organizationId,
             cause: causeId,
             donationType: 'recurring',
-            amount,
-            isTaxable,
-            taxAmount,
-            totalAmount,
+
+            amount: financials.baseAmount,
+            coverFees: financials.coverFees,
+            platformFee: financials.platformFee,
+            gstOnFee: financials.gstOnFee,
+            netAmount: financials.netToOrg,
+            totalAmount: financials.totalCharge,
+
             currency: scheduledDonation.currency,
             status: 'failed',
             donationDate: new Date(),

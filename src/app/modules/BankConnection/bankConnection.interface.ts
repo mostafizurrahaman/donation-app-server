@@ -89,3 +89,33 @@ export interface ISyncResponse {
   modified: IPlaidTransaction[];
   removed: string[];
 }
+
+// Add at the end of the file
+
+export interface IBankAccountWithRoundUpStatus extends IBankConnection {
+  isLinkedToActiveRoundUp: boolean;
+  activeRoundUpId?: string;
+  roundUpDetails?: {
+    monthlyThreshold?: number | 'no-limit';
+    currentMonthTotal: number;
+    organization: string;
+    organizationName?: string;
+    cause?: string;
+    causeName?: string;
+    status: string;
+    enabled: boolean;
+    isTaxable: boolean;
+  };
+}
+
+export interface IUserBankAccountsResponse {
+  accounts: IBankAccountWithRoundUpStatus[];
+  totalAccounts: number;
+  activeRoundUps: number;
+  meta?: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPage: number;
+  };
+}

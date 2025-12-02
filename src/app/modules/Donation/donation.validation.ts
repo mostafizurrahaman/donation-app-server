@@ -131,7 +131,7 @@ const getOrganizationCauseStatsSchema = z.object({
   }),
 });
 
-// 5. Create recurring donation schema (for future use)
+// 5. Create recurring donation schema
 const createRecurringDonationSchema = z.object({
   body: z.object({
     amount: z
@@ -142,6 +142,9 @@ const createRecurringDonationSchema = z.object({
       .max(10000, {
         message: 'Amount cannot exceed $10,000 for recurring donations!',
       }),
+
+    // ✅ NEW: Cover Fees checkbox (default true)
+    coverFees: z.boolean().optional().default(true),
 
     organizationId: z
       .string({
@@ -186,7 +189,7 @@ const createRecurringDonationSchema = z.object({
       .transform((message) => message?.trim())
       .optional(),
 
-    // For custom frequency - these would be validated separately
+    // For custom frequency
     customFrequencyDays: z
       .number({
         error: 'Days must be a number!',
@@ -210,7 +213,7 @@ const createRecurringDonationSchema = z.object({
   }),
 });
 
-// 6. Create round-up schema (for future use)
+// 6. Create round-up schema
 const createRoundUpSchema = z.object({
   body: z.object({
     organizationId: z
@@ -273,7 +276,7 @@ const createRoundUpSchema = z.object({
   }),
 });
 
-// 7. Create donation record schema (separate from payment)
+// 7. Create donation record schema
 const createDonationRecordSchema = z.object({
   body: z.object({
     amount: z
@@ -282,6 +285,9 @@ const createDonationRecordSchema = z.object({
       })
       .min(1, { message: 'Amount must be at least $1!' })
       .max(10000, { message: 'Amount cannot exceed $10,000!' }),
+
+    // ✅ NEW: Cover Fees checkbox
+    coverFees: z.boolean().optional().default(true),
 
     causeId: z
       .string({
@@ -373,7 +379,8 @@ const createOneTimeDonationSchema = z.object({
       .min(1, { message: 'Amount must be at least $1!' })
       .max(10000, { message: 'Amount cannot exceed $10,000!' }),
 
-    isTaxable: z.boolean().optional().default(false),
+    // ✅ NEW: Cover Fees checkbox (default true for AU)
+    coverFees: z.boolean().optional().default(true),
 
     currency: z
       .string()
@@ -502,12 +509,6 @@ export type TGetOrganizationCauseStatsQuery = z.infer<
 export type TCreateDonationRecordPayload = z.infer<
   typeof createDonationRecordSchema.shape.body
 >;
-// export type TProcessPaymentForDonationParams = z.infer<
-//   typeof processPaymentForDonationSchema.shape.params
-// >;
-// export type TProcessPaymentForDonationBody = z.infer<
-//   typeof processPaymentForDonationSchema.shape.body
-// >;
 export type TRetryFailedPaymentParams = z.infer<
   typeof retryFailedPaymentSchema.shape.params
 >;

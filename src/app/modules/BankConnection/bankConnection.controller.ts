@@ -166,6 +166,33 @@ const getUserBankConnection = catchAsync(
   }
 );
 
+const getUserBankAccounts = catchAsync(async (req: Request, res: Response) => {
+  const userId = req.user.id;
+  const queryParams = req.query;
+
+  const result =
+    await bankConnectionService.getUserBankAccountsWithRoundUpStatus(
+      userId,
+      queryParams
+    );
+
+  if (!result.accounts || result.accounts.length === 0) {
+    return sendResponse(res, StatusCodes.OK, {
+      success: true,
+      message: 'No bank accounts found',
+      data: [],
+      meta: result.meta,
+    });
+  }
+
+  sendResponse(res, StatusCodes.OK, {
+    success: true,
+    message: 'Bank accounts retrieved successfully',
+    data: result.accounts,
+    meta: result.meta,
+  });
+});
+
 // Update bank connection
 const updateBankConnection = catchAsync(async (req: Request, res: Response) => {
   const userId = req.user.id;
@@ -286,6 +313,7 @@ export const bankConnectionController = {
   getTransactions,
   getStoredTransactions,
   getUserBankConnection,
+  getUserBankAccounts,
   updateBankConnection,
   revokeConsent,
   handleWebhook,

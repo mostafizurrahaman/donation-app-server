@@ -64,42 +64,78 @@ export const monthAbbreviations = [
 ];
 
 /**
- * Calculate tax amount and total amount for a donation
- * @param amount - Base donation amount (before tax)
- * @param isTaxable - Whether the donation is subject to tax
- * @returns Object with taxAmount and totalAmount
+ * Calculate Australian Fees (Donor Optional + GST on Fee)
+ *
+ * Logic:
+ * 1. Donation itself is GST-Free (No isTaxable check needed).
+ * 2. Platform Fee (e.g. 5%) attracts 10% GST.
+ * 3. If Donor covers fees: They pay Base + Fee + GST. Org gets Base.
+ * 4. If Donor refuses fees: They pay Base. Org gets Base - Fee - GST.
+ *
+ * @param baseAmount - The intended donation amount (e.g., $100)
+ * @param coverFees - Whether the donor wants to cover the platform fees
+ * @returns Breakdown of fees, tax, total charge, and net amount for org
  */
-export const calculateTax = (
-  amount: number,
-  isTaxable: boolean
-): { taxAmount: number; totalAmount: number } => {
-  if (!isTaxable) {
-    return {
-      taxAmount: 0,
-      totalAmount: amount,
-    };
+export const calculateAustralianFees = (
+  baseAmount: number,
+  coverFees: boolean
+): {
+  baseAmount: number;
+  platformFee: number;
+  gstOnFee: number; // This is the only tax we track now
+  totalFeeCost: number; // Fee + GST
+  totalCharge: number; // Amount sent to Stripe
+  netToOrg: number; // Amount credited to Organization Balance
+  coverFees: boolean;
+} => {
+  const platformFeePercent = config.paymentSetting.platformFeePercent || 0.05;
+  const gstRate = config.paymentSetting.gstPercentage || 0.1; // 10% GST
+
+  // 1. Calculate Platform Fee (Revenue)
+  // Example: $100 * 0.05 = $5.00
+  const platformFee = Number((baseAmount * platformFeePercent).toFixed(2));
+
+  // 2. Calculate GST on the Fee (Liability)
+  // Example: $5.00 * 0.10 = $0.50
+  const gstOnFee = Number((platformFee * gstRate).toFixed(2));
+
+  // 3. Total Fee Liability (Revenue + GST)
+  // Example: $5.00 + $0.50 = $5.50
+  const totalFeeCost = platformFee + gstOnFee;
+
+  let totalCharge = 0;
+  let netToOrg = 0;
+
+  if (coverFees) {
+    // Scenario A: Donor pays extra. Charity gets full baseAmount.
+    // User pays: $100 (Base) + $5.50 (Fees) = $105.50
+    // Org gets: $100
+    totalCharge = Number((baseAmount + totalFeeCost).toFixed(2));
+    netToOrg = baseAmount;
+  } else {
+    // Scenario B: Donor refuses fees. Fees deducted from baseAmount.
+    // User pays: $100
+    // Org gets: $100 - $5.50 = $94.50
+    totalCharge = baseAmount;
+    netToOrg = Number((baseAmount - totalFeeCost).toFixed(2));
   }
 
-  // Get tax rate from environment
-  const taxRate = Number(config.paymentSetting.taxPercentage) || 0;
-
-  // Calculate tax amount and round to 2 decimal places
-  const taxAmount = parseFloat((amount * taxRate).toFixed(2));
-
-  // Calculate total amount and round to 2 decimal places
-  const totalAmount = parseFloat((amount + taxAmount).toFixed(2));
-
   return {
-    taxAmount,
-    totalAmount,
+    baseAmount,
+    platformFee,
+    gstOnFee,
+    totalFeeCost,
+    totalCharge,
+    netToOrg,
+    coverFees,
   };
 };
 
 /**
- * Get current tax rate as a percentage string
+ * Get current GST rate as a percentage string
  * @returns Tax rate as percentage (e.g., "10%")
  */
 export const getTaxRateDisplay = (): string => {
-  const taxRate = Number(process.env.TAX_PERCENTAGE) || 0;
-  return `${(taxRate * 100).toFixed(0)}%`;
+  const gstRate = Number(config.paymentSetting.gstPercentage) || 0.1;
+  return `${(gstRate * 100).toFixed(0)}%`;
 };

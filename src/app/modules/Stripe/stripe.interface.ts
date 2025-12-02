@@ -5,8 +5,7 @@ export interface ICheckoutSessionRequest {
 
   specialMessage?: string;
   userId: string;
-  isTaxable?: boolean;
-  taxAmount?: number;
+  coverFees?: boolean; // ✅ NEW
   totalAmount: number; // This is what gets charged
 }
 
@@ -16,16 +15,20 @@ export interface ICheckoutSessionResponse {
 }
 
 export interface IPaymentIntentRequest {
-  amount: number;
+  amount: number; // Base Amount
   currency?: string;
   donorId: string;
   organizationId: string;
   causeId: string;
   specialMessage?: string;
 
-  isTaxable?: boolean;
-  taxAmount?: number;
-  totalAmount: number;
+  // ✅ Financial Breakdown for Metadata
+  coverFees?: boolean;
+  platformFee?: number;
+  gstOnFee?: number;
+  netToOrg?: number;
+
+  totalAmount: number; // Total Charge
 }
 
 export interface IPaymentIntentResponse {
@@ -64,7 +67,7 @@ export interface IAttachPaymentMethodRequest {
 }
 
 export interface ICreatePaymentIntentWithMethodRequest {
-  amount: number;
+  amount: number; // Base Amount
   currency?: string;
   customerId: string;
   paymentMethodId: string;
@@ -73,9 +76,13 @@ export interface ICreatePaymentIntentWithMethodRequest {
   causeId: string;
   specialMessage?: string;
 
-  isTaxable?: boolean;
-  taxAmount?: number;
-  totalAmount: number;
+  // ✅ Financial Breakdown for Metadata
+  coverFees?: boolean;
+  platformFee?: number;
+  gstOnFee?: number;
+  netToOrg?: number;
+
+  totalAmount: number; // Total Charge
 }
 
 //  Interface for RoundUp payment intent
@@ -84,14 +91,18 @@ export interface ICreateRoundUpPaymentIntentRequest {
   userId: string;
   charityId: string;
   causeId?: string;
-  amount: number;
+  amount: number; // Base Amount
   month: string;
   year: number;
   specialMessage?: string;
   paymentMethodId?: string;
   donationId?: string;
 
-  isTaxable?: boolean;
-  taxAmount?: number;
-  totalAmount: number;
+  // ✅ Financial Breakdown for Metadata
+  coverFees?: boolean;
+  platformFee?: number;
+  gstOnFee?: number;
+  netToOrg?: number;
+
+  totalAmount: number; // Total Charge
 }
