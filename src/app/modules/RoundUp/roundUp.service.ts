@@ -15,7 +15,7 @@ import httpStatus from 'http-status';
 import Auth from '../Auth/auth.model';
 import PaymentMethod from '../PaymentMethod/paymentMethod.model';
 import Client from '../Client/client.model';
-import { calculateAustralianFees } from '../Donation/donation.constant'; // ✅ Use new calculator
+import { calculateAustralianFees } from '../Donation/donation.constant';
 import { Logger } from '../../utils/logger';
 
 const savePlaidConsent = async (
@@ -29,9 +29,7 @@ const savePlaidConsent = async (
     monthlyThreshold,
     specialMessage,
     paymentMethodId,
-    isTaxable = false, // Legacy
-    // ✅ NEW
-    coverFees = false, // Default false for RoundUp
+    coverFees = false,
   } = payload as {
     bankConnectionId?: string;
     organizationId?: string;
@@ -39,7 +37,6 @@ const savePlaidConsent = async (
     monthlyThreshold?: number | 'no-limit';
     specialMessage?: string;
     paymentMethodId?: string;
-    isTaxable?: boolean;
     coverFees?: boolean;
   };
 
@@ -152,9 +149,8 @@ const savePlaidConsent = async (
     paymentMethod: String(paymentMethod._id),
     monthlyThreshold: monthlyThreshold || undefined,
 
-    // ✅ Store preferences
+    // ✅ Store fee preference
     coverFees,
-    isTaxable, // Kept for legacy
 
     specialMessage: specialMessage || undefined,
     status: 'pending',
@@ -323,10 +319,6 @@ const triggerDonation = async (
       netAmount: financials.netToOrg,
       totalAmount: financials.totalCharge,
 
-      // Legacy
-      isTaxable: roundUpConfig.isTaxable,
-      taxAmount: financials.gstOnFee,
-
       currency: 'USD',
       status: 'pending',
       donationDate: new Date(),
@@ -362,10 +354,6 @@ const triggerDonation = async (
         gstOnFee: financials.gstOnFee,
         netToOrg: financials.netToOrg,
         totalAmount: financials.totalCharge,
-
-        // Legacy
-        isTaxable: roundUpConfig.isTaxable,
-        taxAmount: financials.gstOnFee,
 
         month: currentMonth,
         year: now.getFullYear(),
@@ -560,10 +548,8 @@ const processMonthlyDonation = async (
   );
 
   // ✅ Apply Fee Calculation
-  const financials = calculateAustralianFees(
-    baseAmount,
-    roundUpConfig.coverFees || false
-  );
+  const coverFees = roundUpConfig.coverFees || false;
+  const financials = calculateAustralianFees(baseAmount, coverFees);
 
   Logger.info(`\n💰 Manual RoundUp Donation Breakdown:`);
   Logger.info(`   Base Amount: $${financials.baseAmount.toFixed(2)}`);
@@ -635,10 +621,6 @@ const processMonthlyDonation = async (
       netAmount: financials.netToOrg,
       totalAmount: financials.totalCharge,
 
-      // Legacy
-      isTaxable: roundUpConfig.isTaxable || false,
-      taxAmount: financials.gstOnFee,
-
       currency: 'USD',
       status: 'pending',
       specialMessage:
@@ -669,10 +651,6 @@ const processMonthlyDonation = async (
       gstOnFee: financials.gstOnFee,
       netToOrg: financials.netToOrg,
       totalAmount: financials.totalCharge,
-
-      // Legacy
-      isTaxable: roundUpConfig.isTaxable,
-      taxAmount: financials.gstOnFee,
 
       month: currentMonth,
       year: now.getFullYear(),

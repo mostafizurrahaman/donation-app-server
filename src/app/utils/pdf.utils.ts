@@ -1,441 +1,157 @@
 import PDFDocument from 'pdfkit';
-import {
-  RECEIPT_PDF_CONFIG,
-  RECEIPT_MESSAGES,
-} from '../modules/Receipt/receipt.constant';
 import { IReceiptPDFData } from '../modules/Receipt/receipt.interface';
 
 /**
- * Add professional header with logo space
+ * Generates a PDF Receipt Buffer with Australian Fee Breakdown
  */
-const addHeader = (doc: PDFKit.PDFDocument, data: IReceiptPDFData): void => {
-  // Company name and branding
-  doc
-    .fontSize(24)
-    .fillColor('#1a365d')
-    .text('Crescent Change', RECEIPT_PDF_CONFIG.MARGIN, 40, { align: 'left' });
+export const generateReceiptPDF = (data: IReceiptPDFData): Promise<Buffer> => {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: 'A4', margin: 50 });
+    const buffers: Buffer[] = [];
 
-  doc
-    .fontSize(9)
-    .fillColor('#64748b')
-    .text('Tax Receipt', RECEIPT_PDF_CONFIG.MARGIN, 68, { align: 'left' });
+    doc.on('data', (chunk) => buffers.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(buffers)));
+    doc.on('error', (err) => reject(err));
 
-  // Receipt details on the right
-  const rightX = doc.page.width - RECEIPT_PDF_CONFIG.MARGIN - 180;
-  doc
-    .fontSize(10)
-    .fillColor('#1e293b')
-    .text('RECEIPT', rightX, 40, { align: 'right', width: 180 });
-
-  doc
-    .fontSize(9)
-    .fillColor('#64748b')
-    .text(`#${data.receiptNumber}`, rightX, 55, { align: 'right', width: 180 });
-
-  doc
-    .fontSize(9)
-    .fillColor('#64748b')
-    .text(
-      new Date(data.donationDate).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      }),
-      rightX,
-      68,
-      { align: 'right', width: 180 }
-    );
-
-  // Divider line
-  doc
-    .moveTo(RECEIPT_PDF_CONFIG.MARGIN, 95)
-    .lineTo(doc.page.width - RECEIPT_PDF_CONFIG.MARGIN, 95)
-    .strokeColor('#e2e8f0')
-    .lineWidth(1)
-    .stroke();
-
-  doc.moveDown(3);
-};
-
-/**
- * Add organization details section
- */
-const addOrganizationDetails = (
-  doc: PDFKit.PDFDocument,
-  data: IReceiptPDFData
-): void => {
-  const startY = 115;
-
-  doc
-    .fontSize(10)
-    .fillColor('#64748b')
-    .text('FROM', RECEIPT_PDF_CONFIG.MARGIN, startY);
-
-  doc
-    .fontSize(11)
-    .fillColor('#1e293b')
-    .text(data.organizationName, RECEIPT_PDF_CONFIG.MARGIN, startY + 15);
-
-  let currentY = startY + 30;
-
-  if (data.organizationAddress) {
+    // --- HEADER ---
     doc
-      .fontSize(9)
-      .fillColor('#64748b')
-      .text(data.organizationAddress, RECEIPT_PDF_CONFIG.MARGIN, currentY, {
-        width: 250,
-      });
-    currentY += 25;
-  }
+      .fillColor('#444444')
+      .fontSize(20)
+      .text('OFFICIAL DONATION RECEIPT', 110, 57)
+      .fontSize(10)
+      .text('Crescent Change Platform', 200, 65, { align: 'right' })
+      .moveDown();
 
-  if (data.organizationEmail) {
-    doc
-      .fontSize(9)
-      .fillColor('#64748b')
-      .text(data.organizationEmail, RECEIPT_PDF_CONFIG.MARGIN, currentY);
-    currentY += 12;
-  }
-
-  if (data.abnNumber) {
-    doc
-      .fontSize(9)
-      .fillColor('#64748b')
-      .text(`ABN: ${data.abnNumber}`, RECEIPT_PDF_CONFIG.MARGIN, currentY);
-  }
-};
-
-/**
- * Add donor details section
- */
-const addDonorDetails = (
-  doc: PDFKit.PDFDocument,
-  data: IReceiptPDFData
-): void => {
-  const startY = 115;
-  const rightX = doc.page.width - RECEIPT_PDF_CONFIG.MARGIN - 250;
-
-  doc.fontSize(10).fillColor('#64748b').text('TO', rightX, startY);
-
-  doc
-    .fontSize(11)
-    .fillColor('#1e293b')
-    .text(data.donorName, rightX, startY + 15);
-
-  doc
-    .fontSize(9)
-    .fillColor('#64748b')
-    .text(data.donorEmail, rightX, startY + 30);
-};
-
-/**
- * Add donation details table
- */
-const addDonationTable = (
-  doc: PDFKit.PDFDocument,
-  data: IReceiptPDFData
-): number => {
-  const tableTop = 250;
-  const col1X = RECEIPT_PDF_CONFIG.MARGIN;
-  const col2X = doc.page.width - RECEIPT_PDF_CONFIG.MARGIN - 200;
-  const col3X = doc.page.width - RECEIPT_PDF_CONFIG.MARGIN - 100;
-
-  // Table header background
-  doc
-    .rect(
-      RECEIPT_PDF_CONFIG.MARGIN,
-      tableTop,
-      doc.page.width - RECEIPT_PDF_CONFIG.MARGIN * 2,
-      25
-    )
-    .fillColor('#f1f5f9')
-    .fill();
-
-  // Table headers
-  doc
-    .fontSize(9)
-    .fillColor('#475569')
-    .text('DESCRIPTION', col1X, tableTop + 8)
-    .text('TYPE', col2X, tableTop + 8)
-    .text('AMOUNT', col3X, tableTop + 8, { align: 'right', width: 100 });
-
-  // Table content
-  let currentY = tableTop + 35;
-
-  // Donation row
-  doc.fontSize(10).fillColor('#1e293b').text('Donation', col1X, currentY);
-
-  doc
-    .fontSize(9)
-    .fillColor('#64748b')
-    .text(formatDonationType(data.donationType), col2X, currentY);
-
-  doc
-    .fontSize(10)
-    .fillColor('#1e293b')
-    .text(`${data.currency} ${data.amount.toFixed(2)}`, col3X, currentY, {
-      align: 'right',
-      width: 100,
-    });
-
-  currentY += 25;
-
-  // Payment method if available
-  if (data.paymentMethod) {
-    doc
-      .fontSize(8)
-      .fillColor('#94a3b8')
-      .text(`Payment Method: ${data.paymentMethod}`, col1X, currentY);
-    currentY += 20;
-  }
-
-  currentY += 10;
-
-  // Divider line
-  doc
-    .moveTo(RECEIPT_PDF_CONFIG.MARGIN, currentY)
-    .lineTo(doc.page.width - RECEIPT_PDF_CONFIG.MARGIN, currentY)
-    .strokeColor('#e2e8f0')
-    .lineWidth(1)
-    .stroke();
-
-  currentY += 15;
-
-  // Subtotal
-  doc.fontSize(9).fillColor('#64748b').text('Subtotal', col1X, currentY);
-
-  doc
-    .fontSize(10)
-    .fillColor('#1e293b')
-    .text(`${data.currency} ${data.amount.toFixed(2)}`, col3X, currentY, {
-      align: 'right',
-      width: 100,
-    });
-
-  currentY += 20;
-
-  // Tax (if applicable)
-  if (data.isTaxable && data.taxAmount > 0) {
-    doc.fontSize(9).fillColor('#64748b').text('Tax', col1X, currentY);
-
+    // --- RECEIPT DETAILS ---
     doc
       .fontSize(10)
-      .fillColor('#1e293b')
-      .text(`${data.currency} ${data.taxAmount.toFixed(2)}`, col3X, currentY, {
-        align: 'right',
-        width: 100,
-      });
+      .text(`Receipt Number: ${data.receiptNumber}`, 50, 100)
+      .text(
+        `Date: ${new Date(data.donationDate).toLocaleDateString('en-AU')}`,
+        50,
+        115
+      )
+      .text(`Payment Method: ${data.paymentMethod || 'Card'}`, 50, 130)
+      .moveDown();
 
-    currentY += 25;
-  } else {
-    currentY += 5;
-  }
+    // --- DONOR & ORGANIZATION ---
+    const startY = 160;
 
-  // Total background
-  doc
-    .rect(
-      doc.page.width - RECEIPT_PDF_CONFIG.MARGIN - 220,
-      currentY - 5,
-      220,
-      30
-    )
-    .fillColor('#f8fafc')
-    .fill();
+    // Donor Column
+    doc
+      .text('ISSUED TO:', 50, startY, { underline: true })
+      .font('Helvetica-Bold')
+      .text(data.donorName, 50, startY + 15)
+      .font('Helvetica')
+      .text(data.donorEmail, 50, startY + 30);
 
-  // Total
-  doc
-    .fontSize(11)
-    .fillColor('#1e293b')
-    .text('TOTAL', col1X, currentY + 5);
+    // Organization Column
+    doc
+      .text('RECIPIENT ORGANIZATION:', 300, startY, { underline: true })
+      .font('Helvetica-Bold')
+      .text(data.organizationName, 300, startY + 15)
+      .font('Helvetica')
+      .text(data.organizationAddress || '', 300, startY + 30);
 
-  doc
-    .fontSize(14)
-    .fillColor('#059669')
-    .text(
-      `${data.currency} ${data.totalAmount.toFixed(2)}`,
-      col3X,
-      currentY + 3,
-      {
-        align: 'right',
-        width: 100,
-      }
+    if (data.abnNumber) {
+      doc.text(`ABN: ${data.abnNumber}`, 300, startY + 45);
+    }
+
+    // --- FINANCIAL TABLE ---
+    let tableTop = 260;
+    const currencySymbol = data.currency.toUpperCase() === 'USD' ? '$' : 'A$';
+
+    doc.font('Helvetica-Bold');
+    generateTableRow(doc, tableTop, 'Description', 'Amount');
+    generateHr(doc, tableTop + 20);
+    doc.font('Helvetica');
+
+    // 1. Base Donation (Tax Deductible)
+    tableTop += 30;
+    generateTableRow(
+      doc,
+      tableTop,
+      'Donation Amount (Tax Deductible)',
+      formatCurrency(data.amount, currencySymbol)
     );
 
-  currentY += 50;
+    // 2. Fees (If Covered by Donor)
+    if (data.coverFees && data.platformFee > 0) {
+      tableTop += 25;
+      generateTableRow(
+        doc,
+        tableTop,
+        'Platform & Service Fees',
+        formatCurrency(data.platformFee, currencySymbol)
+      );
 
-  // Tax status badges
-  if (data.taxDeductible || data.zakatEligible) {
-    doc.fontSize(8).fillColor('#64748b').text('Status:', col1X, currentY);
+      tableTop += 25;
+      generateTableRow(
+        doc,
+        tableTop,
+        'GST (10% on Fees)',
+        formatCurrency(data.gstOnFee, currencySymbol)
+      );
+    }
 
-    let badgeX = col1X + 45;
+    // 3. Total Line
+    tableTop += 35;
+    generateHr(doc, tableTop - 10);
+    doc.font('Helvetica-Bold');
+    generateTableRow(
+      doc,
+      tableTop,
+      'TOTAL PAID',
+      formatCurrency(data.totalAmount, currencySymbol)
+    );
+    doc.font('Helvetica');
+
+    // --- FOOTER ---
+    const footerTop = 500;
 
     if (data.taxDeductible) {
       doc
-        .roundedRect(badgeX, currentY - 3, 95, 18, 3)
-        .fillAndStroke('#dcfce7', '#86efac')
-        .lineWidth(1);
-
-      doc
-        .fontSize(8)
-        .fillColor('#166534')
-        .text('Tax Deductible', badgeX + 10, currentY + 2);
-
-      badgeX += 105;
+        .fontSize(10)
+        .text(
+          'Donations of $2 or more to this organization are tax-deductible in Australia.',
+          50,
+          footerTop,
+          { align: 'center', width: 500 }
+        );
     }
 
-    if (data.zakatEligible) {
-      doc
-        .roundedRect(badgeX, currentY - 3, 85, 18, 3)
-        .fillAndStroke('#dbeafe', '#93c5fd')
-        .lineWidth(1);
+    doc
+      .fontSize(8)
+      .fillColor('#888888')
+      .text(
+        'This receipt is generated electronically by Crescent Change. For support, contact support@crescentchange.com',
+        50,
+        footerTop + 30,
+        { align: 'center', width: 500 }
+      );
 
-      doc
-        .fontSize(8)
-        .fillColor('#1e40af')
-        .text('Zakat Eligible', badgeX + 10, currentY + 2);
-    }
-
-    currentY += 30;
-  }
-
-  return currentY;
-};
-
-/**
- * Add special message section
- */
-const addSpecialMessage = (
-  doc: PDFKit.PDFDocument,
-  data: IReceiptPDFData,
-  startY: number
-): number => {
-  if (!data.specialMessage) return startY;
-
-  doc
-    .roundedRect(
-      RECEIPT_PDF_CONFIG.MARGIN,
-      startY,
-      doc.page.width - RECEIPT_PDF_CONFIG.MARGIN * 2,
-      60,
-      5
-    )
-    .fillAndStroke('#fef3c7', '#fde68a')
-    .lineWidth(1);
-
-  doc
-    .fontSize(9)
-    .fillColor('#92400e')
-    .text('MESSAGE', RECEIPT_PDF_CONFIG.MARGIN + 15, startY + 10);
-
-  doc
-    .fontSize(9)
-    .fillColor('#78350f')
-    .text(data.specialMessage, RECEIPT_PDF_CONFIG.MARGIN + 15, startY + 25, {
-      width: doc.page.width - RECEIPT_PDF_CONFIG.MARGIN * 2 - 30,
-    });
-
-  return startY + 75;
-};
-
-/**
- * Add footer with disclaimer
- */
-const addFooter = (doc: PDFKit.PDFDocument): void => {
-  const bottomY = doc.page.height - 100;
-
-  // Thank you message
-  doc
-    .fontSize(12)
-    .fillColor('#1a365d')
-    .text(
-      RECEIPT_MESSAGES.THANK_YOU_MESSAGE,
-      RECEIPT_PDF_CONFIG.MARGIN,
-      bottomY,
-      {
-        align: 'center',
-        width: doc.page.width - RECEIPT_PDF_CONFIG.MARGIN * 2,
-      }
-    );
-
-  // Legal disclaimer
-  doc
-    .fontSize(7)
-    .fillColor('#94a3b8')
-    .text(
-      RECEIPT_MESSAGES.LEGAL_DISCLAIMER,
-      RECEIPT_PDF_CONFIG.MARGIN,
-      bottomY + 25,
-      {
-        align: 'justify',
-        width: doc.page.width - RECEIPT_PDF_CONFIG.MARGIN * 2,
-      }
-    );
-
-  // Footer line
-  doc
-    .moveTo(RECEIPT_PDF_CONFIG.MARGIN, doc.page.height - 50)
-    .lineTo(doc.page.width - RECEIPT_PDF_CONFIG.MARGIN, doc.page.height - 50)
-    .strokeColor('#e2e8f0')
-    .lineWidth(1)
-    .stroke();
-
-  // Footer text
-  doc
-    .fontSize(8)
-    .fillColor('#cbd5e1')
-    .text(
-      `Generated on ${new Date().toLocaleDateString(
-        'en-US'
-      )} | Crescent Change © ${new Date().getFullYear()}`,
-      RECEIPT_PDF_CONFIG.MARGIN,
-      doc.page.height - 35,
-      {
-        align: 'center',
-        width: doc.page.width - RECEIPT_PDF_CONFIG.MARGIN * 2,
-      }
-    );
-};
-
-/**
- * Format donation type
- */
-const formatDonationType = (type: string): string => {
-  const typeMap: Record<string, string> = {
-    'one-time': 'One-Time',
-    recurring: 'Recurring',
-    'round-up': 'Round-Up',
-  };
-  return typeMap[type] || type;
-};
-
-/**
- * Generate Receipt PDF
- */
-export const generateReceiptPDF = async (
-  data: IReceiptPDFData
-): Promise<Buffer> => {
-  return new Promise((resolve, reject) => {
-    try {
-      const doc = new PDFDocument({
-        size: RECEIPT_PDF_CONFIG.PAGE_SIZE as PDFKit.PDFDocumentOptions['size'],
-        margin: RECEIPT_PDF_CONFIG.MARGIN,
-      });
-
-      const chunks: Buffer[] = [];
-      doc.on('data', (chunk: Buffer) => chunks.push(chunk));
-      doc.on('end', () => resolve(Buffer.concat(chunks)));
-      doc.on('error', reject);
-
-      // Build the receipt
-      addHeader(doc, data);
-      addOrganizationDetails(doc, data);
-      addDonorDetails(doc, data);
-      const tableEndY: number = addDonationTable(doc, data);
-      const messageEndY: number = addSpecialMessage(doc, data, tableEndY);
-      addFooter(doc);
-
-      doc.end();
-    } catch (err) {
-      reject(err);
-    }
+    doc.end();
   });
 };
+
+// --- HELPER FUNCTIONS FOR PDF LAYOUT ---
+
+function generateTableRow(
+  doc: PDFKit.PDFDocument,
+  y: number,
+  item: string,
+  price: string
+) {
+  doc
+    .fontSize(10)
+    .text(item, 50, y)
+    .text(price, 0, y, { align: 'right', width: 540 }); // 595 is A4 width, 50 margin right approx
+}
+
+function generateHr(doc: PDFKit.PDFDocument, y: number) {
+  doc.strokeColor('#aaaaaa').lineWidth(1).moveTo(50, y).lineTo(550, y).stroke();
+}
+
+function formatCurrency(amount: number, symbol: string) {
+  return `${symbol}${amount.toFixed(2)}`;
+}

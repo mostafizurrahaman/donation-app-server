@@ -8,29 +8,33 @@ export interface IReceipt {
 
   receiptNumber: string;
 
-  // ✅ MODIFIED: Amount fields with tax support
-  amount: number; // Base amount (before tax)
-  isTaxable: boolean;
-  taxAmount: number;
-  totalAmount: number; // Total amount (amount + tax)
+  // ✅ Financial Breakdown (Australian Logic)
+  amount: number; // Base Donation Amount (Tax Deductible)
+  platformFee: number; // 5% Platform Fee
+  gstOnFee: number; // 10% GST on the Fee
+  totalAmount: number; // Total charged to card
 
   currency: string;
   donationType: 'one-time' | 'recurring' | 'round-up';
   donationDate: Date;
   paymentMethod?: string;
 
+  // Receipt Meta
   taxDeductible: boolean;
   abnNumber?: string;
   zakatEligible: boolean;
 
+  // File Storage
   pdfUrl: string;
   pdfKey: string;
 
+  // Email Tracking
   emailSent: boolean;
   emailSentAt?: Date;
   emailAttempts: number;
   lastEmailError?: string;
 
+  // Snapshot details
   donorName: string;
   donorEmail: string;
 
@@ -55,10 +59,11 @@ export interface IReceiptGenerationPayload {
   organizationId: Types.ObjectId | string;
   causeId?: Types.ObjectId | string;
 
-  // ✅ MODIFIED: Amount fields with tax
+  // ✅ Financial Inputs
   amount: number;
-  isTaxable: boolean;
-  taxAmount: number;
+  coverFees: boolean; // Needed for PDF logic
+  platformFee: number;
+  gstOnFee: number;
   totalAmount: number;
 
   currency: string;
@@ -75,9 +80,11 @@ export interface IReceiptEmailPayload {
   organizationName: string;
   pdfUrl: string;
 
-  // ✅ NEW: Include tax info in email
+  // ✅ Financials for Email Template
   amount: number;
-  taxAmount: number;
+  coverFees: boolean;
+  platformFee: number;
+  gstOnFee: number;
   totalAmount: number;
 
   currency: string;
@@ -109,10 +116,11 @@ export interface IReceiptPDFData {
   taxDeductible: boolean;
   zakatEligible: boolean;
 
-  // ✅ MODIFIED: Amount fields with tax
+  // ✅ Financials for PDF Rendering
   amount: number;
-  isTaxable: boolean;
-  taxAmount: number;
+  coverFees: boolean;
+  platformFee: number;
+  gstOnFee: number;
   totalAmount: number;
 
   currency: string;

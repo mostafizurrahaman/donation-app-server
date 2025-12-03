@@ -10,11 +10,9 @@ import { cronJobTracker } from './cronJobTracker';
 import { StripeService } from '../modules/Stripe/stripe.service';
 import { RoundUpTransactionModel } from '../modules/RoundUpTransaction/roundUpTransaction.model';
 import Donation from '../modules/Donation/donation.model';
-import { calculateTax } from '../modules/Donation/donation.constant'; // Add import for calculateTax
+import { calculateAustralianFees } from '../modules/Donation/donation.constant'; // ✅ Fixed Import
 import { IAuth } from '../modules/Auth/auth.interface';
 import Client from '../modules/Client/client.model';
-import { AppError } from '../utils';
-import httpStatus from 'http-status';
 
 interface IPopulatedRoundUpConfig extends Omit<IRoundUpDocument, 'user'> {
   user: IAuth;
@@ -22,11 +20,6 @@ interface IPopulatedRoundUpConfig extends Omit<IRoundUpDocument, 'user'> {
 
 /**
  * RoundUp Transactions Cron Job
- *
- * This job automates the process of syncing bank transactions and processing round-up donations.
- * It runs on a schedule to ensure user donations are handled in a timely manner.
- *
- * Schedule: '0 *\/4 * * *' = Every 4 hours at minute 0 (e.g., 00:00, 04:00, 08:00)
  */
 
 let isProcessing = false; // Prevents overlapping executions
@@ -34,10 +27,6 @@ const JOB_NAME = 'roundup-transactions-main';
 
 /**
  * Triggers end-of-month donations for users who have an accumulated balance
- * but haven't met their threshold, or have "no-limit" set.
- * This should only run on the first day of a new month.
- *
- * ✅ MODIFIED: Now creates Donation record BEFORE payment intent (matches threshold flow)
  */
 const processEndOfMonthDonations = async () => {
   console.log('\n🎯 Checking for end-of-month donations to process...');
@@ -46,8 +35,8 @@ const processEndOfMonthDonations = async () => {
   const configsForDonation = await RoundUpModel.find<IPopulatedRoundUpConfig>({
     isActive: true,
     enabled: true,
-    status: 'pending', // Ensure we don't re-process donations
-    currentMonthTotal: { $gt: 0 }, // Must have a balance to donate
+    status: 'pending',
+    currentMonthTotal: { $gt: 0 },
   }).populate('user');
 
   if (configsForDonation.length === 0) {
@@ -76,11 +65,11 @@ const processEndOfMonthDonations = async () => {
 
     try {
       const totalAmount = config.currentMonthTotal;
-      const isTaxable = config.isTaxable || false; // Get tax setting from config
-      
-      // Calculate tax
-      const { taxAmount, totalAmount: donationTotalAmount } = calculateTax(totalAmount, isTaxable);
-      
+      const coverFees = config.coverFees || false; // ✅ Use coverFees instead of isTaxable
+
+      // ✅ Calculate Fees
+      const financials = calculateAustralianFees(totalAmount, coverFees);
+
       const now = new Date();
       const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
       const monthStr = String(lastMonth.getMonth() + 1).padStart(2, '0');
@@ -89,9 +78,8 @@ const processEndOfMonthDonations = async () => {
       console.log(
         `   Initiating month-end donation of $${totalAmount} for user ${userId}...`
       );
-      console.log(`   Base Amount: $${totalAmount.toFixed(2)}`);
-      console.log(`   Tax Amount: $${taxAmount.toFixed(2)}`);
-      console.log(`   Total Charged: $${donationTotalAmount.toFixed(2)}`);
+      console.log(`   Base Amount: $${financials.baseAmount.toFixed(2)}`);
+      console.log(`   Total Charged: $${financials.totalCharge.toFixed(2)}`);
 
       // Get all processed transactions for this round-up config for the month
       const monthTransactions = await RoundUpTransactionModel.find({
@@ -113,7 +101,7 @@ const processEndOfMonthDonations = async () => {
         continue;
       }
 
-      // ✅ Find Client by auth ID (userId is Auth._id)
+      // ✅ Find Client by auth ID
       const donor = await Client.findOne({ auth: userId }).session(session);
       if (!donor?._id) {
         console.error(
@@ -124,18 +112,23 @@ const processEndOfMonthDonations = async () => {
         continue;
       }
 
-      // STEP 1: Create Donation record with PENDING status
+      // STEP 1: Create Donation record
       const donation = await Donation.create({
         donor: donor._id,
         organization: config.organization,
         cause: config.cause,
         donationType: 'round-up',
-        amount: totalAmount,
-        isTaxable,
-        taxAmount,
-        totalAmount: donationTotalAmount,
+
+        // ✅ Store Financial Breakdown
+        amount: financials.baseAmount,
+        coverFees: financials.coverFees,
+        platformFee: financials.platformFee,
+        gstOnFee: financials.gstOnFee,
+        netAmount: financials.netToOrg,
+        totalAmount: financials.totalCharge,
+
         currency: 'USD',
-        status: 'pending', // ⭐ Start with PENDING
+        status: 'pending',
         donationDate: new Date(),
         specialMessage:
           config.specialMessage ||
@@ -150,7 +143,7 @@ const processEndOfMonthDonations = async () => {
           month: `${year}-${monthStr}`,
           year: year.toString(),
           type: 'roundup_donation',
-          isMonthEnd: true, // ⭐ Flag for month-end donation
+          isMonthEnd: true,
           transactionCount: monthTransactions.length,
         },
       });
@@ -163,14 +156,20 @@ const processEndOfMonthDonations = async () => {
         userId: String(userId),
         charityId: String(config.organization),
         causeId: String(config.cause),
-        amount: totalAmount,
-        isTaxable,
-        taxAmount,
-        totalAmount: donationTotalAmount,
+        amount: totalAmount, // Base Amount
+
+        // ✅ Pass Financial Breakdown
+        coverFees: financials.coverFees,
+        platformFee: financials.platformFee,
+        gstOnFee: financials.gstOnFee,
+        netToOrg: financials.netToOrg,
+        totalAmount: financials.totalCharge,
+
         month: `${year}-${monthStr}`,
         year: year,
         specialMessage: `Automatic monthly round-up for ${monthStr}/${year}`,
-        donationId: String(donation._id), // ⭐ Include donationId
+        donationId: String(donation._id),
+        paymentMethodId: config.paymentMethod,
       });
 
       // STEP 3: Update Donation to PROCESSING
@@ -277,7 +276,6 @@ export const startRoundUpProcessingCron = () => {
 
       if (activeRoundUpConfigs.length === 0) {
         console.log('✅ No active round-ups to sync.');
-        // No need to continue if there are no active users.
         isProcessing = false;
         cronJobTracker.completeExecution(JOB_NAME, {
           totalProcessed: 0,
@@ -295,7 +293,6 @@ export const startRoundUpProcessingCron = () => {
       let failureCount = 0;
 
       for (const config of activeRoundUpConfigs) {
-        // We check the status again in case the month-end job just processed this user
         if (config.status === 'processing') {
           console.log(
             `\n⏭️ Skipping sync for user ${config.user._id}: donation is already processing.`
@@ -317,7 +314,6 @@ export const startRoundUpProcessingCron = () => {
         try {
           console.log(`\n📝 Syncing transactions for user: ${userId}`);
 
-          // A. Sync new transactions from Plaid
           const syncResult = await roundUpService.syncTransactions(
             String(userId),
             String(bankConnectionId),
@@ -338,7 +334,6 @@ export const startRoundUpProcessingCron = () => {
             `   Synced ${newTransactions.length} new transaction(s).`
           );
 
-          // B. Process newly synced transactions to create round-ups
           const processingResult =
             await roundUpTransactionService.processTransactionsFromPlaid(
               String(userId),
@@ -350,7 +345,6 @@ export const startRoundUpProcessingCron = () => {
             `   Processed ${processingResult.processed} round-up(s). Skipped ${processingResult.skipped}.`
           );
 
-          // C. Check if a threshold was met and donation was triggered by the service
           if (processingResult.thresholdReached) {
             console.log(
               `   🎯 THRESHOLD MET! Donation of $${processingResult.thresholdReached.amount} was triggered for user ${userId}.`
@@ -394,14 +388,11 @@ export const startRoundUpProcessingCron = () => {
   return job;
 };
 
-// Manual trigger function for testing
+// Manual trigger function
 export const manualTriggerRoundUpProcessing = async (
   _userId?: string
 ): Promise<{ success: boolean; data?: Record<string, unknown> }> => {
   if (isProcessing) {
-    console.log(
-      '⏭️ Skipping RoundUp processing: previous run still in progress.'
-    );
     return {
       success: false,
       data: { message: 'Processing already in progress' },
@@ -412,24 +403,12 @@ export const manualTriggerRoundUpProcessing = async (
   const startTime = Date.now();
   cronJobTracker.startExecution(JOB_NAME);
 
-  console.log('\n═══════════════════════════════════════════════════════');
-  console.log('🔄 Starting RoundUp Transaction Sync & Processing');
-  console.log(`   Time: ${new Date().toLocaleString()}`);
-  console.log('═══════════════════════════════════════════════════════');
-
   try {
-    // Step 1: Handle End-of-Month donations if it's the first day of the month
     const today = new Date();
     if (today.getDate() === 1) {
-      const donationResults = await processEndOfMonthDonations();
-      console.log('--- Month-End Donation Summary ---');
-      console.log(
-        `   Processed: ${donationResults.processed}, Success: ${donationResults.success}, Failed: ${donationResults.failed}`
-      );
-      console.log('---------------------------------');
+      await processEndOfMonthDonations();
     }
 
-    // Step 2: Perform regular transaction sync for all active users
     const activeRoundUpConfigs =
       await RoundUpModel.find<IPopulatedRoundUpConfig>({
         isActive: true,
@@ -438,8 +417,6 @@ export const manualTriggerRoundUpProcessing = async (
       }).populate('user');
 
     if (activeRoundUpConfigs.length === 0) {
-      console.log('✅ No active round-ups to sync.');
-      // No need to continue if there are no active users.
       isProcessing = false;
       cronJobTracker.completeExecution(JOB_NAME, {
         totalProcessed: 0,
@@ -452,19 +429,11 @@ export const manualTriggerRoundUpProcessing = async (
       };
     }
 
-    console.log(
-      `\n📊 Found ${activeRoundUpConfigs.length} active round-up configuration(s) for transaction syncing.`
-    );
-
     let successCount = 0;
     let failureCount = 0;
 
     for (const config of activeRoundUpConfigs) {
-      // We check the status again in case the month-end job just processed this user
       if (config.status === 'processing') {
-        console.log(
-          `\n⏭️ Skipping sync for user ${config.user._id}: donation is already processing.`
-        );
         continue;
       }
 
@@ -472,17 +441,11 @@ export const manualTriggerRoundUpProcessing = async (
       const bankConnectionId = config.bankConnection.toString();
 
       if (!userId || !bankConnectionId) {
-        console.log(
-          `⏭️ Skipping round-up with invalid user or bank connection reference.`
-        );
         failureCount++;
         continue;
       }
 
       try {
-        console.log(`\n📝 Syncing transactions for user: ${userId}`);
-
-        // A. Sync new transactions from Plaid
         const syncResult = await roundUpService.syncTransactions(
           String(userId),
           String(bankConnectionId),
@@ -492,48 +455,21 @@ export const manualTriggerRoundUpProcessing = async (
         const newTransactions = syncResult.data?.plaidSync?.added || [];
 
         if (newTransactions.length === 0) {
-          console.log(`   No new transactions to process for user ${userId}.`);
           successCount++;
           continue;
         }
 
-        console.log(`   Synced ${newTransactions.length} new transaction(s).`);
-
-        // B. Process newly synced transactions to create round-ups
-        const processingResult =
-          await roundUpTransactionService.processTransactionsFromPlaid(
-            String(userId),
-            String(bankConnectionId),
-            newTransactions
-          );
-
-        console.log(
-          `   Processed ${processingResult.processed} round-up(s). Skipped ${processingResult.skipped}.`
+        await roundUpTransactionService.processTransactionsFromPlaid(
+          String(userId),
+          String(bankConnectionId),
+          newTransactions
         );
-
-        // C. Check if a threshold was met and donation was triggered by the service
-        if (processingResult.thresholdReached) {
-          console.log(
-            `   🎯 THRESHOLD MET! Donation of $${processingResult.thresholdReached.amount} was triggered for user ${userId}.`
-          );
-        }
 
         successCount++;
       } catch (error) {
         failureCount++;
-        console.error(`❌ Failed to process sync for user ${userId}:`, error);
       }
     }
-
-    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-    console.log('\n═══════════════════════════════════════════════════════');
-    console.log('📊 RoundUp Sync & Processing Summary');
-    console.log('═══════════════════════════════════════════════════════');
-    console.log(`   Total Users Synced: ${activeRoundUpConfigs.length}`);
-    console.log(`   ✅ Successful Syncs: ${successCount}`);
-    console.log(`   ❌ Failed Syncs: ${failureCount}`);
-    console.log(`   ⏱️ Duration: ${duration}s`);
-    console.log('═══════════════════════════════════════════════════════\n');
 
     cronJobTracker.completeExecution(JOB_NAME, {
       totalProcessed: activeRoundUpConfigs.length,
@@ -550,7 +486,6 @@ export const manualTriggerRoundUpProcessing = async (
       },
     };
   } catch (error: unknown) {
-    console.error('❌ Critical error in RoundUp processing cron job:', error);
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error';
     cronJobTracker.failExecution(JOB_NAME, errorMessage);

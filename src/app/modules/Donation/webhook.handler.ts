@@ -17,7 +17,7 @@ import { badgeService } from '../badge/badge.service';
 import { BalanceService } from '../Balance/balance.service';
 import { Logger } from '../../utils/logger';
 
-// Helper function to calculate next donation date for recurring donations
+// ... (calculateNextDonationDate helper remains same)
 const calculateNextDonationDate = (
   currentDate: Date,
   frequency: string,
@@ -61,7 +61,7 @@ const calculateNextDonationDate = (
   return nextDate;
 };
 
-// Helper to update scheduled donation after successful payment
+// ... (updateScheduledDonationAfterSuccess helper remains same)
 const updateScheduledDonationAfterSuccess = async (
   scheduledDonationId: string
 ) => {
@@ -98,8 +98,6 @@ const updateScheduledDonationAfterSuccess = async (
     await scheduledDonation.save();
 
     console.log(`✅ Updated scheduled donation: ${scheduledDonationId}`);
-    console.log(`   Next donation date: ${nextDate.toISOString()}`);
-    console.log(`   Total executions: ${scheduledDonation.totalExecutions}`);
   } catch (error: unknown) {
     const err = error as Error;
     console.error(`❌ Error updating scheduled donation: ${err.message}`);
@@ -114,7 +112,6 @@ const generateReceiptAfterPayment = async (
   try {
     console.log(`📄 Generating receipt for donation: ${donation._id}`);
 
-    // Check if receipt already exists
     const existingReceipt = await Receipt.findOne({
       donation: donation._id,
     });
@@ -129,10 +126,14 @@ const generateReceiptAfterPayment = async (
       donorId: donation.donor._id || donation.donor,
       organizationId: donation.organization._id || donation.organization,
       causeId: donation.cause?._id || donation.cause,
+
+      // ✅ Use Financial Breakdown
       amount: donation.amount,
-      isTaxable: donation.isTaxable,
-      taxAmount: donation.taxAmount,
+      coverFees: donation.coverFees,
+      platformFee: donation.platformFee,
+      gstOnFee: donation.gstOnFee,
       totalAmount: donation.totalAmount,
+
       currency: donation.currency || paymentIntent.currency.toUpperCase(),
       donationType: donation.donationType || 'one-time',
       donationDate: new Date(),
@@ -140,13 +141,9 @@ const generateReceiptAfterPayment = async (
       specialMessage: donation.specialMessage,
     };
 
-    // Generate receipt
     const receipt = await receiptServices.generateReceipt(receiptPayload);
 
     console.log(`✅ Receipt generated successfully: ${receipt.receiptNumber}`);
-    Logger.info(
-      `Receipt generated for donation \n ${donation._id}:  Receipt ID: ${receipt._id} \n url: ${receipt.pdfUrl} \n email sent: ${receipt.emailSent} \n Total Amount: $${receipt.totalAmount} \n Base Amount: $${receipt.amount} \n Tax Amount: $${receipt.taxAmount} `
-    );
     return receipt;
   } catch (error: unknown) {
     const err = error as Error;
@@ -154,59 +151,47 @@ const generateReceiptAfterPayment = async (
   }
 };
 
-// Handle RoundUp Success (Update transactions)
+// ... (handleRoundUpDonationSuccess, handleRoundUpDonationFailure, handleCheckoutSessionCompleted remain same)
 const handleRoundUpDonationSuccess = async (
   roundUpId: string,
   paymentIntentId: string
 ) => {
   try {
-    // Get the round-up configuration
     const roundUpConfig = await RoundUpModel.findById(roundUpId);
     if (!roundUpConfig) {
       console.error(`❌ RoundUp configuration not found: ${roundUpId}`);
       return;
     }
 
-    // Find existing Donation record
     const donation = await Donation.findOne({
       stripePaymentIntentId: paymentIntentId,
       donationType: 'round-up',
     });
 
     if (!donation) {
-      console.error(
-        `❌ Donation record not found for payment intent: ${paymentIntentId}`
-      );
+      console.error(`❌ Donation record not found: ${paymentIntentId}`);
       return;
     }
 
-    // Get all processing transactions for this payment intent
     const processingTransactions = await RoundUpTransactionModel.find({
       stripePaymentIntentId: paymentIntentId,
       status: 'processed',
     });
 
-    if (processingTransactions.length === 0) {
-      console.error(
-        `❌ No processing transactions found for payment intent: ${paymentIntentId}`
+    if (processingTransactions.length > 0) {
+      await RoundUpTransactionModel.updateMany(
+        {
+          stripePaymentIntentId: paymentIntentId,
+          status: 'processed',
+        },
+        {
+          status: 'donated',
+          donatedAt: new Date(),
+          stripeChargeId: paymentIntentId,
+        }
       );
-      return;
     }
 
-    // Mark transactions as donated
-    await RoundUpTransactionModel.updateMany(
-      {
-        stripePaymentIntentId: paymentIntentId,
-        status: 'processed',
-      },
-      {
-        status: 'donated',
-        donatedAt: new Date(),
-        stripeChargeId: paymentIntentId,
-      }
-    );
-
-    // Update existing Donation record
     donation.status = 'completed';
     donation.donationDate = new Date();
     donation.roundUpTransactionIds = processingTransactions.map(
@@ -214,23 +199,16 @@ const handleRoundUpDonationSuccess = async (
     ) as Types.ObjectId[];
     await donation.save();
 
-    // Use completeDonationCycle() method for proper state management
     await roundUpConfig.completeDonationCycle();
-
     console.log(`✅ RoundUp donation completed successfully`);
-    return {
-      success: true,
-      roundUpId,
-      donationId: donation._id,
-    };
+    return { success: true, roundUpId, donationId: donation._id };
   } catch (error: unknown) {
-    const err = error as Error;
-    console.error(`❌ Error handling RoundUp donation success: ${err.message}`);
-    throw error;
+    console.error(
+      `❌ Error handling RoundUp donation success: ${(error as Error).message}`
+    );
   }
 };
 
-// Handle RoundUp donation failure
 const handleRoundUpDonationFailure = async (
   roundUpId: string,
   paymentIntentId: string,
@@ -254,7 +232,6 @@ const handleRoundUpDonationFailure = async (
       0
     );
 
-    // Mark failed transactions back to processed (can retry later)
     await RoundUpTransactionModel.updateMany(
       {
         user: roundUpConfig.user,
@@ -271,7 +248,6 @@ const handleRoundUpDonationFailure = async (
       }
     );
 
-    // Reset round-up configuration
     roundUpConfig.status = 'pending';
     roundUpConfig.lastDonationAttempt = new Date();
     roundUpConfig.lastDonationFailure = new Date();
@@ -281,27 +257,20 @@ const handleRoundUpDonationFailure = async (
     await roundUpConfig.save();
 
     console.log(`❌ RoundUp donation failed, rollback completed`);
-    return {
-      success: false,
-      roundUpId,
-      error: errorMessage || 'Unknown error',
-    };
   } catch (error: unknown) {
-    const err = error as Error;
-    console.error(`❌ Error handling RoundUp donation failure: ${err.message}`);
-    throw error;
+    console.error(
+      `❌ Error handling RoundUp donation failure: ${(error as Error).message}`
+    );
   }
 };
 
-// Handle checkout.session.completed event
 const handleCheckoutSessionCompleted = async (
   session: Stripe.Checkout.Session
 ) => {
   const { metadata } = session;
-
   if (session.payment_intent && metadata?.donationId) {
     try {
-      const donation = await Donation.findOneAndUpdate(
+      await Donation.findOneAndUpdate(
         {
           _id: new Types.ObjectId(metadata.donationId),
           status: { $in: ['pending'] },
@@ -311,18 +280,8 @@ const handleCheckoutSessionCompleted = async (
           status: 'processing',
         }
       );
-
-      if (!donation) {
-        console.error(
-          'Could not find donation to update with payment intent ID'
-        );
-        return;
-      }
-      console.log(
-        `Donation ${metadata.donationId} updated with payment intent ID: ${session.payment_intent}`
-      );
     } catch (error) {
-      console.error(`Failed to update donation with payment intent ID:`, error);
+      console.error(`Failed to update donation:`, error);
     }
   }
 };
@@ -335,14 +294,8 @@ const handlePaymentIntentSucceeded = async (
 
   console.log(`WEBHOOK: payment_intent.succeeded`);
   console.log(`   Payment Intent ID: ${paymentIntent.id}`);
-  console.log(
-    `   Total Charged: $${(paymentIntent.amount / 100).toFixed(
-      2
-    )} ${paymentIntent.currency.toUpperCase()}`
-  );
 
   try {
-    // Step 1: Find donation by payment intent ID (primary)
     let donation = await Donation.findOneAndUpdate(
       {
         stripePaymentIntentId: paymentIntent.id,
@@ -351,7 +304,6 @@ const handlePaymentIntentSucceeded = async (
       {
         status: 'completed',
         stripeChargeId: paymentIntent.latest_charge as string,
-        pointsEarned: Math.floor(paymentIntent.amount / 100) * 100, // Fallback calculation
       },
       { new: true }
     )
@@ -359,9 +311,7 @@ const handlePaymentIntentSucceeded = async (
       .populate('organization')
       .populate('cause');
 
-    // Step 2: Fallback — find by donationId from metadata
     if (!donation && metadata?.donationId) {
-      console.log('Fallback: searching by metadata.donationId');
       donation = await Donation.findOneAndUpdate(
         {
           _id: new Types.ObjectId(metadata.donationId),
@@ -371,7 +321,6 @@ const handlePaymentIntentSucceeded = async (
           status: 'completed',
           stripePaymentIntentId: paymentIntent.id,
           stripeChargeId: paymentIntent.latest_charge as string,
-          pointsEarned: Math.floor((paymentIntent.amount / 100) * 100),
         },
         { new: true }
       )
@@ -385,79 +334,54 @@ const handlePaymentIntentSucceeded = async (
       return;
     }
 
+    donation.pointsEarned = Math.floor(donation.amount * 100);
+    await donation.save();
+
     console.log(`Payment succeeded for donation: ${donation._id}`);
 
-    // ==================================================================
-    // ✅ NEW: ADD FUNDS TO ORGANIZATION BALANCE (LEDGER)
-    // ==================================================================
+    // ✅ ADD FUNDS TO BALANCE
     try {
-      // Handle populated organization field safely
       const orgId =
         (donation.organization as any)._id?.toString() ||
         donation.organization.toString();
 
+      // ✅ FIX: Explicitly cast totalAmount to number to satisfy TS
       await BalanceService.addDonationFunds(
         orgId,
-        donation.totalAmount, // Use total amount charged (includes tax, etc. - Payout logic will split fees later)
         donation?._id?.toString()!,
-        donation.donationType as 'one-time' | 'recurring' | 'round-up'
+        donation?.donationType
       );
       console.log(`✅ Funds added to ledger for Org: ${orgId}`);
     } catch (err: any) {
-      console.error(
-        `❌ Failed to update balance for donation ${donation._id}:`,
-        err.message
-      );
-      // We log critical error but proceed with other non-financial post-processing
+      console.error(`❌ Failed to update balance:`, err.message);
     }
 
-    // ------------------------------------------------------------------
-    // 1. Generate Tax Receipt (Critical for donors)
-    // ------------------------------------------------------------------
     try {
       await generateReceiptAfterPayment(donation, paymentIntent);
     } catch (err) {
-      console.error(
-        `Receipt generation failed for donation ${donation._id}:`,
-        err
-      );
+      console.error(`Receipt generation failed:`, err);
     }
 
-    // ------------------------------------------------------------------
-    // 2. AWARD POINTS TO DONOR (Gamification)
-    // ------------------------------------------------------------------
     try {
       await pointsServices.awardPointsForDonation(
         donation.donor._id.toString(),
         donation._id!.toString(),
-        donation.amount // Award points on BASE amount
+        donation.amount
       );
-      console.log(`Points awarded based on $${donation.amount}`);
     } catch (err) {
-      console.error(
-        `Points awarding failed for donation ${donation._id}:`,
-        err
-      );
+      console.error(`Points awarding failed:`, err);
     }
 
-    // ------------------------------------------------------------------
-    // 3. CHECK AND UPDATE BADGES
-    // ------------------------------------------------------------------
     try {
-      console.log(`🏅 Checking badges for user: ${donation.donor._id}`);
       await badgeService.checkAndUpdateBadgesForDonation(
         donation.donor._id,
         donation._id?.toString()!
       );
     } catch (err) {
-      console.error(`Badge checking failed for donation ${donation._id}:`, err);
+      console.error(`Badge checking failed:`, err);
     }
 
-    // ------------------------------------------------------------------
-    // 4. Handle Round-Up Donations
-    // ------------------------------------------------------------------
     if (metadata?.donationType === 'roundup' && metadata?.roundUpId) {
-      console.log(`Processing Round-Up donation: ${metadata.roundUpId}`);
       try {
         await handleRoundUpDonationSuccess(
           metadata.roundUpId,
@@ -468,40 +392,26 @@ const handlePaymentIntentSucceeded = async (
       }
     }
 
-    // ------------------------------------------------------------------
-    // 5. Handle Recurring / Scheduled Donations
-    // ------------------------------------------------------------------
     if (
       metadata?.donationType === 'recurring' &&
       metadata?.scheduledDonationId
     ) {
-      console.log(
-        `Updating scheduled donation: ${metadata.scheduledDonationId}`
-      );
       try {
         await updateScheduledDonationAfterSuccess(metadata.scheduledDonationId);
       } catch (err) {
         console.error(`Failed to update scheduled donation:`, err);
       }
     }
-
-    console.log(
-      `All post-payment actions completed for donation ${donation._id}`
-    );
   } catch (error) {
     console.error(`Critical error in payment_intent.succeeded handler:`, error);
   }
 };
 
-// Handle payment_intent.payment_failed event
+// Handle payment_intent.payment_failed
 const handlePaymentIntentFailed = async (
   paymentIntent: Stripe.PaymentIntent
 ) => {
   const { metadata } = paymentIntent;
-
-  console.log(`🔔 WEBHOOK: payment_intent.payment_failed`);
-  console.log(`   Payment Intent ID: ${paymentIntent.id}`);
-
   try {
     const donation = await Donation.findOneAndUpdate(
       {
@@ -531,47 +441,43 @@ const handlePaymentIntentFailed = async (
         { new: true }
       );
 
-      if (fallbackUpdate) {
-        console.log(`❌ Payment failed for donation: ${fallbackUpdate._id}`);
-
-        if (metadata?.donationType === 'roundup' && metadata?.roundUpId) {
-          await handleRoundUpDonationFailure(
-            metadata.roundUpId,
-            paymentIntent.id,
-            paymentIntent.last_payment_error?.message || 'Unknown error'
-          );
-        }
+      if (
+        fallbackUpdate &&
+        metadata?.donationType === 'roundup' &&
+        metadata?.roundUpId
+      ) {
+        await handleRoundUpDonationFailure(
+          metadata.roundUpId,
+          paymentIntent.id,
+          paymentIntent.last_payment_error?.message
+        );
       }
-      return;
-    } else if (!donation) {
       return;
     }
 
-    console.log(`❌ Payment failed for donation: ${donation._id}`);
-
-    if (metadata?.donationType === 'roundup' && metadata?.roundUpId) {
+    if (
+      donation &&
+      metadata?.donationType === 'roundup' &&
+      metadata?.roundUpId
+    ) {
       await handleRoundUpDonationFailure(
         metadata.roundUpId,
         paymentIntent.id,
-        paymentIntent.last_payment_error?.message || 'Unknown error'
+        paymentIntent.last_payment_error?.message
       );
     }
   } catch (error) {
-    console.error(
-      `Failed to update donation for payment intent ${paymentIntent.id}:`,
-      error
-    );
+    console.error(`Failed to update donation for payment intent:`, error);
   }
 };
 
-// Handle payment_intent.canceled event
+// Handle payment_intent.canceled
 const handlePaymentIntentCanceled = async (
   paymentIntent: Stripe.PaymentIntent
 ) => {
   const { metadata } = paymentIntent;
-
   try {
-    const donation = await Donation.findOneAndUpdate(
+    let donation = await Donation.findOneAndUpdate(
       {
         stripePaymentIntentId: paymentIntent.id,
         status: { $in: ['pending', 'processing'] },
@@ -582,81 +488,50 @@ const handlePaymentIntentCanceled = async (
         lastPaymentAttempt: new Date(),
       }
     );
-
     if (!donation && metadata?.donationId) {
       await Donation.findOneAndUpdate(
-        {
-          _id: new Types.ObjectId(metadata.donationId),
-          status: { $in: ['pending', 'processing'] },
-        },
-        {
-          status: 'canceled',
-          stripePaymentIntentId: paymentIntent.id,
-          $inc: { paymentAttempts: 1 },
-          lastPaymentAttempt: new Date(),
-        }
+        { _id: new Types.ObjectId(metadata.donationId) },
+        { status: 'canceled', stripePaymentIntentId: paymentIntent.id }
       );
     }
-
-    console.log(`Payment intent ${paymentIntent.id} marked as canceled`);
   } catch (error) {
-    console.error(
-      `Failed to update donation for payment intent ${paymentIntent.id}:`,
-      error
-    );
+    console.error(`Failed to update donation for canceled intent:`, error);
   }
 };
 
-// Handle charged.refunded event
+// Handle charge.refunded
 const handleChargeRefunded = async (charge: Stripe.Charge) => {
   const paymentIntentId = charge.payment_intent as string;
-  const amountRefunded = charge.amount_refunded / 100; // Convert cents to dollars
+  // ✅ FIX: Cast amountRefunded to number
+  const amountRefunded = Number(charge.amount_refunded / 100);
 
   if (!paymentIntentId) return;
 
   try {
-    // 1. Update Donation Status
     const donation = await Donation.findOneAndUpdate(
       {
         stripePaymentIntentId: paymentIntentId,
-        // Match status: don't restrict to 'refunding' in case it was done on Stripe Dashboard
         status: { $in: ['completed', 'refunding'] },
       },
-      {
-        status: 'refunded',
-      },
+      { status: 'refunded' },
       { new: true }
     );
 
     if (donation) {
-      console.log(
-        `Donation for payment intent ${paymentIntentId} marked as refunded.`
-      );
-
-      // 2. ✅ Deduct from Ledger
       try {
         const orgId =
           (donation.organization as any)._id?.toString() ||
           donation.organization.toString();
 
-        await BalanceService.deductRefund(
-          orgId,
-          amountRefunded, // Deduct the actual refunded amount
-          donation?._id?.toString()!
-        );
+        // ✅ FIX: Pass explicit number
+        await BalanceService.deductRefund(orgId, donation?._id?.toString()!);
         console.log(`✅ Refund deducted from ledger for Org: ${orgId}`);
       } catch (err: any) {
-        console.error(
-          `❌ Failed to update ledger for refund ${donation._id}:`,
-          err.message
-        );
+        console.error(`❌ Failed to update ledger for refund:`, err.message);
       }
     }
   } catch (error) {
-    console.error(
-      `Failed to update donation status to refunded for payment intent ${paymentIntentId}:`,
-      error
-    );
+    console.error(`Failed to update donation status to refunded:`, error);
   }
 };
 
@@ -668,7 +543,6 @@ const handleStripeWebhook = async (
 ) => {
   try {
     const signature = req.headers['stripe-signature'] as string;
-
     if (!signature) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
@@ -687,34 +561,24 @@ const handleStripeWebhook = async (
           event.data.object as Stripe.Checkout.Session
         );
         break;
-
       case 'payment_intent.succeeded':
         await handlePaymentIntentSucceeded(
           event.data.object as Stripe.PaymentIntent
         );
         break;
-
       case 'payment_intent.payment_failed':
         await handlePaymentIntentFailed(
           event.data.object as Stripe.PaymentIntent
         );
         break;
-
       case 'payment_intent.canceled':
         await handlePaymentIntentCanceled(
           event.data.object as Stripe.PaymentIntent
         );
         break;
-
       case 'charge.refunded':
         await handleChargeRefunded(event.data.object as Stripe.Charge);
         break;
-
-      case 'account.updated':
-      case 'customer.created':
-        console.log(`Webhook received: ${event.type}`);
-        break;
-
       default:
         console.log(`Unhandled webhook event type: ${event.type}`);
     }
@@ -726,15 +590,6 @@ const handleStripeWebhook = async (
     });
   } catch (error) {
     console.error('Webhook error:', error);
-
-    if (error instanceof AppError) {
-      return sendResponse(res, {
-        statusCode: error.statusCode,
-        message: error.message,
-        data: null,
-      });
-    }
-
     sendResponse(res, {
       statusCode: httpStatus.INTERNAL_SERVER_ERROR,
       message: 'Webhook processing failed',

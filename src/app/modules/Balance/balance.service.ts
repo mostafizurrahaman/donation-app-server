@@ -37,22 +37,33 @@ const getOrCreateBalance = async (
  */
 const addDonationFunds = async (
   organizationId: string,
-  amount: number,
   donationId: string,
   donationType: 'one-time' | 'recurring' | 'round-up',
   session?: ClientSession
 ) => {
   const balance = await getOrCreateBalance(organizationId, session);
+  const donation = await Donation.findById(donationId).session(session || null);
+
+  if (!donation) {
+    throw new Error('Donation not found during balance update');
+  }
+
+  // ✅ CRITICAL: Credit only the NET amount to the organization
+  // The Platform Fee and GST are retained by the platform.
+  const amountToCredit = donation.netAmount;
 
   // Update Balance
-  balance.pendingBalance += amount;
-  balance.lifetimeEarnings += amount;
+  balance.pendingBalance += amountToCredit;
+  balance.lifetimeEarnings += amountToCredit;
   balance.lastTransactionAt = new Date();
 
   // Update Breakdown
-  if (donationType === 'one-time') balance.pendingByType_oneTime += amount;
-  if (donationType === 'recurring') balance.pendingByType_recurring += amount;
-  if (donationType === 'round-up') balance.pendingByType_roundUp += amount;
+  if (donationType === 'one-time')
+    balance.pendingByType_oneTime += amountToCredit;
+  if (donationType === 'recurring')
+    balance.pendingByType_recurring += amountToCredit;
+  if (donationType === 'round-up')
+    balance.pendingByType_roundUp += amountToCredit;
 
   await balance.save({ session });
 
@@ -61,7 +72,7 @@ const addDonationFunds = async (
     organization: new Types.ObjectId(organizationId),
     type: 'credit',
     category: 'donation_received',
-    amount,
+    amount: amountToCredit, // Storing Net
     balanceAfter_pending: balance.pendingBalance,
     balanceAfter_available: balance.availableBalance,
     balanceAfter_reserved: balance.reservedBalance,
@@ -71,7 +82,17 @@ const addDonationFunds = async (
       balance.reservedBalance,
     donation: new Types.ObjectId(donationId),
     donationType,
-    description: `Donation received (${donationType})`,
+    description: `Donation received (${donationType}) - Net`,
+
+    // ✅ Store Fee Breakdown in Metadata for Audit
+    metadata: {
+      gross: donation.totalAmount,
+      platformFee: donation.platformFee,
+      gstOnFee: donation.gstOnFee,
+      netCredited: amountToCredit,
+      coverFees: donation.coverFees,
+    },
+
     idempotencyKey: `don_${donationId}`,
   };
 
@@ -113,7 +134,7 @@ const getTransactionHistory = async (
     .sort({ createdAt: -1 })
     .skip(skip)
     .limit(Number(limit))
-    .populate('donation', 'amount currency status')
+    .populate('donation', 'amount currency status totalAmount netAmount')
     .populate('payout', 'payoutNumber status');
 
   const total = await BalanceTransaction.countDocuments(filter);
@@ -135,30 +156,38 @@ const getTransactionHistory = async (
  */
 const deductRefund = async (
   organizationId: string,
-  amount: number,
   donationId: string,
   session?: ClientSession
 ) => {
   const balance = await getOrCreateBalance(organizationId, session);
   const donation = await Donation.findById(donationId).session(session || null);
 
+  if (!donation) {
+    throw new Error('Donation not found for refund deduction');
+  }
+
   // Determine if funds are likely in Pending or Available
-  // Logic: If donation is older than clearing period, funds are likely Available.
   const clearingDays = balance.clearingPeriodDays || 7;
   const clearingMs = clearingDays * 24 * 60 * 60 * 1000;
   const timeSinceDonation = Date.now() - (donation?.createdAt?.getTime() || 0);
 
   const isPending = timeSinceDonation < clearingMs;
 
+  // ✅ CRITICAL: Deduct only what we credited (Net Amount)
+  // If we refunded the user the Full Amount (Gross), the Platform takes the loss on the Fee/GST.
+  // The Organization simply returns exactly what they received.
+  const amountToDeduct = donation.netAmount;
+
   if (isPending) {
-    balance.pendingBalance -= amount;
-    // Update breakdown if needed (simplified here)
+    balance.pendingBalance -= amountToDeduct;
+    // Adjust breakdown if needed (simplified)
   } else {
-    balance.availableBalance -= amount;
+    balance.availableBalance -= amountToDeduct;
   }
 
-  balance.lifetimeRefunds += amount;
-  balance.lifetimeEarnings -= amount; // Optional: Adjust earnings or keep distinct
+  balance.lifetimeRefunds += amountToDeduct;
+  // Optionally adjust lifetimeEarnings or keep distinct
+  balance.lifetimeEarnings -= amountToDeduct;
 
   await balance.save({ session });
 
@@ -167,7 +196,7 @@ const deductRefund = async (
     organization: new Types.ObjectId(organizationId),
     type: 'debit',
     category: 'refund_issued',
-    amount,
+    amount: amountToDeduct,
     balanceAfter_pending: balance.pendingBalance,
     balanceAfter_available: balance.availableBalance,
     balanceAfter_reserved: balance.reservedBalance,
@@ -176,7 +205,11 @@ const deductRefund = async (
       balance.availableBalance +
       balance.reservedBalance,
     donation: new Types.ObjectId(donationId),
-    description: `Refund issued for donation ${donationId}`,
+    description: `Refund issued for donation ${donationId} (Net Reversal)`,
+    metadata: {
+      originalNet: donation.netAmount,
+      refundedNet: amountToDeduct,
+    },
     idempotencyKey: `ref_${donationId}_${Date.now()}`,
   };
 

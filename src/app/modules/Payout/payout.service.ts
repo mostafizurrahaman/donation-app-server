@@ -7,7 +7,6 @@ import {
 import { AppError } from '../../utils';
 import httpStatus from 'http-status';
 import { PAYOUT_STATUS } from './payout.constant';
-import config from '../../config'; // Assuming env vars are here
 
 /**
  * Generate unique payout number (e.g., PO-20241201-RAND)
@@ -43,25 +42,16 @@ const requestPayout = async (
       );
     }
 
-    // 2. Calculate Fees
-    // Platform Fee (e.g. 5%)
-    const platformFeePercent =
-      Number(config.paymentSetting.platformFeePercent) || 0.05;
-    const platformFeeAmount = amount * platformFeePercent;
+    // 2. ✅ NO FEE DEDUCTION LOGIC HERE
+    // Fees and GST were already deducted at the point of Donation Entry (Balance Service).
+    // The 'availableBalance' consists purely of Net funds belonging to the Organization.
+    // We transfer exactly what is requested.
 
-    // Tax (e.g. 0% or specific logic)
-    const taxRate = Number(config.paymentSetting.taxPercentage) || 0;
-    const taxAmount = amount * taxRate;
-
-    // Net Amount (What hits their bank)
-    const netAmount = amount - platformFeeAmount - taxAmount;
-
-    if (netAmount <= 0) {
-      throw new AppError(
-        httpStatus.BAD_REQUEST,
-        'Payout amount too low after fees.'
-      );
-    }
+    const platformFeeRate = 0;
+    const platformFeeAmount = 0;
+    const taxRate = 0;
+    const taxAmount = 0;
+    const netAmount = amount; // The amount requested is the amount sent
 
     // 3. Create Payout Record
     const payoutDate = scheduledDate ? new Date(scheduledDate) : new Date();
@@ -72,7 +62,7 @@ const requestPayout = async (
           organization: organizationId,
           payoutNumber: generatePayoutNumber(),
           requestedAmount: amount,
-          platformFeeRate: platformFeePercent,
+          platformFeeRate,
           platformFeeAmount,
           taxRate,
           taxAmount,
@@ -130,6 +120,7 @@ const requestPayout = async (
 const cancelPayout = async (
   payoutId: string,
   userId: string,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   isAdmin = false
 ) => {
   const session: ClientSession = await mongoose.startSession();
@@ -171,7 +162,7 @@ const cancelPayout = async (
             organization: organizationId,
             type: 'credit', // Returning funds to available
             category: 'payout_cancelled',
-            amount: payout.requestedAmount,
+            amount: payout.requestedAmount, // Return the gross amount reserved
             balanceAfter_pending: balance.pendingBalance,
             balanceAfter_available: balance.availableBalance,
             balanceAfter_reserved: balance.reservedBalance,
@@ -198,11 +189,12 @@ const cancelPayout = async (
   }
 };
 
-/**
+/**                                                                                                 
  * Get All Payouts (for Org Dashboard)
  */
 const getAllPayouts = async (
   organizationId: string,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   query: Record<string, unknown>
 ) => {
   // Use QueryBuilder pattern here (simplified for brevity)
