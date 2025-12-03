@@ -97,10 +97,12 @@ export const calculateAustralianFees = (
   netToOrg: number; // Amount credited to Organization Balance
   coverFees: boolean;
 } => {
-  const platformFeePercent = config.paymentSetting.platformFeePercent || 0.05;
-  const gstRate = config.paymentSetting.gstPercentage || 0.1;
-  const stripeFeePercent = config.paymentSetting.stripeFeePercent || 0.0175; // 1.75%
-  const stripeFixedFee = config.paymentSetting.stripeFixedFee || 0.3; // $0.30
+  const platformFeePercent =
+    Number(config.paymentSetting.platformFeePercent) || 0.05; // 5%
+  const gstRate = Number(config.paymentSetting.gstPercentage) || 0.1; // 10%
+  const stripeFeePercent =
+    Number(config.paymentSetting.stripeFeePercent) || 0.0175; // 1.75%
+  const stripeFixedFee = Number(config.paymentSetting.stripeFixedFee) || 0.3; // $0.30
 
   // 1. Calculate Platform Fee & GST (Always based on Base Amount)
   const platformFee = Number((baseAmount * platformFeePercent).toFixed(2));
@@ -113,9 +115,9 @@ export const calculateAustralianFees = (
 
   if (coverFees) {
     // Scenario A: Donor pays extra (Gross-Up)
-    // We need: Total - (Total * Stripe%) - Fixed = Base + OurFees
-    // Total * (1 - Stripe%) = Base + OurFees + Fixed
-    // Total = (Base + OurFees + Fixed) / (1 - Stripe%)
+    // We need: Total - (Total * Stripe%) - StripeFixed = Base + OurFees
+    // Total * (1 - Stripe%) = Base + OurFees + StripeFixed
+    // Total = (Base + OurFees + StripeFixed) / (1 - Stripe%)
 
     const numerator = baseAmount + ourFees + stripeFixedFee;
     const denominator = 1 - stripeFeePercent;
