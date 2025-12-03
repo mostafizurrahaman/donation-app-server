@@ -132,6 +132,7 @@ const generateReceiptAfterPayment = async (
       coverFees: donation.coverFees,
       platformFee: donation.platformFee,
       gstOnFee: donation.gstOnFee,
+      stripeFee: donation.stripeFee || 0, // ✅ NEW: Pass Stripe Fee
       totalAmount: donation.totalAmount,
 
       currency: donation.currency || paymentIntent.currency.toUpperCase(),

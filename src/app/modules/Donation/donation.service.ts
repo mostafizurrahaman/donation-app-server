@@ -35,7 +35,7 @@ import { IAuth } from '../Auth/auth.interface';
 import Cause from '../Causes/causes.model';
 import { CAUSE_STATUS_TYPE } from '../Causes/causes.constant';
 import {
-  calculateAustralianFees,
+  calculateAustralianFees, //
   monthAbbreviations,
   REFUND_WINDOW_DAYS,
 } from './donation.constant';
@@ -67,18 +67,19 @@ const createOneTimeDonation = async (
     specialMessage,
   } = payload;
 
-  // ✅ Apply Australian Financial Logic
+  // ✅ Apply Australian Financial Logic (Includes Stripe Fee)
   const financials = calculateAustralianFees(amount, coverFees);
 
   console.log(`💰 Donation Amount Breakdown:`);
   console.log(`   Base Amount: $${financials.baseAmount.toFixed(2)}`);
   console.log(`   Platform Fee: $${financials.platformFee.toFixed(2)}`);
   console.log(`   GST on Fee: $${financials.gstOnFee.toFixed(2)}`);
+  console.log(`   Stripe Fee: $${financials.stripeFee.toFixed(2)}`);
   console.log(`   Total Charged: $${financials.totalCharge.toFixed(2)}`);
   console.log(`   Net To Org: $${financials.netToOrg.toFixed(2)}`);
 
   // Generate idempotency key on backend
-  const idempotencyKey = `don-${new Types.ObjectId().toString()}-${Date.now()}`;
+  const idempotencyKey = generateIdempotencyKey();
 
   // Check if donor exists
   const donor = await Client?.findOne({
@@ -130,7 +131,7 @@ const createOneTimeDonation = async (
     // Generate unique ID for the donation
     const donationUniqueId = new Types.ObjectId();
 
-    // Create donation record with tax fields
+    // Create donation record with financial breakdown
     const donation = new Donation({
       _id: donationUniqueId,
       donor: new Types.ObjectId(donor?._id),
@@ -143,6 +144,7 @@ const createOneTimeDonation = async (
       coverFees: financials.coverFees,
       platformFee: financials.platformFee,
       gstOnFee: financials.gstOnFee,
+      stripeFee: financials.stripeFee, // ✅ NEW
       netAmount: financials.netToOrg,
       totalAmount: financials.totalCharge,
 
@@ -169,6 +171,7 @@ const createOneTimeDonation = async (
       coverFees: financials.coverFees,
       platformFee: financials.platformFee,
       gstOnFee: financials.gstOnFee,
+      stripeFee: financials.stripeFee, // ✅ NEW
       netToOrg: financials.netToOrg,
 
       currency: 'usd',
@@ -429,7 +432,7 @@ const getDonationStatistics = async (
       $group: {
         _id: null,
         totalDonations: { $sum: 1 },
-        totalAmount: { $sum: '$amount' }, 
+        totalAmount: { $sum: '$amount' }, // Summing Base Amount
         completedDonations: {
           $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] },
         },
@@ -558,12 +561,13 @@ const retryFailedPayment = async (
   // ✅ Reuse the calculated values from the failed donation
   const paymentIntent = await StripeService.createPaymentIntentWithMethod({
     amount: donation.amount,
-    totalAmount: donation.totalAmount, // Use the stored total charge
+    totalAmount: donation.totalAmount, // Use existing total
 
-    // Pass metadata from existing donation
+    // Pass existing metadata
     coverFees: donation.coverFees,
     platformFee: donation.platformFee,
     gstOnFee: donation.gstOnFee,
+    stripeFee: donation.stripeFee || 0, // ✅ Pass Stripe Fee
     netToOrg: donation.netAmount,
 
     currency: 'usd',

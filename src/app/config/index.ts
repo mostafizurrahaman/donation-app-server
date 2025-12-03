@@ -10,9 +10,10 @@ interface IConfig {
   clientUrl: string;
   paymentSetting: {
     platformFeePercent: number;
-
-    clearingPeriodDays: number;
     gstPercentage: number;
+    stripeFeePercent: number; // ✅ NEW: Stripe % (e.g. 0.0175)
+    stripeFixedFee: number; // ✅ NEW: Stripe Fixed (e.g. 0.30)
+    clearingPeriodDays: number;
   };
   jwt: {
     accessTokenSecret: string;
@@ -89,9 +90,12 @@ const config: IConfig = {
   dbUrl: process.env.DB_URL || 'mongodb://localhost:27017/crescent_change',
   clientUrl: process.env.CLIENT_URL || 'http://localhost:3000',
   paymentSetting: {
-    platformFeePercent: Number(process.env.PLATFORM_FEE_PERCENTAGE) || 0,
-    gstPercentage: Number(process.env.GST_PERCENTAGE) || 0,
-    clearingPeriodDays: Number(process.env.CLEARING_PERIOD_DAYS) || 0,
+    platformFeePercent: Number(process.env.PLATFORM_FEE_PERCENTAGE) || 0.05, // 5%
+    gstPercentage: Number(process.env.GST_PERCENTAGE) || 0.1, // 10% GST
+    // Standard Stripe AU pricing: 1.75% + 30c
+    stripeFeePercent: Number(process.env.STRIPE_FEE_PERCENTAGE) || 0.0175,
+    stripeFixedFee: Number(process.env.STRIPE_FIXED_FEE) || 0.3,
+    clearingPeriodDays: Number(process.env.CLEARING_PERIOD_DAYS) || 7,
   },
   jwt: {
     accessTokenSecret: process.env.JWT_ACCESS_SECRET || 'default_access_secret',

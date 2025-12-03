@@ -287,6 +287,7 @@ const triggerDonation = async (
       `\n🎯 Creating donation record for RoundUp ${roundUpConfig._id}`
     );
     console.log(`   Base Amount: $${financials.baseAmount.toFixed(2)}`);
+    console.log(`   Stripe Fee: $${financials.stripeFee.toFixed(2)}`);
     console.log(`   Total Charged: $${financials.totalCharge.toFixed(2)}`);
 
     const cause = await Cause.findById(roundUpConfig.cause);
@@ -316,6 +317,7 @@ const triggerDonation = async (
       coverFees: financials.coverFees,
       platformFee: financials.platformFee,
       gstOnFee: financials.gstOnFee,
+      stripeFee: financials.stripeFee, // ✅ NEW
       netAmount: financials.netToOrg,
       totalAmount: financials.totalCharge,
 
@@ -352,6 +354,7 @@ const triggerDonation = async (
         coverFees: financials.coverFees,
         platformFee: financials.platformFee,
         gstOnFee: financials.gstOnFee,
+        stripeFee: financials.stripeFee, // ✅ NEW
         netToOrg: financials.netToOrg,
         totalAmount: financials.totalCharge,
 
@@ -553,6 +556,7 @@ const processMonthlyDonation = async (
 
   Logger.info(`\n💰 Manual RoundUp Donation Breakdown:`);
   Logger.info(`   Base Amount: $${financials.baseAmount.toFixed(2)}`);
+  Logger.info(`   Stripe Fee: $${financials.stripeFee.toFixed(2)}`);
   Logger.info(`   Total Charge: $${financials.totalCharge.toFixed(2)}`);
 
   const session = await mongoose.startSession();
@@ -618,6 +622,7 @@ const processMonthlyDonation = async (
       coverFees: financials.coverFees,
       platformFee: financials.platformFee,
       gstOnFee: financials.gstOnFee,
+      stripeFee: financials.stripeFee, // ✅ NEW
       netAmount: financials.netToOrg,
       totalAmount: financials.totalCharge,
 
@@ -649,6 +654,7 @@ const processMonthlyDonation = async (
       coverFees: financials.coverFees,
       platformFee: financials.platformFee,
       gstOnFee: financials.gstOnFee,
+      stripeFee: financials.stripeFee, // ✅ NEW
       netToOrg: financials.netToOrg,
       totalAmount: financials.totalCharge,
 

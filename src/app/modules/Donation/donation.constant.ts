@@ -64,17 +64,25 @@ export const monthAbbreviations = [
 ];
 
 /**
- * Calculate Australian Fees (Donor Optional + GST on Fee)
+ * Calculate Australian Fees (Donor Optional + GST on Fee + Stripe Fee)
  *
  * Logic:
- * 1. Donation itself is GST-Free (No isTaxable check needed).
- * 2. Platform Fee (e.g. 5%) attracts 10% GST.
- * 3. If Donor covers fees: They pay Base + Fee + GST. Org gets Base.
- * 4. If Donor refuses fees: They pay Base. Org gets Base - Fee - GST.
+ * 1. Donation itself is GST-Free.
+ * 2. Platform Fee (5%) attracts 10% GST.
+ * 3. Stripe Fee (e.g., 1.75% + 30c) is charged on the TOTAL amount.
+ *
+ * If Donor covers fees (Gross-Up):
+ *    We calculate a Total Charge such that after Stripe takes its cut,
+ *    and we take our Platform Fee + GST, the Charity gets the exact Base Amount.
+ *    Formula: Total = (Base + PlatformFee + GST + StripeFixed) / (1 - StripePercent)
+ *
+ * If Donor refuses fees (Deduction):
+ *    Total Charge = Base Amount.
+ *    Stripe Fee, Platform Fee, and GST are deducted from the Base.
+ *    Net to Org = Base - StripeFee - PlatformFee - GST.
  *
  * @param baseAmount - The intended donation amount (e.g., $100)
  * @param coverFees - Whether the donor wants to cover the platform fees
- * @returns Breakdown of fees, tax, total charge, and net amount for org
  */
 export const calculateAustralianFees = (
   baseAmount: number,
@@ -82,48 +90,65 @@ export const calculateAustralianFees = (
 ): {
   baseAmount: number;
   platformFee: number;
-  gstOnFee: number; // This is the only tax we track now
-  totalFeeCost: number; // Fee + GST
+  gstOnFee: number;
+  stripeFee: number; // ✅ NEW
+  totalFeeCost: number; // Platform + GST + Stripe
   totalCharge: number; // Amount sent to Stripe
   netToOrg: number; // Amount credited to Organization Balance
   coverFees: boolean;
 } => {
   const platformFeePercent = config.paymentSetting.platformFeePercent || 0.05;
-  const gstRate = config.paymentSetting.gstPercentage || 0.1; // 10% GST
+  const gstRate = config.paymentSetting.gstPercentage || 0.1;
+  const stripeFeePercent = config.paymentSetting.stripeFeePercent || 0.0175; // 1.75%
+  const stripeFixedFee = config.paymentSetting.stripeFixedFee || 0.3; // $0.30
 
-  // 1. Calculate Platform Fee (Revenue)
-  // Example: $100 * 0.05 = $5.00
+  // 1. Calculate Platform Fee & GST (Always based on Base Amount)
   const platformFee = Number((baseAmount * platformFeePercent).toFixed(2));
-
-  // 2. Calculate GST on the Fee (Liability)
-  // Example: $5.00 * 0.10 = $0.50
   const gstOnFee = Number((platformFee * gstRate).toFixed(2));
-
-  // 3. Total Fee Liability (Revenue + GST)
-  // Example: $5.00 + $0.50 = $5.50
-  const totalFeeCost = platformFee + gstOnFee;
+  const ourFees = platformFee + gstOnFee;
 
   let totalCharge = 0;
+  let stripeFee = 0;
   let netToOrg = 0;
 
   if (coverFees) {
-    // Scenario A: Donor pays extra. Charity gets full baseAmount.
-    // User pays: $100 (Base) + $5.50 (Fees) = $105.50
-    // Org gets: $100
-    totalCharge = Number((baseAmount + totalFeeCost).toFixed(2));
+    // Scenario A: Donor pays extra (Gross-Up)
+    // We need: Total - (Total * Stripe%) - Fixed = Base + OurFees
+    // Total * (1 - Stripe%) = Base + OurFees + Fixed
+    // Total = (Base + OurFees + Fixed) / (1 - Stripe%)
+
+    const numerator = baseAmount + ourFees + stripeFixedFee;
+    const denominator = 1 - stripeFeePercent;
+
+    totalCharge = Number((numerator / denominator).toFixed(2));
+
+    // Calculate actual Stripe Fee based on the Total Charge
+    stripeFee = Number(
+      (totalCharge * stripeFeePercent + stripeFixedFee).toFixed(2)
+    );
+
+    // Organization gets the full base amount
     netToOrg = baseAmount;
   } else {
-    // Scenario B: Donor refuses fees. Fees deducted from baseAmount.
-    // User pays: $100
-    // Org gets: $100 - $5.50 = $94.50
+    // Scenario B: Donor refuses fees (Deduction)
     totalCharge = baseAmount;
-    netToOrg = Number((baseAmount - totalFeeCost).toFixed(2));
+
+    // Stripe Fee is calculated on the total charge (which is just the base)
+    stripeFee = Number(
+      (totalCharge * stripeFeePercent + stripeFixedFee).toFixed(2)
+    );
+
+    // Organization gets whatever is left
+    netToOrg = Number((baseAmount - ourFees - stripeFee).toFixed(2));
   }
+
+  const totalFeeCost = Number((platformFee + gstOnFee + stripeFee).toFixed(2));
 
   return {
     baseAmount,
     platformFee,
     gstOnFee,
+    stripeFee,
     totalFeeCost,
     totalCharge,
     netToOrg,
@@ -133,7 +158,6 @@ export const calculateAustralianFees = (
 
 /**
  * Get current GST rate as a percentage string
- * @returns Tax rate as percentage (e.g., "10%")
  */
 export const getTaxRateDisplay = (): string => {
   const gstRate = Number(config.paymentSetting.gstPercentage) || 0.1;

@@ -49,7 +49,7 @@ const addDonationFunds = async (
   }
 
   // ✅ CRITICAL: Credit only the NET amount to the organization
-  // The Platform Fee and GST are retained by the platform.
+  // The Platform Fee, GST, and Stripe Fee are retained by the platform/stripe.
   const amountToCredit = donation.netAmount;
 
   // Update Balance
@@ -84,11 +84,13 @@ const addDonationFunds = async (
     donationType,
     description: `Donation received (${donationType}) - Net`,
 
-    // ✅ Store Fee Breakdown in Metadata for Audit
+    // ✅ Store Complete Fee Breakdown in Metadata for Audit
     metadata: {
       gross: donation.totalAmount,
+      baseDonation: donation.amount,
       platformFee: donation.platformFee,
       gstOnFee: donation.gstOnFee,
+      stripeFee: donation.stripeFee || 0, // ✅ NEW: Track Stripe Fee in Ledger
       netCredited: amountToCredit,
       coverFees: donation.coverFees,
     },
@@ -174,7 +176,7 @@ const deductRefund = async (
   const isPending = timeSinceDonation < clearingMs;
 
   // ✅ CRITICAL: Deduct only what we credited (Net Amount)
-  // If we refunded the user the Full Amount (Gross), the Platform takes the loss on the Fee/GST.
+  // If we refunded the user the Full Amount (Gross), the Platform takes the loss on the Fee/GST/StripeFee.
   // The Organization simply returns exactly what they received.
   const amountToDeduct = donation.netAmount;
 

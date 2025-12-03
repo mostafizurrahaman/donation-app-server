@@ -5,7 +5,7 @@ export interface ICheckoutSessionRequest {
 
   specialMessage?: string;
   userId: string;
-  coverFees?: boolean; // ✅ NEW
+  coverFees?: boolean;
   totalAmount: number; // This is what gets charged
 }
 
@@ -26,6 +26,7 @@ export interface IPaymentIntentRequest {
   coverFees?: boolean;
   platformFee?: number;
   gstOnFee?: number;
+  stripeFee?: number; // ✅ NEW: Transaction Fee
   netToOrg?: number;
 
   totalAmount: number; // Total Charge
@@ -80,6 +81,7 @@ export interface ICreatePaymentIntentWithMethodRequest {
   coverFees?: boolean;
   platformFee?: number;
   gstOnFee?: number;
+  stripeFee?: number; // ✅ NEW: Transaction Fee
   netToOrg?: number;
 
   totalAmount: number; // Total Charge
@@ -102,6 +104,7 @@ export interface ICreateRoundUpPaymentIntentRequest {
   coverFees?: boolean;
   platformFee?: number;
   gstOnFee?: number;
+  stripeFee?: number; // ✅ NEW: Transaction Fee
   netToOrg?: number;
 
   totalAmount: number; // Total Charge

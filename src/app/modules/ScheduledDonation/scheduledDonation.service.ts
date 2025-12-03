@@ -506,7 +506,7 @@ const executeScheduledDonation = async (
         metadata: Record<string, string>;
         description: string;
       } = {
-        amount: Math.round(financials.totalCharge * 100), 
+        amount: Math.round(financials.totalCharge * 100),
         currency: scheduledDonation.currency.toLowerCase(),
         customer: scheduledDonation.stripeCustomerId,
         payment_method: stripePaymentMethodId,
@@ -526,6 +526,7 @@ const executeScheduledDonation = async (
           coverFees: financials.coverFees.toString(),
           platformFee: financials.platformFee.toString(),
           gstOnFee: financials.gstOnFee.toString(),
+          stripeFee: financials.stripeFee.toString(), 
           netToOrg: financials.netToOrg.toString(),
         },
         description: scheduledDonation.specialMessage || 'Recurring donation',
@@ -545,11 +546,11 @@ const executeScheduledDonation = async (
         cause: causeId,
         donationType: 'recurring',
 
-        // ✅ Save calculated fields
         amount: financials.baseAmount,
         coverFees: financials.coverFees,
         platformFee: financials.platformFee,
         gstOnFee: financials.gstOnFee,
+        stripeFee: financials.stripeFee,
         netAmount: financials.netToOrg,
         totalAmount: financials.totalCharge,
 
@@ -601,12 +602,12 @@ const executeScheduledDonation = async (
             donor: userId,
             organization: organizationId,
             cause: causeId,
-            donationType: 'recurring',
-
+            donationType: 'recurring',          
             amount: financials.baseAmount,
             coverFees: financials.coverFees,
             platformFee: financials.platformFee,
             gstOnFee: financials.gstOnFee,
+            stripeFee: financials.stripeFee, 
             netAmount: financials.netToOrg,
             totalAmount: financials.totalCharge,
 

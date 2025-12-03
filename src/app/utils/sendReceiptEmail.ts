@@ -11,10 +11,11 @@ interface ISendReceiptEmailPayload {
   amount: number; // Base Donation
   totalAmount: number; // Total Paid
 
-  // Fee Breakdown (Optional, as legacy calls might not have them yet)
+  // Fee Breakdown
   coverFees?: boolean;
   platformFee?: number;
   gstOnFee?: number;
+  stripeFee?: number; 
 
   currency: string;
   donationDate: Date;
@@ -38,6 +39,7 @@ const sendReceiptEmail = async (payload: ISendReceiptEmailPayload) => {
     coverFees = false,
     platformFee = 0,
     gstOnFee = 0,
+    stripeFee = 0, // ✅ NEW
     currency,
     donationDate,
     pdfUrl,
@@ -69,21 +71,40 @@ const sendReceiptEmail = async (payload: ISendReceiptEmailPayload) => {
   // ---------------------------------------------------------
   let feeRows = '';
 
-  if (coverFees && platformFee > 0) {
-    feeRows = `
+  // Check if fees are covered and at least one fee exists
+  if (coverFees && (platformFee > 0 || stripeFee > 0)) {
+    // Platform Fee Row
+    if (platformFee > 0) {
+      feeRows += `
       <tr style="border-bottom: 1px solid #eee;">
-        <td style="padding: 10px 0; color: #666;">Platform & Service Fees</td>
+        <td style="padding: 10px 0; color: #666;">Platform & Service Fee</td>
         <td style="padding: 10px 0; text-align: right; color: #666;">${currencySymbol}${platformFee.toFixed(
-      2
-    )}</td>
-      </tr>
+        2
+      )}</td>
+      </tr>`;
+    }
+
+    // Stripe Fee Row
+    if (stripeFee > 0) {
+      feeRows += `
       <tr style="border-bottom: 1px solid #eee;">
-        <td style="padding: 10px 0; color: #666;">GST (10% on Fees)</td>
+        <td style="padding: 10px 0; color: #666;">Transaction Fee (Stripe)</td>
+        <td style="padding: 10px 0; text-align: right; color: #666;">${currencySymbol}${stripeFee.toFixed(
+        2
+      )}</td>
+      </tr>`;
+    }
+
+    // GST Row
+    if (gstOnFee > 0) {
+      feeRows += `
+      <tr style="border-bottom: 1px solid #eee;">
+        <td style="padding: 10px 0; color: #666;">GST (10% on Platform Fees)</td>
         <td style="padding: 10px 0; text-align: right; color: #666;">${currencySymbol}${gstOnFee.toFixed(
-      2
-    )}</td>
-      </tr>
-    `;
+        2
+      )}</td>
+      </tr>`;
+    }
   }
 
   const htmlContent = `

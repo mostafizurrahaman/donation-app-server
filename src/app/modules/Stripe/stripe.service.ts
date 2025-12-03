@@ -112,10 +112,11 @@ const createPaymentIntent = async (
     causeId,
     specialMessage,
 
-    // ✅ New Fields for Metadata
+    // ✅ Fee Breakdown for Metadata
     coverFees = true,
     platformFee = 0,
     gstOnFee = 0,
+    stripeFee = 0, // ✅ NEW
     netToOrg = 0,
   } = payload;
 
@@ -127,12 +128,12 @@ const createPaymentIntent = async (
   console.log(`💰 Creating Payment Intent:`);
   console.log(`   Base Amount: $${amount.toFixed(2)}`);
   console.log(`   Total Charge: $${totalAmount.toFixed(2)}`);
-  console.log(`   Cover Fees: ${coverFees}`);
+  console.log(`   Stripe Fee: $${stripeFee.toFixed(2)}`);
 
   // Create Stripe Payment Intent
   const paymentIntentParams: Stripe.PaymentIntentCreateParams = {
     amount: Math.round(totalAmount * 100),
-    currency: 'usd', // ✅ Add required currency
+    currency: 'usd',
     metadata: {
       donorId,
       organizationId,
@@ -141,9 +142,10 @@ const createPaymentIntent = async (
       baseAmount: amount.toString(),
       totalAmount: totalAmount.toString(),
 
-      // ✅ Store fee breakdown for audit
+      // ✅ Audit Trail
       platformFee: platformFee.toString(),
       gstOnFee: gstOnFee.toString(),
+      stripeFee: stripeFee.toString(), // ✅ NEW
       netToOrg: netToOrg.toString(),
       coverFees: coverFees.toString(),
     },
@@ -319,10 +321,11 @@ const createPaymentIntentWithMethod = async (
     causeId,
     specialMessage,
 
-    // ✅ New Fields
+    // ✅ Fee Breakdown
     coverFees = true,
     platformFee = 0,
     gstOnFee = 0,
+    stripeFee = 0, // ✅ NEW
     netToOrg = 0,
   } = payload;
 
@@ -352,12 +355,13 @@ const createPaymentIntentWithMethod = async (
         organizationId,
         causeId,
         specialMessage: specialMessage || '',
-        baseAmount: amount.toString(), // Base amount
-        totalAmount: totalAmount.toString(), // Charged Amount
+        baseAmount: amount.toString(),
+        totalAmount: totalAmount.toString(),
 
         // ✅ Fee Breakdown
         platformFee: platformFee.toString(),
         gstOnFee: gstOnFee.toString(),
+        stripeFee: stripeFee.toString(), // ✅ NEW
         netToOrg: netToOrg.toString(),
         coverFees: coverFees.toString(),
       },
@@ -540,10 +544,12 @@ const createRoundUpPaymentIntent = async (
       specialMessage,
       paymentMethodId,
       donationId,
-      // ✅ New fields
+
+      // ✅ Fee Breakdown
       coverFees = false,
       platformFee = 0,
       gstOnFee = 0,
+      stripeFee = 0, // ✅ NEW
       netToOrg = 0,
     } = payload;
 
@@ -609,9 +615,11 @@ const createRoundUpPaymentIntent = async (
           specialMessage || `Round-up donation for ${month} ${year}`,
         baseAmount: amount.toString(),
         totalAmount: totalAmount.toString(),
-        // ✅ Fee Breakdown
+
+        // ✅ Audit Trail
         platformFee: platformFee.toString(),
         gstOnFee: gstOnFee.toString(),
+        stripeFee: stripeFee.toString(), // ✅ NEW
         netToOrg: netToOrg.toString(),
         coverFees: coverFees.toString(),
       },

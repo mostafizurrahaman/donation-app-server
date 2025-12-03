@@ -12,6 +12,7 @@ export interface IReceipt {
   amount: number; // Base Donation Amount (Tax Deductible)
   platformFee: number; // 5% Platform Fee
   gstOnFee: number; // 10% GST on the Fee
+  stripeFee: number; // ✅ NEW: Stripe Transaction Fee
   totalAmount: number; // Total charged to card
 
   currency: string;
@@ -64,6 +65,7 @@ export interface IReceiptGenerationPayload {
   coverFees: boolean; // Needed for PDF logic
   platformFee: number;
   gstOnFee: number;
+  stripeFee: number; // ✅ NEW
   totalAmount: number;
 
   currency: string;
@@ -85,6 +87,7 @@ export interface IReceiptEmailPayload {
   coverFees: boolean;
   platformFee: number;
   gstOnFee: number;
+  stripeFee: number; // ✅ NEW
   totalAmount: number;
 
   currency: string;
@@ -121,6 +124,7 @@ export interface IReceiptPDFData {
   coverFees: boolean;
   platformFee: number;
   gstOnFee: number;
+  stripeFee: number; // ✅ NEW
   totalAmount: number;
 
   currency: string;

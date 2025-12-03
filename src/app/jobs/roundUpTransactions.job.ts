@@ -67,7 +67,7 @@ const processEndOfMonthDonations = async () => {
       const totalAmount = config.currentMonthTotal;
       const coverFees = config.coverFees || false; // ✅ Use coverFees instead of isTaxable
 
-      // ✅ Calculate Fees
+      // ✅ Calculate Fees (including Stripe)
       const financials = calculateAustralianFees(totalAmount, coverFees);
 
       const now = new Date();
@@ -79,6 +79,7 @@ const processEndOfMonthDonations = async () => {
         `   Initiating month-end donation of $${totalAmount} for user ${userId}...`
       );
       console.log(`   Base Amount: $${financials.baseAmount.toFixed(2)}`);
+      console.log(`   Stripe Fee: $${financials.stripeFee.toFixed(2)}`);
       console.log(`   Total Charged: $${financials.totalCharge.toFixed(2)}`);
 
       // Get all processed transactions for this round-up config for the month
@@ -124,6 +125,7 @@ const processEndOfMonthDonations = async () => {
         coverFees: financials.coverFees,
         platformFee: financials.platformFee,
         gstOnFee: financials.gstOnFee,
+        stripeFee: financials.stripeFee, // ✅ NEW
         netAmount: financials.netToOrg,
         totalAmount: financials.totalCharge,
 
@@ -133,7 +135,7 @@ const processEndOfMonthDonations = async () => {
         specialMessage:
           config.specialMessage ||
           `Automatic monthly round-up for ${monthStr}/${year}`,
-        pointsEarned: Math.round(totalAmount * 100),
+        pointsEarned: Math.round(financials.baseAmount * 100),
         roundUpId: config._id,
         roundUpTransactionIds: monthTransactions.map((t) => t._id),
         receiptGenerated: false,
@@ -156,12 +158,13 @@ const processEndOfMonthDonations = async () => {
         userId: String(userId),
         charityId: String(config.organization),
         causeId: String(config.cause),
-        amount: totalAmount, // Base Amount
+        amount: financials.baseAmount, // Base Amount
 
         // ✅ Pass Financial Breakdown
         coverFees: financials.coverFees,
         platformFee: financials.platformFee,
         gstOnFee: financials.gstOnFee,
+        stripeFee: financials.stripeFee, // ✅ NEW
         netToOrg: financials.netToOrg,
         totalAmount: financials.totalCharge,
 

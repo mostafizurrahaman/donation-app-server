@@ -76,22 +76,40 @@ export const generateReceiptPDF = (data: IReceiptPDFData): Promise<Buffer> => {
     );
 
     // 2. Fees (If Covered by Donor)
-    if (data.coverFees && data.platformFee > 0) {
-      tableTop += 25;
-      generateTableRow(
-        doc,
-        tableTop,
-        'Platform & Service Fees',
-        formatCurrency(data.platformFee, currencySymbol)
-      );
+    // We check if (Platform Fee > 0 OR Stripe Fee > 0) to display the section
+    if (data.coverFees && (data.platformFee > 0 || data.stripeFee > 0)) {
+      // Platform Fee
+      if (data.platformFee > 0) {
+        tableTop += 25;
+        generateTableRow(
+          doc,
+          tableTop,
+          'Platform & Service Fee',
+          formatCurrency(data.platformFee, currencySymbol)
+        );
+      }
 
-      tableTop += 25;
-      generateTableRow(
-        doc,
-        tableTop,
-        'GST (10% on Fees)',
-        formatCurrency(data.gstOnFee, currencySymbol)
-      );
+      // Stripe Fee (Transaction Fee)
+      if (data.stripeFee > 0) {
+        tableTop += 25;
+        generateTableRow(
+          doc,
+          tableTop,
+          'Transaction Fee (Stripe)',
+          formatCurrency(data.stripeFee, currencySymbol)
+        );
+      }
+
+      // GST
+      if (data.gstOnFee > 0) {
+        tableTop += 25;
+        generateTableRow(
+          doc,
+          tableTop,
+          'GST (10% on Platform Fees)',
+          formatCurrency(data.gstOnFee, currencySymbol)
+        );
+      }
     }
 
     // 3. Total Line

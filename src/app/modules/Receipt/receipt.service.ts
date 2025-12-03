@@ -58,6 +58,7 @@ interface ISendReceiptEmailServicePayload {
   coverFees: boolean;
   platformFee: number;
   gstOnFee: number;
+  stripeFee: number; // ✅ NEW: Transaction Fee
   totalAmount: number; // Total Paid
 
   currency: string;
@@ -114,6 +115,7 @@ const generateReceipt = async (payload: IReceiptGenerationPayload) => {
       coverFees: payload.coverFees,
       platformFee: payload.platformFee,
       gstOnFee: payload.gstOnFee,
+      stripeFee: payload.stripeFee, // ✅ NEW
       totalAmount: payload.totalAmount,
 
       currency: payload.currency,
@@ -150,6 +152,7 @@ const generateReceipt = async (payload: IReceiptGenerationPayload) => {
       amount: payload.amount,
       platformFee: payload.platformFee,
       gstOnFee: payload.gstOnFee,
+      stripeFee: payload.stripeFee, // ✅ NEW
       totalAmount: payload.totalAmount,
 
       currency: payload.currency,
@@ -199,6 +202,7 @@ const generateReceipt = async (payload: IReceiptGenerationPayload) => {
       coverFees: payload.coverFees,
       platformFee: payload.platformFee,
       gstOnFee: payload.gstOnFee,
+      stripeFee: payload.stripeFee, // ✅ NEW
       totalAmount: payload.totalAmount,
 
       currency: payload.currency,
@@ -254,6 +258,7 @@ const sendReceiptEmailService = async (
       coverFees: payload.coverFees,
       platformFee: payload.platformFee,
       gstOnFee: payload.gstOnFee,
+      stripeFee: payload.stripeFee, // ✅ NEW
 
       currency: payload.currency,
       donationDate: payload.donationDate,
@@ -316,6 +321,7 @@ const resendReceiptEmail = async (receiptId: string) => {
     totalAmount: receipt.totalAmount,
     platformFee: receipt.platformFee,
     gstOnFee: receipt.gstOnFee,
+    stripeFee: receipt.stripeFee || 0, // ✅ NEW: Pass stored fee or 0
     coverFees,
 
     currency: receipt.currency,

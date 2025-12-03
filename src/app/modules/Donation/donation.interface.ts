@@ -9,10 +9,11 @@ export interface IDonation {
   // ✅ Financial Fields (Australian Logic)
   amount: number; // Base Donation Amount (Tax Deductible for Donor)
   coverFees: boolean; // Did donor choose to cover fees?
-  platformFee: number; // Platform Revenue (e.g. 5%)
+  platformFee: number; // 5% Platform Fee
   gstOnFee: number; // 10% GST on the Platform Fee
+  stripeFee: number; // ✅ NEW: Stripe Transaction Fee (e.g. 1.75% + 30c)
   netAmount: number; // The clean amount credited to the Organization
-  totalAmount: number; // The actual charge to the card (Base + Fees if covered)
+  totalAmount: number; // The actual charge to the card
 
   currency: string;
   status:
@@ -102,7 +103,7 @@ export interface IScheduledDonation {
   organization: Types.ObjectId;
   amount: number;
 
-  // ✅ NEW: Fee Preference
+  // ✅ Fee Preference
   coverFees: boolean;
 
   currency: string;
@@ -135,7 +136,7 @@ export interface IRoundUp {
   organization: Types.ObjectId;
   bankConnection: Types.ObjectId;
 
-  // ✅ NEW: Fee Preference
+  // ✅ Fee Preference
   coverFees: boolean;
 
   thresholdAmount?: number;

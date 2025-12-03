@@ -47,6 +47,10 @@ const receiptSchema = new Schema<IReceiptModel>(
       type: Number,
       default: 0,
     },
+    stripeFee: {
+      type: Number,
+      default: 0, // ✅ NEW: Store Stripe Fee
+    },
     totalAmount: {
       type: Number,
       required: [true, 'Total amount is required'], // Base + Fees (if covered)

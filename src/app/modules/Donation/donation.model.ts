@@ -28,7 +28,7 @@ const donationSchema = new Schema<IDonationModel>(
       required: true,
     },
 
-    // ✅ Financial Fields (Australian Logic)
+    // ✅ Financial Fields (Australian Logic + Stripe Fees)
     amount: {
       type: Number,
       required: [true, 'Base Amount is required'],
@@ -36,19 +36,23 @@ const donationSchema = new Schema<IDonationModel>(
     },
     coverFees: {
       type: Boolean,
-      default: true, // In Australia, usually defaults to True (Opt-out)
+      default: true, // Default Checked
     },
     platformFee: {
       type: Number,
-      default: 0, // Revenue for the platform
+      default: 0, // 5% Fee
     },
     gstOnFee: {
       type: Number,
-      default: 0, // 10% GST on the platformFee (Liability)
+      default: 0, // 10% GST on Platform Fee
+    },
+    stripeFee: {
+      type: Number,
+      default: 0, // ✅ NEW: 1.75% + 30c
     },
     netAmount: {
       type: Number,
-      required: true, // The exact amount the Organization receives (for payout)
+      required: true, // The exact amount the Organization receives
     },
     totalAmount: {
       type: Number,
@@ -152,7 +156,7 @@ donationSchema.index({ roundUpId: 1 });
 donationSchema.index({ idempotencyKey: 1, donor: 1 }, { unique: true });
 donationSchema.index({ lastPaymentAttempt: 1 });
 donationSchema.index({ totalAmount: 1 });
-donationSchema.index({ netAmount: 1 }); // Important for calculating payouts
+donationSchema.index({ netAmount: 1 });
 
 export const Donation = model<IDonationModel>('Donation', donationSchema);
 export default Donation;
