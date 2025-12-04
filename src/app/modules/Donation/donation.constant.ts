@@ -84,6 +84,11 @@ export const monthAbbreviations = [
  * @param baseAmount - The intended donation amount (e.g., $100)
  * @param coverFees - Whether the donor wants to cover the platform fees
  */
+/**
+ * Calculate Fees (New Logic)
+ * 1. Stripe Fee is ALWAYS paid by the donor (added on top).
+ * 2. Platform Fee is optional (added on top ONLY if coverFees is true).
+ */
 export const calculateAustralianFees = (
   baseAmount: number,
   coverFees: boolean
@@ -91,60 +96,50 @@ export const calculateAustralianFees = (
   baseAmount: number;
   platformFee: number;
   gstOnFee: number;
-  stripeFee: number; // ✅ NEW
-  totalFeeCost: number; // Platform + GST + Stripe
-  totalCharge: number; // Amount sent to Stripe
-  netToOrg: number; // Amount credited to Organization Balance
+  stripeFee: number;
+  totalFeeCost: number;
+  totalCharge: number;
+  netToOrg: number;
   coverFees: boolean;
 } => {
   const platformFeePercent =
-    Number(config.paymentSetting.platformFeePercent) || 0.05; // 5%
-  const gstRate = Number(config.paymentSetting.gstPercentage) || 0.1; // 10%
+    Number(config.paymentSetting.platformFeePercent) || 0.05;
+  const gstRate = Number(config.paymentSetting.gstPercentage) || 0.1;
   const stripeFeePercent =
     Number(config.paymentSetting.stripeFeePercent) || 0.0175; // 1.75%
   const stripeFixedFee = Number(config.paymentSetting.stripeFixedFee) || 0.3; // $0.30
 
-  // 1. Calculate Platform Fee & GST (Always based on Base Amount)
+  // 1. Calculate Internal Fees (Platform + GST)
   const platformFee = Number((baseAmount * platformFeePercent).toFixed(2));
   const gstOnFee = Number((platformFee * gstRate).toFixed(2));
-  const ourFees = platformFee + gstOnFee;
+  const internalFees = platformFee + gstOnFee;
 
-  let totalCharge = 0;
-  let stripeFee = 0;
-  let netToOrg = 0;
+  // 2. Determine the "Pre-Stripe" Target Amount
+  // If coverFees is TRUE: We need to collect Base + Internal Fees.
+  // If coverFees is FALSE: We only need to collect Base (Internal fees will be deducted from Org later).
+  let targetAmount = baseAmount;
 
   if (coverFees) {
-    // Scenario A: Donor pays extra (Gross-Up)
-    // We need: Total - (Total * Stripe%) - StripeFixed = Base + OurFees
-    // Total * (1 - Stripe%) = Base + OurFees + StripeFixed
-    // Total = (Base + OurFees + StripeFixed) / (1 - Stripe%)
-
-    const numerator = baseAmount + ourFees + stripeFixedFee;
-    const denominator = 1 - stripeFeePercent;
-
-    totalCharge = Number((numerator / denominator).toFixed(2));
-
-    // Calculate actual Stripe Fee based on the Total Charge
-    stripeFee = Number(
-      (totalCharge * stripeFeePercent + stripeFixedFee).toFixed(2)
-    );
-
-    // Organization gets the full base amount
-    netToOrg = baseAmount;
-  } else {
-    // Scenario B: Donor refuses fees (Deduction)
-    totalCharge = baseAmount;
-
-    // Stripe Fee is calculated on the total charge (which is just the base)
-    stripeFee = Number(
-      (totalCharge * stripeFeePercent + stripeFixedFee).toFixed(2)
-    );
-
-    // Organization gets whatever is left
-    netToOrg = Number((baseAmount - ourFees - stripeFee).toFixed(2));
+    targetAmount += internalFees;
   }
 
-  const totalFeeCost = Number((platformFee + gstOnFee + stripeFee).toFixed(2));
+  // 3. ALWAYS Gross Up for Stripe
+  // Formula: Total = (Target + Fixed) / (1 - Percent)
+  // This ensures the Donor pays the Stripe fee on top of the Target.
+  const totalCharge = Number(
+    ((targetAmount + stripeFixedFee) / (1 - stripeFeePercent)).toFixed(2)
+  );
+
+  // 4. Calculate the actual Stripe Fee
+  const stripeFee = Number((totalCharge - targetAmount).toFixed(2));
+
+  // 5. Calculate Net to Organization
+  // Net = Total Collected - Stripe Fee - Internal Fees
+  // If coverFees was TRUE: (Base + Internal + Stripe) - Stripe - Internal = Base.
+  // If coverFees was FALSE: (Base + Stripe) - Stripe - Internal = Base - Internal.
+  const netToOrg = Number((totalCharge - stripeFee - internalFees).toFixed(2));
+
+  const totalFeeCost = Number((internalFees + stripeFee).toFixed(2));
 
   return {
     baseAmount,
@@ -152,8 +147,8 @@ export const calculateAustralianFees = (
     gstOnFee,
     stripeFee,
     totalFeeCost,
-    totalCharge,
-    netToOrg,
+    totalCharge, // Donor pays this
+    netToOrg, // Charity gets this
     coverFees,
   };
 };
