@@ -3,29 +3,32 @@ import { asyncHandler, sendResponse } from '../../utils';
 import { AdminService } from './admin.service';
 
 const getAdminStates = asyncHandler(async (req, res) => {
-  // Implementation for fetching admin states goes here
-//   const user = req.user as IAuth;
-  const result = await AdminService.getAdminStatesFromDb(req.query.time as string );
+  const { timeFilter } = req.query;
   
-    sendResponse(res, {
-      statusCode: httpStatus.CREATED,
-      message: 'Cause created successfully!',
-      data: result,
-    });
+  const result = await AdminService.getAdminStatesFromDb({
+    timeFilter: timeFilter as 'today' | 'week' | 'month' | undefined,
+  });
+  
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Admin states fetched successfully!',
+    data: result,
+  });
 });
 
 const getDonationsReport = asyncHandler(async (req, res) => {
-  const { page, limit, search, donationType, startDate, endDate, sortBy, sortOrder } = req.query;
+  const { page, limit, searchTerm, donationType, startDate, endDate, sortBy, sortOrder, timeFilter } = req.query;
   
   const result = await AdminService.getDonationsReportFromDb({
     page: page ? Number(page) : undefined,
     limit: limit ? Number(limit) : undefined,
-    search: search as string,
+    search: searchTerm as string,
     donationType: donationType as string,
     startDate: startDate as string,
     endDate: endDate as string,
     sortBy: sortBy as string,
     sortOrder: sortOrder as 'asc' | 'desc',
+    timeFilter: timeFilter as 'today' | 'week' | 'month' | undefined,
   });
   
   sendResponse(res, {
@@ -36,12 +39,12 @@ const getDonationsReport = asyncHandler(async (req, res) => {
 });
 
 const getSubscriptionsReport = asyncHandler(async (req, res) => {
-  const { page, limit, search, status, startDate, endDate, sortBy, sortOrder } = req.query;
+  const { page, limit, searchTerm, status, startDate, endDate, sortBy, sortOrder } = req.query;
   
   const result = await AdminService.getSubscriptionsReportFromDb({
     page: page ? Number(page) : undefined,
     limit: limit ? Number(limit) : undefined,
-    search: search as string,
+    search: searchTerm as string,
     status: status as string,
     startDate: startDate as string,
     endDate: endDate as string,
@@ -77,15 +80,17 @@ const getUsersStatesReport = asyncHandler(async (req, res) => {
 });
 
 const getUsersReport = asyncHandler(async (req, res) => {
-  const { page, limit, search, role, status, isActive, sortBy, sortOrder } = req.query;
+  const { page, limit, searchTerm, role, status, isActive, startDate, endDate, sortBy, sortOrder } = req.query;
   
   const result = await AdminService.getUsersReportFromDb({
     page: page ? Number(page) : undefined,
     limit: limit ? Number(limit) : undefined,
-    search: search as string,
+    search: searchTerm as string,
     role: role as string,
     status: status as string,
     isActive: isActive === 'true' ? true : isActive === 'false' ? false : undefined,
+    startDate: startDate as string,
+    endDate: endDate as string,
     sortBy: sortBy as string,
     sortOrder: sortOrder as 'asc' | 'desc',
   });
@@ -98,13 +103,15 @@ const getUsersReport = asyncHandler(async (req, res) => {
 });
 
 const getPendingUsersReport = asyncHandler(async (req, res) => {
-  const { page, limit, search, role, sortBy, sortOrder } = req.query;
+  const { page, limit, searchTerm, role, startDate, endDate, sortBy, sortOrder } = req.query;
   
   const result = await AdminService.getPendingUsersReportFromDb({
     page: page ? Number(page) : undefined,
     limit: limit ? Number(limit) : undefined,
-    search: search as string,
+    search: searchTerm as string,
     role: role as string,
+    startDate: startDate as string,
+    endDate: endDate as string,
     sortBy: sortBy as string,
     sortOrder: sortOrder as 'asc' | 'desc',
   });
@@ -113,6 +120,131 @@ const getPendingUsersReport = asyncHandler(async (req, res) => {
     statusCode: httpStatus.OK,
     message: 'Pending users report fetched successfully!',
     data: result,
+  });
+});
+
+const getUsersEngagementReport = asyncHandler(async (req, res) => {
+  const { timeFilter, role } = req.query;
+  
+  const result = await AdminService.getUsersEngagementReportFromDb({
+    timeFilter: timeFilter as 'today' | 'week' | 'month' | undefined,
+    role: role as 'CLIENT' | 'BUSINESS' | 'ORGANIZATION' | undefined,
+  });
+  
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Users engagement report fetched successfully!',
+    data: result,
+  });
+});
+
+const getDonationsEngagementReport = asyncHandler(async (req, res) => {
+  const { donationType, year } = req.query;
+  
+  const result = await AdminService.getDonationsEngagementReportFromDb({
+    donationType: donationType as 'one-time' | 'recurring' | undefined,
+    year: year ? Number(year) : undefined,
+  });
+  
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Donations engagement report fetched successfully!',
+    data: result,
+  });
+});
+
+const getClauseWisePercentagesReport = asyncHandler(async (req, res) => {
+  const result = await AdminService.getClauseWisePercentagesReportFromDb();
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Clause wise percentages report fetched successfully!',
+    data: result,
+  });
+});
+
+const getOrganizationsReport = asyncHandler(async (req, res) => {
+  const { page, limit, searchTerm, status, isActive, serviceType, startDate, endDate, sortBy, sortOrder } = req.query;
+  
+  const result = await AdminService.getOrganizationsReportFromDb({
+    page: page ? Number(page) : undefined,
+    limit: limit ? Number(limit) : undefined,
+    search: searchTerm as string,
+    status: status as string,
+    isActive: isActive === 'true' ? true : isActive === 'false' ? false : undefined,
+    serviceType: serviceType as string,
+    startDate: startDate as string,
+    endDate: endDate as string,
+    sortBy: sortBy as string,
+    sortOrder: sortOrder as 'asc' | 'desc',
+  });
+  
+  sendResponse(res, { 
+    statusCode: httpStatus.OK,
+    message: 'Organizations report fetched successfully!',
+    data: result.organizations,
+    meta: {
+      limit: result.pagination.limit,
+      page: result.pagination.page,
+      total: result.pagination.total,
+      totalPage: result.pagination.totalPages,
+    },
+  });
+});
+
+const getCausesReport = asyncHandler(async (req, res) => {
+  const { page, limit, searchTerm, status, category, startDate, endDate, sortBy, sortOrder } = req.query;
+  
+  const result = await AdminService.getCausesReportFromDb({
+    page: page ? Number(page) : undefined,
+    limit: limit ? Number(limit) : undefined,
+    search: searchTerm as string,
+    status: status as string,
+    category: category as string,
+    startDate: startDate as string,
+    endDate: endDate as string,
+    sortBy: sortBy as string,
+    sortOrder: sortOrder as 'asc' | 'desc',
+  });
+  
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Causes report fetched successfully!',
+    data: result.causes,
+    meta: {
+      limit: result.pagination.limit,
+      page: result.pagination.page,
+      total: result.pagination.total,
+      totalPage: result.pagination.totalPages,
+    },
+
+  });
+});
+
+const getBusinessesReport = asyncHandler(async (req, res) => {
+  const { page, limit, searchTerm, status, isActive, startDate, endDate, sortBy, sortOrder } = req.query;
+  
+  const result = await AdminService.getBusinessesReportFromDb({
+    page: page ? Number(page) : undefined,
+    limit: limit ? Number(limit) : undefined,
+    search: searchTerm as string,
+    status: status as string,
+    isActive: isActive === 'true' ? true : isActive === 'false' ? false : undefined,
+    startDate: startDate as string,
+    endDate: endDate as string,
+    sortBy: sortBy as string,
+    sortOrder: sortOrder as 'asc' | 'desc',
+  });
+  
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Businesses report fetched successfully!',
+    data: result.businesses,
+    meta: {
+      limit: result.pagination.limit,
+      page: result.pagination.page,
+      total: result.pagination.total,
+      totalPage: result.pagination.totalPages,
+    },
   });
 });
 
@@ -135,5 +267,11 @@ export const AdminController = {
     getUsersStatesReport,
     getUsersReport,
     getPendingUsersReport,
+    getUsersEngagementReport,
+    getDonationsEngagementReport,
+    getClauseWisePercentagesReport,
+    getOrganizationsReport,
+    getCausesReport,
+    getBusinessesReport,
     updateAdminProfile
 };

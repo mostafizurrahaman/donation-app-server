@@ -20,6 +20,18 @@ router.get('/users', auth(ROLE.ADMIN), AdminController.getUsersReport);
 
 router.get('/pending-users', auth(ROLE.ADMIN), AdminController.getPendingUsersReport);
 
+router.get('/user-engagement', auth(ROLE.ADMIN), AdminController.getUsersEngagementReport);
+
+router.get('/donation-engagement', auth(ROLE.ADMIN), AdminController.getDonationsEngagementReport);
+
+router.get('/clause-wise-percentages', auth(ROLE.ADMIN), AdminController.getClauseWisePercentagesReport);
+
+router.get('/organizations', auth(ROLE.ADMIN), AdminController.getOrganizationsReport);
+
+router.get('/causes', auth(ROLE.ADMIN), AdminController.getCausesReport);
+
+router.get('/businesses', auth(ROLE.ADMIN), AdminController.getBusinessesReport);
+
 router.patch('/:id', auth(ROLE.ADMIN), AdminController.updateAdminProfile);
 
 export const AdminRoutes = router;
