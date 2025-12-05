@@ -144,7 +144,7 @@ const createRecurringDonationSchema = z.object({
       }),
 
     // ✅ NEW: Cover Fees checkbox (default true)
-    coverFees: z.boolean().optional().default(true),
+    coverFees: z.boolean().optional().default(false),
 
     organizationId: z
       .string({
@@ -287,7 +287,7 @@ const createDonationRecordSchema = z.object({
       .max(10000, { message: 'Amount cannot exceed $10,000!' }),
 
     // ✅ NEW: Cover Fees checkbox
-    coverFees: z.boolean().optional().default(true),
+    coverFees: z.boolean().optional().default(false),
 
     causeId: z
       .string({
@@ -380,7 +380,7 @@ const createOneTimeDonationSchema = z.object({
       .max(10000, { message: 'Amount cannot exceed $10,000!' }),
 
     // ✅ NEW: Cover Fees checkbox (default true for AU)
-    coverFees: z.boolean().optional().default(true),
+    coverFees: z.boolean().optional().default(false),
 
     currency: z
       .string()

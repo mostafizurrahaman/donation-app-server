@@ -59,7 +59,7 @@ const createOneTimeDonation = async (
 }> => {
   const {
     amount,
-    coverFees = true, // Default to true (Opt-out model)
+    coverFees = false, // Default to true (Opt-out model)
     causeId,
     organizationId,
     userId,

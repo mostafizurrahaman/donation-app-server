@@ -79,7 +79,7 @@ const createScheduledDonation = async (
     organizationId,
     causeId,
     amount,
-    coverFees = true, // Default to true
+    coverFees = false, // Default to true
     frequency,
     customInterval,
     specialMessage,
@@ -89,7 +89,7 @@ const createScheduledDonation = async (
   // ✅ Calculate purely for logging/checking
   const financials = calculateAustralianFees(amount, coverFees);
 
-  console.log(`📅 Scheduled Donation Created:`);
+  console.log(` Scheduled Donation Created:`);
   console.log(`   Base Amount: $${financials.baseAmount.toFixed(2)}`);
   console.log(`   Total Charge: $${financials.totalCharge.toFixed(2)}`);
   console.log(`   Cover Fees: ${coverFees}`);
@@ -385,10 +385,11 @@ const getScheduledDonationsDueForExecution = async (): Promise<
   IScheduledDonationModel[]
 > => {
   const now = new Date();
+  console.log({ now });
 
   const scheduledDonations = await ScheduledDonation.find({
     isActive: true,
-    nextDonationDate: { $lte: now },
+    // nextDonationDate: { $lte: now },
   })
     .populate('user')
     .populate('organization')
@@ -526,7 +527,7 @@ const executeScheduledDonation = async (
           coverFees: financials.coverFees.toString(),
           platformFee: financials.platformFee.toString(),
           gstOnFee: financials.gstOnFee.toString(),
-          stripeFee: financials.stripeFee.toString(), 
+          stripeFee: financials.stripeFee.toString(),
           netToOrg: financials.netToOrg.toString(),
         },
         description: scheduledDonation.specialMessage || 'Recurring donation',
@@ -602,12 +603,12 @@ const executeScheduledDonation = async (
             donor: userId,
             organization: organizationId,
             cause: causeId,
-            donationType: 'recurring',          
+            donationType: 'recurring',
             amount: financials.baseAmount,
             coverFees: financials.coverFees,
             platformFee: financials.platformFee,
             gstOnFee: financials.gstOnFee,
-            stripeFee: financials.stripeFee, 
+            stripeFee: financials.stripeFee,
             netAmount: financials.netToOrg,
             totalAmount: financials.totalCharge,
 

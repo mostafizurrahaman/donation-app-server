@@ -21,6 +21,8 @@ import { PointsRoutes } from '../modules/Points/points.route';
 import { RewardRoutes } from '../modules/Reward/reward.route';
 import { BadgeRoutes } from '../modules/badge/badge.route';
 import { BusinessRoutes } from '../modules/Business/business.routes';
+import { BalanceRoutes } from '../modules/Balance/balance.route';
+import { PayoutRoutes } from '../modules/Payout/payout.route';
 
 const router = Router();
 
@@ -107,6 +109,14 @@ const moduleRoutes = [
   {
     path: '/badges',
     route: BadgeRoutes,
+  },
+  {
+    path: '/balance',
+    route: BalanceRoutes,
+  },
+  {
+    path: '/payout',
+    route: PayoutRoutes,
   },
 ];
 

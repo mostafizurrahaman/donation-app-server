@@ -113,7 +113,7 @@ const createPaymentIntent = async (
     specialMessage,
 
     // ✅ Fee Breakdown for Metadata
-    coverFees = true,
+    coverFees = false,
     platformFee = 0,
     gstOnFee = 0,
     stripeFee = 0, // ✅ NEW
@@ -322,7 +322,7 @@ const createPaymentIntentWithMethod = async (
     specialMessage,
 
     // ✅ Fee Breakdown
-    coverFees = true,
+    coverFees = false,
     platformFee = 0,
     gstOnFee = 0,
     stripeFee = 0, // ✅ NEW

@@ -95,7 +95,7 @@ const config: IConfig = {
     // Standard Stripe AU pricing: 1.75% + 30c
     stripeFeePercent: Number(process.env.STRIPE_FEE_PERCENTAGE) || 0.0175,
     stripeFixedFee: Number(process.env.STRIPE_FIXED_FEE) || 0.3,
-    clearingPeriodDays: Number(process.env.CLEARING_PERIOD_DAYS) || 7,
+    clearingPeriodDays: Number(process.env.CLEARING_PERIOD_DAYS) ?? 7,
   },
   jwt: {
     accessTokenSecret: process.env.JWT_ACCESS_SECRET || 'default_access_secret',

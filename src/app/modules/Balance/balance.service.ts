@@ -49,21 +49,31 @@ const addDonationFunds = async (
   }
 
   // ✅ CRITICAL: Credit only the NET amount to the organization
-  // The Platform Fee, GST, and Stripe Fee are retained by the platform/stripe.
   const amountToCredit = donation.netAmount;
 
-  // Update Balance
-  balance.pendingBalance += amountToCredit;
-  balance.lifetimeEarnings += amountToCredit;
+  // ✅ FIX: Rounding Logic for Totals
+  balance.pendingBalance = Number(
+    (balance.pendingBalance + amountToCredit).toFixed(2)
+  );
+  balance.lifetimeEarnings = Number(
+    (balance.lifetimeEarnings + amountToCredit).toFixed(2)
+  );
   balance.lastTransactionAt = new Date();
 
-  // Update Breakdown
-  if (donationType === 'one-time')
-    balance.pendingByType_oneTime += amountToCredit;
-  if (donationType === 'recurring')
-    balance.pendingByType_recurring += amountToCredit;
-  if (donationType === 'round-up')
-    balance.pendingByType_roundUp += amountToCredit;
+  // ✅ FIX: Rounding Logic for Breakdowns
+  if (donationType === 'one-time') {
+    balance.pendingByType_oneTime = Number(
+      (balance.pendingByType_oneTime + amountToCredit).toFixed(2)
+    );
+  } else if (donationType === 'recurring') {
+    balance.pendingByType_recurring = Number(
+      (balance.pendingByType_recurring + amountToCredit).toFixed(2)
+    );
+  } else if (donationType === 'round-up') {
+    balance.pendingByType_roundUp = Number(
+      (balance.pendingByType_roundUp + amountToCredit).toFixed(2)
+    );
+  }
 
   await balance.save({ session });
 
@@ -72,25 +82,28 @@ const addDonationFunds = async (
     organization: new Types.ObjectId(organizationId),
     type: 'credit',
     category: 'donation_received',
-    amount: amountToCredit, // Storing Net
+    amount: amountToCredit,
     balanceAfter_pending: balance.pendingBalance,
     balanceAfter_available: balance.availableBalance,
     balanceAfter_reserved: balance.reservedBalance,
-    balanceAfter_total:
-      balance.pendingBalance +
-      balance.availableBalance +
-      balance.reservedBalance,
+    // ✅ FIX: Ensure total matches sum of parts
+    balanceAfter_total: Number(
+      (
+        balance.pendingBalance +
+        balance.availableBalance +
+        balance.reservedBalance
+      ).toFixed(2)
+    ),
     donation: new Types.ObjectId(donationId),
     donationType,
     description: `Donation received (${donationType}) - Net`,
 
-    // ✅ Store Complete Fee Breakdown in Metadata for Audit
     metadata: {
       gross: donation.totalAmount,
       baseDonation: donation.amount,
       platformFee: donation.platformFee,
       gstOnFee: donation.gstOnFee,
-      stripeFee: donation.stripeFee || 0, // ✅ NEW: Track Stripe Fee in Ledger
+      stripeFee: donation.stripeFee || 0,
       netCredited: amountToCredit,
       coverFees: donation.coverFees,
     },
@@ -174,22 +187,58 @@ const deductRefund = async (
   const timeSinceDonation = Date.now() - (donation?.createdAt?.getTime() || 0);
 
   const isPending = timeSinceDonation < clearingMs;
-
-  // ✅ CRITICAL: Deduct only what we credited (Net Amount)
-  // If we refunded the user the Full Amount (Gross), the Platform takes the loss on the Fee/GST/StripeFee.
-  // The Organization simply returns exactly what they received.
   const amountToDeduct = donation.netAmount;
+  const type = donation.donationType;
 
   if (isPending) {
-    balance.pendingBalance -= amountToDeduct;
-    // Adjust breakdown if needed (simplified)
+    // ✅ FIX: Rounding & Breakdown Deduction for Pending
+    balance.pendingBalance = Number(
+      (balance.pendingBalance - amountToDeduct).toFixed(2)
+    );
+
+    if (type === 'one-time')
+      balance.pendingByType_oneTime = Number(
+        (balance.pendingByType_oneTime - amountToDeduct).toFixed(2)
+      );
+    if (type === 'recurring')
+      balance.pendingByType_recurring = Number(
+        (balance.pendingByType_recurring - amountToDeduct).toFixed(2)
+      );
+    if (type === 'round-up')
+      balance.pendingByType_roundUp = Number(
+        (balance.pendingByType_roundUp - amountToDeduct).toFixed(2)
+      );
   } else {
-    balance.availableBalance -= amountToDeduct;
+    // ✅ FIX: Rounding & Breakdown Deduction for Available
+    balance.availableBalance = Number(
+      (balance.availableBalance - amountToDeduct).toFixed(2)
+    );
+
+    if (type === 'one-time')
+      balance.availableByType_oneTime = Number(
+        (balance.availableByType_oneTime - amountToDeduct).toFixed(2)
+      );
+    if (type === 'recurring')
+      balance.availableByType_recurring = Number(
+        (balance.availableByType_recurring - amountToDeduct).toFixed(2)
+      );
+    if (type === 'round-up')
+      balance.availableByType_roundUp = Number(
+        (balance.availableByType_roundUp - amountToDeduct).toFixed(2)
+      );
   }
 
-  balance.lifetimeRefunds += amountToDeduct;
-  // Optionally adjust lifetimeEarnings or keep distinct
-  balance.lifetimeEarnings -= amountToDeduct;
+  // Safety checks against negative values (just in case)
+  if (balance.pendingBalance < 0) balance.pendingBalance = 0;
+  if (balance.availableBalance < 0) balance.availableBalance = 0;
+
+  // Update Lifetime Stats
+  balance.lifetimeRefunds = Number(
+    (balance.lifetimeRefunds + amountToDeduct).toFixed(2)
+  );
+  balance.lifetimeEarnings = Number(
+    (balance.lifetimeEarnings - amountToDeduct).toFixed(2)
+  );
 
   await balance.save({ session });
 
@@ -202,10 +251,13 @@ const deductRefund = async (
     balanceAfter_pending: balance.pendingBalance,
     balanceAfter_available: balance.availableBalance,
     balanceAfter_reserved: balance.reservedBalance,
-    balanceAfter_total:
-      balance.pendingBalance +
-      balance.availableBalance +
-      balance.reservedBalance,
+    balanceAfter_total: Number(
+      (
+        balance.pendingBalance +
+        balance.availableBalance +
+        balance.reservedBalance
+      ).toFixed(2)
+    ),
     donation: new Types.ObjectId(donationId),
     description: `Refund issued for donation ${donationId} (Net Reversal)`,
     metadata: {
