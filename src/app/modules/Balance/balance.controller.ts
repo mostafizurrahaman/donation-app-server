@@ -61,7 +61,38 @@ const getMyTransactions = asyncHandler(async (req: Request, res: Response) => {
   });
 });
 
+const getDashboardStats = asyncHandler(async (req: Request, res: Response) => {
+  const userId = req.user?.id;
+  const userRole = req.user?.role;
+  const { donationType } = req.query; // 'all', 'one-time', 'recurring', 'round-up'
+
+  let organizationId;
+
+  if (userRole === ROLE.ORGANIZATION) {
+    const org = await Organization.findOne({ auth: userId });
+    if (!org)
+      throw new AppError(httpStatus.NOT_FOUND, 'Organization not found');
+    organizationId = org._id.toString();
+  } else if (userRole === ROLE.ADMIN && req.query.organizationId) {
+    organizationId = req.query.organizationId as string;
+  } else {
+    throw new AppError(httpStatus.FORBIDDEN, 'Organization ID required');
+  }
+
+  const stats = await BalanceService.getDashboardAnalytics(
+    organizationId,
+    donationType as 'one-time' | 'recurring' | 'round-up' | 'all'
+  );
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Dashboard stats retrieved successfully',
+    data: stats,
+  });
+});
+
 export const BalanceController = {
   getMyBalance,
   getMyTransactions,
+  getDashboardStats,
 };

@@ -1,3 +1,5 @@
+import { startBalanceClearingCron } from './balanceClearing.job';
+import { startPayoutProcessingCron } from './payoutProcessing.job';
 import { startRoundUpProcessingCron } from './roundUpTransactions.job';
 import { startScheduledDonationsCron } from './scheduledDonations.job';
 import { startRewardJobs } from './updateRewardsStatus.job';
@@ -22,6 +24,12 @@ export const initializeJobs = () => {
 
     // Start reward maintenance job (every 5 minutes)
     startRewardJobs();
+
+    // Start balance Clearing Job  every day at midnight (00:00)
+    startBalanceClearingCron();
+
+    // Start Payout job (every day 9 AM)
+    startPayoutProcessingCron();
 
     console.log('════════════════════════════════════════════════════════');
     console.log('✅ All background jobs initialized successfully');

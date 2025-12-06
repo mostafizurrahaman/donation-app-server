@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import mongoose, { ClientSession, Types } from 'mongoose';
 import { Payout } from './payout.model';
 import {
@@ -28,6 +29,12 @@ const requestPayout = async (
 ) => {
   const session: ClientSession = await mongoose.startSession();
   session.startTransaction();
+  console.log({
+    organizationId,
+    userId,
+    amount,
+    scheduledDate,
+  });
 
   try {
     // 1. Check Organization Balance
@@ -41,11 +48,69 @@ const requestPayout = async (
         'Insufficient available balance for this payout request.'
       );
     }
+    console.log({
+      balance,
+    });
 
-    // 2. ✅ NO FEE DEDUCTION LOGIC HERE
-    // Fees and GST were already deducted at the point of Donation Entry (Balance Service).
-    // The 'availableBalance' consists purely of Net funds belonging to the Organization.
-    // We transfer exactly what is requested.
+    // ---------------------------------------------------------
+    // 2. UPDATE BALANCE WITH PROPORTIONAL REDUCTION
+    // ---------------------------------------------------------
+
+    // Calculate the ratio of the payout vs total available funds
+    // e.g., if Available is $100 and payout is $50, ratio is 0.5 (50%)
+    const ratio =
+      balance.availableBalance > 0 ? amount / balance.availableBalance : 0;
+
+    console.log({
+      ratio,
+    });
+
+    // A. Update Global Totals
+    balance.availableBalance = Number(
+      (balance.availableBalance - amount).toFixed(2)
+    );
+    balance.reservedBalance = Number(
+      (balance.reservedBalance + amount).toFixed(2)
+    );
+
+    // B. Reduce breakdown fields proportionally
+    // This ensures the UI filter tabs (One-time, Recurring, etc.) decrease logically
+    const reduceOneTime = Number(
+      (balance.availableByType_oneTime * ratio).toFixed(2)
+    );
+    const reduceRecurring = Number(
+      (balance.availableByType_recurring * ratio).toFixed(2)
+    );
+    const reduceRoundUp = Number(
+      (balance.availableByType_roundUp * ratio).toFixed(2)
+    );
+
+    balance.availableByType_oneTime = Number(
+      (balance.availableByType_oneTime - reduceOneTime).toFixed(2)
+    );
+    balance.availableByType_recurring = Number(
+      (balance.availableByType_recurring - reduceRecurring).toFixed(2)
+    );
+    balance.availableByType_roundUp = Number(
+      (balance.availableByType_roundUp - reduceRoundUp).toFixed(2)
+    );
+
+    // Safety check to prevent negative values due to floating point rounding errors
+    if (balance.availableByType_oneTime < 0)
+      balance.availableByType_oneTime = 0;
+    if (balance.availableByType_recurring < 0)
+      balance.availableByType_recurring = 0;
+    if (balance.availableByType_roundUp < 0)
+      balance.availableByType_roundUp = 0;
+
+    console.log({
+      balance,
+    });
+    await balance.save({ session });
+
+    // ---------------------------------------------------------
+    // 3. CREATE PAYOUT RECORD
+    // ---------------------------------------------------------
 
     const platformFeeRate = 0;
     const platformFeeAmount = 0;
@@ -53,7 +118,6 @@ const requestPayout = async (
     const taxAmount = 0;
     const netAmount = amount; // The amount requested is the amount sent
 
-    // 3. Create Payout Record
     const payoutDate = scheduledDate ? new Date(scheduledDate) : new Date();
 
     const [payout] = await Payout.create(
@@ -75,12 +139,9 @@ const requestPayout = async (
       { session }
     );
 
-    // 4. Update Balance (Lock Funds: Available -> Reserved)
-    balance.availableBalance -= amount;
-    balance.reservedBalance += amount;
-    await balance.save({ session });
-
-    // 5. Create Ledger Entry
+    // ---------------------------------------------------------
+    // 4. CREATE LEDGER ENTRY
+    // ---------------------------------------------------------
     await BalanceTransaction.create(
       [
         {
@@ -88,16 +149,29 @@ const requestPayout = async (
           type: 'debit', // Conceptually a debit from 'available', moved to 'reserved'
           category: 'payout_reserved',
           amount: amount,
+
+          // Store snapshot of new balances
           balanceAfter_pending: balance.pendingBalance,
-          balanceAfter_available: balance.availableBalance, // Reduced
-          balanceAfter_reserved: balance.reservedBalance, // Increased
-          balanceAfter_total:
-            balance.pendingBalance +
-            balance.availableBalance +
-            balance.reservedBalance,
+          balanceAfter_available: balance.availableBalance,
+          balanceAfter_reserved: balance.reservedBalance,
+          balanceAfter_total: Number(
+            (
+              balance.pendingBalance +
+              balance.availableBalance +
+              balance.reservedBalance
+            ).toFixed(2)
+          ),
+
           payout: payout._id,
           description: `Payout requested: ${payout.payoutNumber}`,
           processedBy: new Types.ObjectId(userId),
+
+          // Optional: Store metadata about how much was taken from each type
+          metadata: {
+            reducedOneTime: reduceOneTime,
+            reducedRecurring: reduceRecurring,
+            reducedRoundUp: reduceRoundUp,
+          },
         },
       ],
       { session }
@@ -112,7 +186,10 @@ const requestPayout = async (
     session.endSession();
   }
 };
-
+/**
+ * Cancel Payout (Admin or User)
+ * Reverses the fund reservation.
+ */
 /**
  * Cancel Payout (Admin or User)
  * Reverses the fund reservation.
@@ -120,8 +197,7 @@ const requestPayout = async (
 const cancelPayout = async (
   payoutId: string,
   userId: string,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  isAdmin = false
+  _isAdmin = false // Fixed: Prefix with _ to ignore unused variable
 ) => {
   const session: ClientSession = await mongoose.startSession();
   session.startTransaction();
@@ -150,9 +226,60 @@ const cancelPayout = async (
       organization: organizationId,
     }).session(session);
 
+    console.log({
+      balance,
+    });
     if (balance) {
-      balance.reservedBalance -= payout.requestedAmount;
-      balance.availableBalance += payout.requestedAmount;
+      // A. Restore Global Totals
+      balance.reservedBalance = Number(
+        (balance.reservedBalance - payout.requestedAmount).toFixed(2)
+      );
+      balance.availableBalance = Number(
+        (balance.availableBalance + payout.requestedAmount).toFixed(2)
+      );
+
+      // B. Retrieve the original debit transaction to find exact deductions
+      const originalDebitTx = await BalanceTransaction.findOne({
+        payout: payout._id,
+        category: 'payout_reserved',
+        type: 'debit',
+      }).session(session);
+
+      // C. Restore Breakdown Types
+      // Fixed: Type assertion to tell TS these are numbers
+      const metadata = originalDebitTx?.metadata as
+        | {
+            reducedOneTime?: number;
+            reducedRecurring?: number;
+            reducedRoundUp?: number;
+          }
+        | undefined;
+
+      if (metadata && metadata.reducedOneTime !== undefined) {
+        // PRECISION RESTORATION: Use the exact amounts we took earlier
+        const reducedOneTime = metadata.reducedOneTime || 0;
+        const reducedRecurring = metadata.reducedRecurring || 0;
+        const reducedRoundUp = metadata.reducedRoundUp || 0;
+
+        balance.availableByType_oneTime = Number(
+          (balance.availableByType_oneTime + reducedOneTime).toFixed(2)
+        );
+        balance.availableByType_recurring = Number(
+          (balance.availableByType_recurring + reducedRecurring).toFixed(2)
+        );
+        balance.availableByType_roundUp = Number(
+          (balance.availableByType_roundUp + reducedRoundUp).toFixed(2)
+        );
+      } else {
+        // FALLBACK: If no metadata exists (legacy data), put everything into 'oneTime'
+        balance.availableByType_oneTime = Number(
+          (balance.availableByType_oneTime + payout.requestedAmount).toFixed(2)
+        );
+      }
+
+      console.log({
+        balance,
+      });
       await balance.save({ session });
 
       // 3. Ledger Entry
@@ -163,16 +290,29 @@ const cancelPayout = async (
             type: 'credit', // Returning funds to available
             category: 'payout_cancelled',
             amount: payout.requestedAmount, // Return the gross amount reserved
+
+            // Snapshot of new state
             balanceAfter_pending: balance.pendingBalance,
             balanceAfter_available: balance.availableBalance,
             balanceAfter_reserved: balance.reservedBalance,
-            balanceAfter_total:
-              balance.pendingBalance +
-              balance.availableBalance +
-              balance.reservedBalance,
+            balanceAfter_total: Number(
+              (
+                balance.pendingBalance +
+                balance.availableBalance +
+                balance.reservedBalance
+              ).toFixed(2)
+            ),
+
             payout: payout._id,
             description: `Payout cancelled: ${payout.payoutNumber}`,
             processedBy: new Types.ObjectId(userId),
+
+            // Track what we restored for debugging
+            metadata: {
+              restoredOneTime: metadata?.reducedOneTime || 0,
+              restoredRecurring: metadata?.reducedRecurring || 0,
+              restoredRoundUp: metadata?.reducedRoundUp || 0,
+            },
           },
         ],
         { session }
@@ -188,8 +328,7 @@ const cancelPayout = async (
     session.endSession();
   }
 };
-
-/**                                                                                                 
+/**
  * Get All Payouts (for Org Dashboard)
  */
 const getAllPayouts = async (

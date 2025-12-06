@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import cron from 'node-cron';
 import mongoose from 'mongoose';
 import { Payout } from '../modules/Payout/payout.model';
@@ -38,6 +39,7 @@ export const startPayoutProcessingCron = () => {
         status: PAYOUT_STATUS.PENDING,
         scheduledDate: { $lte: today },
       });
+      console.log(duePayouts);
 
       console.log(`Found ${duePayouts.length} payouts due for processing.`);
 
@@ -66,7 +68,7 @@ export const startPayoutProcessingCron = () => {
             org.stripeConnectAccountId,
             payout.netAmount,
             payout.currency,
-            { payoutId: payout?._id?.toString()! }
+            { payoutId: payout?._id?.toString() }
           );
 
           // 4. Mark as COMPLETED

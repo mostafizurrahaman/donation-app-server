@@ -1,13 +1,10 @@
-import mongoose, { ClientSession, Types } from 'mongoose';
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { ClientSession, Types } from 'mongoose';
 import { OrganizationBalance, BalanceTransaction } from './balance.model';
-import { AppError } from '../../utils';
-import httpStatus from 'http-status';
-import {
-  IBalanceTransaction,
-  TTransactionCategory,
-  TTransactionType,
-} from './balance.interface';
+
+import { IBalanceTransaction } from './balance.interface';
 import Donation from '../Donation/donation.model';
+import { startOfMonth, endOfMonth, subMonths } from 'date-fns';
 
 /**
  * Get or create balance record for an organization
@@ -270,10 +267,135 @@ const deductRefund = async (
   await BalanceTransaction.create([transaction], { session });
 };
 
+// ... existing imports
+
+interface IGetDataDashboardQuery {
+  organization?: Types.ObjectId;
+  donationType?: 'one-time' | 'round-up' | 'recurring';
+  category: { $in: string[] };
+}
+
+/**
+ * Get Dashboard Analytics (Net Deposits + Growth %)
+ * Calculates: (Donations - Refunds) based on the filter
+ */
+const getDashboardAnalytics = async (
+  organizationId: string,
+  donationType?: 'one-time' | 'recurring' | 'round-up' | 'all'
+) => {
+  const orgObjectId = new Types.ObjectId(organizationId);
+  const now = new Date();
+
+  // 1. Define Time Ranges
+  const currentMonthStart = startOfMonth(now);
+  const currentMonthEnd = endOfMonth(now);
+  const lastMonthStart = startOfMonth(subMonths(now, 1));
+  const lastMonthEnd = endOfMonth(subMonths(now, 1));
+
+  // 2. Build Match Query
+  // ✅ IMPORTANT: We must include 'refund_issued' in the category filter
+  const matchQuery: IGetDataDashboardQuery = {
+    organization: orgObjectId,
+    category: { $in: ['donation_received', 'refund_issued'] },
+  };
+
+  // Apply donation type filter if specific type requested
+  if (donationType && donationType !== 'all') {
+    matchQuery.donationType = donationType;
+  }
+
+  // 3. Define the Summation Logic (Donation - Refund)
+  // We define this once to reuse it in all 3 facets
+  const netDepositSumLogic = {
+    $sum: {
+      $cond: [
+        { $eq: ['$category', 'donation_received'] },
+        '$amount', // Add if donation
+        {
+          $cond: [
+            { $eq: ['$category', 'refund_issued'] },
+            { $multiply: ['$amount', -1] }, // Subtract if refund
+            0,
+          ],
+        },
+      ],
+    },
+  };
+
+  // 4. Run Aggregation
+  const stats = await BalanceTransaction.aggregate([
+    {
+      $facet: {
+        // A. Total All Time Net
+        totalLifetime: [
+          { $match: matchQuery },
+          { $group: { _id: null, total: netDepositSumLogic } },
+        ],
+        // B. Current Month Net
+        currentMonth: [
+          {
+            $match: {
+              ...matchQuery,
+              createdAt: { $gte: currentMonthStart, $lte: currentMonthEnd },
+            },
+          },
+          { $group: { _id: null, total: netDepositSumLogic } },
+        ],
+        // C. Last Month Net
+        lastMonth: [
+          {
+            $match: {
+              ...matchQuery,
+              createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd },
+            },
+          },
+          { $group: { _id: null, total: netDepositSumLogic } },
+        ],
+      },
+    },
+  ]);
+
+  // 5. Extract Results
+  const result = stats[0];
+
+  // Default to 0 if no transactions found
+  const totalDeposits = result.totalLifetime[0]?.total || 0;
+  const currentMonthAmount = result.currentMonth[0]?.total || 0;
+  const lastMonthAmount = result.lastMonth[0]?.total || 0;
+
+  // 6. Calculate Percentage Change
+  let percentageChange = 0;
+  let trend: 'up' | 'down' | 'neutral' = 'neutral';
+
+  if (lastMonthAmount > 0) {
+    percentageChange =
+      ((currentMonthAmount - lastMonthAmount) / lastMonthAmount) * 100;
+  } else if (lastMonthAmount === 0 && currentMonthAmount > 0) {
+    percentageChange = 100; // 100% increase from 0
+  } else if (lastMonthAmount === 0 && currentMonthAmount === 0) {
+    percentageChange = 0;
+  }
+
+  // Determine trend arrow
+  if (percentageChange > 0) trend = 'up';
+  if (percentageChange < 0) trend = 'down';
+
+  return {
+    totalDeposits: Number(totalDeposits.toFixed(2)),
+    metrics: {
+      currentMonth: Number(currentMonthAmount.toFixed(2)),
+      lastMonth: Number(lastMonthAmount.toFixed(2)),
+      percentage: Number(Math.abs(percentageChange).toFixed(1)),
+      trend,
+    },
+  };
+};
+
 export const BalanceService = {
   getOrCreateBalance,
   addDonationFunds,
   getBalanceSummary,
   getTransactionHistory,
   deductRefund,
+  getDashboardAnalytics,
 };

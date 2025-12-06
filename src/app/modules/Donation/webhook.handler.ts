@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable no-console */
 import { Response } from 'express';
 import { Stripe } from 'stripe';
@@ -15,7 +16,6 @@ import { Receipt } from '../Receipt/receipt.model';
 import { pointsServices } from '../Points/points.service';
 import { badgeService } from '../badge/badge.service';
 import { BalanceService } from '../Balance/balance.service';
-import { Logger } from '../../utils/logger';
 
 // ... (calculateNextDonationDate helper remains same)
 const calculateNextDonationDate = (
@@ -349,7 +349,7 @@ const handlePaymentIntentSucceeded = async (
       // ✅ FIX: Explicitly cast totalAmount to number to satisfy TS
       await BalanceService.addDonationFunds(
         orgId,
-        donation?._id?.toString()!,
+        donation?._id?.toString(),
         donation?.donationType
       );
       console.log(`✅ Funds added to ledger for Org: ${orgId}`);
@@ -376,7 +376,7 @@ const handlePaymentIntentSucceeded = async (
     try {
       await badgeService.checkAndUpdateBadgesForDonation(
         donation.donor._id,
-        donation._id?.toString()!
+        donation._id?.toString()
       );
     } catch (err) {
       console.error(`Badge checking failed:`, err);
@@ -478,7 +478,7 @@ const handlePaymentIntentCanceled = async (
 ) => {
   const { metadata } = paymentIntent;
   try {
-    let donation = await Donation.findOneAndUpdate(
+    const donation = await Donation.findOneAndUpdate(
       {
         stripePaymentIntentId: paymentIntent.id,
         status: { $in: ['pending', 'processing'] },
@@ -503,8 +503,6 @@ const handlePaymentIntentCanceled = async (
 // Handle charge.refunded
 const handleChargeRefunded = async (charge: Stripe.Charge) => {
   const paymentIntentId = charge.payment_intent as string;
-  // ✅ FIX: Cast amountRefunded to number
-  const amountRefunded = Number(charge.amount_refunded / 100);
 
   if (!paymentIntentId) return;
 
@@ -525,7 +523,7 @@ const handleChargeRefunded = async (charge: Stripe.Charge) => {
           donation.organization.toString();
 
         // ✅ FIX: Pass explicit number
-        await BalanceService.deductRefund(orgId, donation?._id?.toString()!);
+        await BalanceService.deductRefund(orgId, donation?._id?.toString());
         console.log(`✅ Refund deducted from ledger for Org: ${orgId}`);
       } catch (err: any) {
         console.error(`❌ Failed to update ledger for refund:`, err.message);

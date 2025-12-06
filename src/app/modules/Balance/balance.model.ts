@@ -88,6 +88,7 @@ const balanceTransactionSchema = new Schema<IBalanceTransactionModel>(
         'payout_reserved',
         'payout_completed',
         'payout_failed',
+        'payout_cancelled',
         'platform_fee',
         'tax_deducted',
         'refund_issued',
@@ -136,7 +137,11 @@ const balanceTransactionSchema = new Schema<IBalanceTransactionModel>(
 
 // Compound Indexes for filtering
 balanceTransactionSchema.index({ organization: 1, createdAt: -1 });
-balanceTransactionSchema.index({ organization: 1, donationType: 1, createdAt: -1 });
+balanceTransactionSchema.index({
+  organization: 1,
+  donationType: 1,
+  createdAt: -1,
+});
 balanceTransactionSchema.index({ organization: 1, category: 1, createdAt: -1 });
 
 export const BalanceTransaction = model<IBalanceTransactionModel>(

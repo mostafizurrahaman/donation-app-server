@@ -25,4 +25,10 @@ router.post('/manual-balance-clear', (req, res) => {
   res.status(200).send({ message: 'Balance clearing job triggered' });
 });
 
+router.get(
+  '/dashboard-stats',
+  auth(ROLE.ORGANIZATION, ROLE.ADMIN),
+  BalanceController.getDashboardStats
+);
+
 export const BalanceRoutes = router;
