@@ -17,7 +17,8 @@ const JOB_NAME = 'balance-clearing';
  */
 export const startBalanceClearingCron = () => {
   // Run every day at midnight (00:00)
-  const schedule = '0 0 * * *';
+  const schedule = '0 0 * * *'; // production
+  // const schedule = '*/1 * * * *'; // while test
 
   cronJobTracker.registerJob(JOB_NAME, schedule);
   cronJobTracker.setJobStatus(JOB_NAME, true);
