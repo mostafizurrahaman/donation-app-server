@@ -68,7 +68,7 @@ export const startPayoutProcessingCron = () => {
             org.stripeConnectAccountId,
             payout.netAmount,
             payout.currency,
-            { payoutId: payout?._id?.toString() }
+            { payoutId: payout?._id?.toString() as string }
           );
 
           // 4. Mark as COMPLETED
