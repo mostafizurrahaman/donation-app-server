@@ -67,10 +67,8 @@ const processMonthlyDonation = catchAsync(
 // Manual cron test endpoint for testing RoundUp processing
 const testRoundUpProcessingCron = catchAsync(
   async (req: Request, res: Response) => {
-    const { userId } = req.body;
-
     try {
-      const result = await manualTriggerRoundUpProcessing(userId);
+      const result = await manualTriggerRoundUpProcessing();
 
       return sendResponse(res, 200, {
         success: result.success,
