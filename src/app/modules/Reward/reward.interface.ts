@@ -87,7 +87,12 @@ export interface IRewardRedemption {
   cancelledAt?: Date;
 
   assignedCode?: string;
+
+  // Method used to finalize the redemption
   redemptionMethod?: string;
+
+  // List of allowed methods for this specific claim snapshot
+  availableRedemptionMethods: string[];
 
   qrCode?: string;
   qrCodeUrl?: string;
@@ -203,11 +208,14 @@ export interface IClaimRewardPayload {
   userId: string;
 }
 
+// ✅ UPDATED: Supports redemption via ID or Code directly
 export interface IRedeemRewardPayload {
-  redemptionId: string;
+  redemptionId?: string; // Optional if code is provided
+  code?: string; // Optional if redemptionId is provided
   staffId?: string;
   location?: string;
   notes?: string;
+  method: string;
 }
 
 export interface ICancelClaimPayload {
@@ -271,17 +279,19 @@ export interface IClaimResult {
 }
 
 export interface IRewardsListResult {
-  rewards: Array<
+  data: Array<
     IReward & {
       isAvailable: boolean;
       userCanAfford?: boolean;
       claimStatus?: string;
     }
   >;
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
+  meta: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPage: number;
+  };
 }
 
 export interface IRewardStatistics {

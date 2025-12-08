@@ -27,10 +27,14 @@ import Client from '../Client/client.model';
 // CREATE TRANSACTION
 // =======================
 export const createPointsTransaction = async (
-  payload: ICreatePointsTransactionPayload
+  payload: ICreatePointsTransactionPayload,
+  externalSession?: ClientSession // ✅ Accept optional session
 ): Promise<IPointsTransactionResult> => {
-  const session: ClientSession = await PointsTransaction.startSession();
-  session.startTransaction();
+  const session = externalSession || (await PointsTransaction.startSession());
+  // Only start transaction if we created the session
+  if (!externalSession) {
+    session.startTransaction();
+  }
 
   try {
     const userId = new Types.ObjectId(payload.userId);
@@ -90,6 +94,7 @@ export const createPointsTransaction = async (
     }
 
     const newBalanceAmount = balanceDoc.currentBalance + balanceChange;
+    // Safety check for negative balance
     if (newBalanceAmount < 0) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
@@ -135,7 +140,10 @@ export const createPointsTransaction = async (
       { session }
     );
 
-    await session.commitTransaction();
+    // Only commit if we started the session
+    if (!externalSession) {
+      await session.commitTransaction();
+    }
 
     return {
       transaction: transactionDoc,
@@ -146,10 +154,16 @@ export const createPointsTransaction = async (
       },
     };
   } catch (error) {
-    await session.abortTransaction();
+    // Only abort if we started the session
+    if (!externalSession) {
+      await session.abortTransaction();
+    }
     throw error;
   } finally {
-    session.endSession();
+    // Only end session if we started it
+    if (!externalSession) {
+      session.endSession();
+    }
   }
 };
 
@@ -159,20 +173,24 @@ export const createPointsTransaction = async (
 export const awardPointsForDonation = async (
   userId: Types.ObjectId | string,
   donationId: Types.ObjectId | string,
-  donationAmount: number
+  donationAmount: number,
+  session?: ClientSession // ✅ Added session
 ): Promise<IPointsTransactionResult> => {
   const points = Math.floor(donationAmount * POINTS_PER_DOLLAR);
-  return createPointsTransaction({
-    userId,
-    transactionType: TRANSACTION_TYPE.EARNED,
-    amount: points,
-    source: POINTS_SOURCE.DONATION,
-    donationId,
-    description: `${
-      TRANSACTION_DESCRIPTIONS.DONATION_EARNED
-    } - $${donationAmount.toFixed(2)}`,
-    metadata: { donationAmount, conversionRate: POINTS_PER_DOLLAR },
-  });
+  return createPointsTransaction(
+    {
+      userId,
+      transactionType: TRANSACTION_TYPE.EARNED,
+      amount: points,
+      source: POINTS_SOURCE.DONATION,
+      donationId,
+      description: `${
+        TRANSACTION_DESCRIPTIONS.DONATION_EARNED
+      } - $${donationAmount.toFixed(2)}`,
+      metadata: { donationAmount, conversionRate: POINTS_PER_DOLLAR },
+    },
+    session
+  );
 };
 
 // =======================
@@ -184,17 +202,21 @@ export const deductPoints = async (
   source: string,
   rewardRedemptionId?: Types.ObjectId | string,
   description?: string,
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown>,
+  session?: ClientSession // ✅ Added session
 ): Promise<IPointsTransactionResult> => {
-  return createPointsTransaction({
-    userId,
-    transactionType: TRANSACTION_TYPE.SPENT,
-    amount,
-    source: source as any,
-    rewardRedemptionId,
-    description: description || TRANSACTION_DESCRIPTIONS.REWARD_REDEEMED,
-    metadata,
-  });
+  return createPointsTransaction(
+    {
+      userId,
+      transactionType: TRANSACTION_TYPE.SPENT,
+      amount,
+      source: source as any,
+      rewardRedemptionId,
+      description: description || TRANSACTION_DESCRIPTIONS.REWARD_REDEEMED,
+      metadata,
+    },
+    session
+  );
 };
 
 // =======================
@@ -206,17 +228,21 @@ export const refundPoints = async (
   source: string,
   reason: string,
   rewardRedemptionId?: Types.ObjectId | string,
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown>,
+  session?: ClientSession // ✅ Added session
 ): Promise<IPointsTransactionResult> => {
-  return createPointsTransaction({
-    userId,
-    transactionType: TRANSACTION_TYPE.REFUNDED,
-    amount,
-    source: source as any,
-    rewardRedemptionId,
-    description: reason,
-    metadata,
-  });
+  return createPointsTransaction(
+    {
+      userId,
+      transactionType: TRANSACTION_TYPE.REFUNDED,
+      amount,
+      source: source as any,
+      rewardRedemptionId,
+      description: reason,
+      metadata,
+    },
+    session
+  );
 };
 
 // =======================
@@ -227,17 +253,21 @@ export const adjustPoints = async (
   amount: number,
   reason: string,
   adjustedBy: Types.ObjectId | string,
-  description?: string
+  description?: string,
+  session?: ClientSession // ✅ Added session
 ): Promise<IPointsTransactionResult> => {
-  return createPointsTransaction({
-    userId,
-    transactionType: TRANSACTION_TYPE.ADJUSTED,
-    amount,
-    source: POINTS_SOURCE.ADMIN_ADJUSTMENT,
-    adjustmentReason: reason,
-    adjustedBy,
-    description: description || TRANSACTION_DESCRIPTIONS.ADMIN_ADJUSTED,
-  });
+  return createPointsTransaction(
+    {
+      userId,
+      transactionType: TRANSACTION_TYPE.ADJUSTED,
+      amount,
+      source: POINTS_SOURCE.ADMIN_ADJUSTMENT,
+      adjustmentReason: reason,
+      adjustedBy,
+      description: description || TRANSACTION_DESCRIPTIONS.ADMIN_ADJUSTED,
+    },
+    session
+  );
 };
 
 // =======================
@@ -400,8 +430,8 @@ export const getPointsStatistics = async (
       .select('user lifetimePoints currentTier')
       .populate({
         path: 'user',
-        select: 'name image email', // Add any fields you want
-        model: 'Client', // or whatever your user model is called
+        select: 'name image email',
+        model: 'Client',
       })
       .lean(),
     PointsBalance.countDocuments(),

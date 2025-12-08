@@ -9,6 +9,7 @@ import {
   MAX_REDEMPTION_LIMIT,
   MAX_TITLE_LENGTH,
   MAX_DESCRIPTION_LENGTH,
+  REDEMPTION_METHOD_VALUES,
 } from './reward.constant';
 
 // Helper schemas
@@ -220,15 +221,35 @@ export const cancelClaimedRewardSchema = z.object({
   }),
 });
 
-// Redeem reward schema
+// Redeem reward schema (Single Endpoint supports both ID and Code)
 export const redeemRewardSchema = z.object({
-  params: z.object({
-    redemptionId: z.string().min(1, 'Redemption ID is required'),
-  }),
-  body: z.object({
-    location: z.string().max(200).optional(),
-    notes: z.string().max(500).optional(),
-  }),
+  body: z
+    .object({
+      redemptionId: z.string().optional(), // ID from QR
+      code: z.string({
+        error: 'Code must be a valid string',
+      }), // Static code
+      location: z.string().max(200).optional(),
+      notes: z.string().max(500).optional(),
+      method: z.enum(REDEMPTION_METHOD_VALUES as [string, ...string[]], {
+        error: 'Invalid redemption method provided',
+      }),
+    })
+    .refine((data) => data.redemptionId || data.code, {
+      message: "Either 'redemptionId' or 'code' is required",
+    }),
+});
+
+// Verify redemption schema (Optional Pre-Check)
+export const verifyRedemptionSchema = z.object({
+  body: z
+    .object({
+      code: z.string().optional(),
+      redemptionId: z.string().optional(),
+    })
+    .refine((data) => data.code || data.redemptionId, {
+      message: "Either 'code' or 'redemptionId' must be provided",
+    }),
 });
 
 // Get user claimed rewards schema
@@ -252,17 +273,6 @@ export const getClaimedRewardByIdSchema = z.object({
   }),
 });
 
-// Verify redemption schema (for QR code scanning)
-export const verifyRedemptionSchema = z.object({
-  params: z.object({
-    redemptionId: z.string().min(1, 'Redemption ID is required'),
-  }),
-  body: z.object({
-    qrCode: z.string().optional(),
-    verificationCode: z.string().optional(),
-  }),
-});
-
 // Export validation object
 export const rewardValidation = {
   createRewardSchema,
@@ -280,5 +290,5 @@ export const rewardValidation = {
   redeemRewardSchema,
   getUserClaimedRewardsSchema,
   getClaimedRewardByIdSchema,
-  verifyRedemptionSchema, // Added missing schema
+  verifyRedemptionSchema,
 };

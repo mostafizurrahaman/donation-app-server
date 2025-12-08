@@ -2,15 +2,12 @@
 
 import { Request, Response } from 'express';
 import httpStatus from 'http-status';
-import { Types } from 'mongoose';
-
 import { rewardService } from './reward.service';
 import { REWARD_MESSAGES } from './reward.constant';
 import { AppError, asyncHandler, sendResponse } from '../../utils';
 import { ExtendedRequest } from '../../types';
-import { RewardRedemption } from '../RewardRedeemtion/rewardRedemption.model';
-import { Reward } from './reward.model';
 import { runRewardMaintenanceManual } from '../../jobs/updateRewardsStatus.job';
+import Client from '../Client/client.model';
 
 // Type for multer files object
 interface MulterFiles {
@@ -87,8 +84,7 @@ const updateRewardImage = asyncHandler(
 
     const reward = await rewardService.updateRewardImage(
       req.params.id,
-      req.file,
-      userId
+      req.file
     );
 
     sendResponse(res, {
@@ -122,13 +118,8 @@ const getRewards = asyncHandler(async (req: Request, res: Response) => {
   sendResponse(res, {
     statusCode: httpStatus.OK,
     message: 'Rewards retrieved successfully',
-    data: result.rewards,
-    meta: {
-      total: result.total,
-      page: result.page,
-      limit: result.limit,
-      totalPage: result.totalPages,
-    },
+    data: result.data,
+    meta: result.meta,
   });
 });
 
@@ -144,12 +135,12 @@ const getFeaturedRewards = asyncHandler(async (req: Request, res: Response) => {
   sendResponse(res, {
     statusCode: httpStatus.OK,
     message: 'Featured rewards retrieved successfully',
-    data: result.rewards,
+    data: result.data,
     meta: {
-      total: result.total,
-      page: result.page,
-      limit: result.limit,
-      totalPage: result.totalPages,
+      total: result.meta.total,
+      page: result.meta.page,
+      limit: result.meta.limit,
+      totalPage: result.meta.totalPage,
     },
   });
 });
@@ -167,12 +158,12 @@ const getRewardsByBusiness = asyncHandler(
     sendResponse(res, {
       statusCode: httpStatus.OK,
       message: 'Business rewards retrieved successfully',
-      data: result.rewards,
+      data: result.data,
       meta: {
-        total: result.total,
-        page: result.page,
-        limit: result.limit,
-        totalPage: result.totalPages,
+        total: result.meta.total,
+        page: result.meta.page,
+        limit: result.meta.limit,
+        totalPage: result.meta.totalPage,
       },
     });
   }
@@ -322,22 +313,21 @@ const cancelClaimedReward = asyncHandler(
 );
 
 /**
- * Redeem a claimed reward (mark as used)
+ * Redeem a claimed reward (mark as used - Final Step)
  */
 const redeemReward = asyncHandler(
   async (req: ExtendedRequest, res: Response) => {
     const staffId = req.user?._id?.toString();
 
-
-    const { location, notes } = req.body;
-
-
+    const { redemptionId, code, location, notes, method } = req.body;
 
     const result = await rewardService.redeemReward({
-      redemptionId: req.params.redemptionId,
+      redemptionId, // Can be from params OR body
+      code, // Can be from body
       staffId,
       location,
       notes,
+      method,
     });
 
     sendResponse(res, {
@@ -359,13 +349,22 @@ const getUserClaimedRewards = asyncHandler(
       throw new AppError(httpStatus.UNAUTHORIZED, 'User not authenticated');
     }
 
+    const client = await Client.findOne({ auth: userId });
+
+    if (!client) {
+      throw new AppError(httpStatus.NOT_FOUND, 'Client not found');
+    }
+
     const { includeExpired, page, limit } = req.query;
 
-    const result = await rewardService.getUserClaimedRewards(userId, {
-      includeExpired: includeExpired === 'true',
-      page: page ? Number(page) : 1,
-      limit: limit ? Number(limit) : 20,
-    });
+    const result = await rewardService.getUserClaimedRewards(
+      client?._id?.toString(),
+      {
+        includeExpired: includeExpired === 'true',
+        page: page ? Number(page) : 1,
+        limit: limit ? Number(limit) : 20,
+      }
+    );
 
     sendResponse(res, {
       statusCode: httpStatus.OK,
@@ -392,9 +391,15 @@ const getClaimedRewardById = asyncHandler(
       throw new AppError(httpStatus.UNAUTHORIZED, 'User not authenticated');
     }
 
+    const client = await Client.findOne({ auth: userId });
+
+    if (!client) {
+      throw new AppError(httpStatus.NOT_FOUND, 'Client not found');
+    }
+
     const redemption = await rewardService.getClaimedRewardById(
       req.params.redemptionId,
-      userId
+      client?._id?.toString()
     );
 
     sendResponse(res, {
@@ -406,7 +411,8 @@ const getClaimedRewardById = asyncHandler(
 );
 
 /**
- * Verify redemption by code or QR (only creator business can validate)
+ * Verify redemption by code or QR (only business can validate)
+ * This is Step 1 of redemption (Scanning)
  */
 const verifyRedemption = asyncHandler(
   async (req: ExtendedRequest, res: Response) => {
@@ -417,53 +423,16 @@ const verifyRedemption = asyncHandler(
       throw new AppError(httpStatus.UNAUTHORIZED, 'Business not authenticated');
     }
 
-    // Find by code or redemptionId
-    let redemption;
-    if (code) {
-      redemption = await RewardRedemption.findOne({
-        assignedCode: code,
-        status: 'claimed',
-      }).populate(['reward', 'business', 'user']);
-    } else if (redemptionId) {
-      redemption = await RewardRedemption.findOne({
-        _id: redemptionId,
-        status: 'claimed',
-      }).populate(['reward', 'business', 'user']);
-    }
-
-    if (!redemption) {
-      throw new AppError(
-        httpStatus.NOT_FOUND,
-        REWARD_MESSAGES.REDEMPTION_NOT_FOUND
-      );
-    }
-
-    // Check if expired
-    if (new Date() > redemption.expiresAt) {
-      throw new AppError(httpStatus.GONE, REWARD_MESSAGES.CLAIM_EXPIRED);
-    }
-
-    // Verify that only the creator business can validate their own rewards
-    const reward = await Reward.findById(redemption.reward._id);
-    if (reward && !reward.isCreatorBusiness(new Types.ObjectId(staffBusinessId))) {
-      throw new AppError(
-        httpStatus.FORBIDDEN,
-        'Only the creator business can validate their own reward codes'
-      );
-    }
+    const result = await rewardService.verifyRedemption(
+      staffBusinessId,
+      code,
+      redemptionId
+    );
 
     sendResponse(res, {
       statusCode: httpStatus.OK,
       message: 'Redemption verified successfully',
-      data: {
-        redemptionId: redemption._id,
-        user: redemption.user,
-        reward: redemption.reward,
-        status: redemption.status,
-        assignedCode: redemption.assignedCode,
-        claimedAt: redemption.claimedAt,
-        expiresAt: redemption.expiresAt,
-      },
+      data: result,
     });
   }
 );
@@ -477,7 +446,7 @@ const triggerRewardMaintenance = asyncHandler(
 
     try {
       const result = await runRewardMaintenanceManual();
-      
+
       sendResponse(res, {
         statusCode: httpStatus.OK,
         message: 'Reward maintenance job completed successfully',

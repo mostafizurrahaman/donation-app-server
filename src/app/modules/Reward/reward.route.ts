@@ -12,11 +12,14 @@ import { upload, uploadForParsing } from '../../lib/upload';
 
 const router = express.Router();
 
-// ====== PUBLIC ROUTES ======
+// ==========================================
+// PUBLIC / GENERAL ROUTES
+// ==========================================
+
 // Get featured rewards
 router.get('/featured', RewardController.getFeaturedRewards);
 
-// Get all rewards with filters
+// Get all rewards with filters (search, category, type)
 router.get(
   '/',
   validateRequest(rewardValidation.getRewardsSchema),
@@ -30,22 +33,25 @@ router.get(
   RewardController.getRewardById
 );
 
-// Check reward availability
+// Check if a reward is available for a specific user
 router.get(
   '/:id/availability',
   validateRequest(rewardValidation.checkAvailabilitySchema),
   RewardController.checkAvailability
 );
 
-// Get rewards by business
+// Get rewards belonging to a specific business
 router.get(
   '/business/:businessId',
   validateRequest(rewardValidation.getRewardsByBusinessSchema),
   RewardController.getRewardsByBusiness
 );
 
-// ====== CLIENT ROUTES (Authenticated Users) ======
-// Claim a reward (DEDUCTS POINTS)
+// ==========================================
+// CLIENT ROUTES (User Actions)
+// ==========================================
+
+// Claim a reward (Deducts Points)
 router.post(
   '/:id/claim',
   auth(ROLE.CLIENT),
@@ -53,7 +59,7 @@ router.post(
   RewardController.claimReward
 );
 
-// Get user's claimed rewards
+// Get currently logged-in user's claimed rewards
 router.get(
   '/my/claimed',
   auth(ROLE.CLIENT),
@@ -61,7 +67,7 @@ router.get(
   RewardController.getUserClaimedRewards
 );
 
-// Get specific claimed reward details
+// Get details of a specific claimed reward (Redemption Ticket)
 router.get(
   '/redemption/:redemptionId',
   auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ADMIN),
@@ -69,7 +75,7 @@ router.get(
   RewardController.getClaimedRewardById
 );
 
-// Cancel claimed reward (REFUNDS POINTS)
+// Cancel a claimed reward (Refunds Points) - Only if not yet redeemed
 router.post(
   '/redemption/:redemptionId/cancel',
   auth(ROLE.CLIENT),
@@ -77,8 +83,19 @@ router.post(
   RewardController.cancelClaimedReward
 );
 
-// ====== BUSINESS/STAFF ROUTES ======
-// Mark reward as redeemed (used at store)
+// ==========================================
+// BUSINESS ROUTES (Redemption & Management)
+// ==========================================
+
+// 1. Verify a redemption code/QR before redeeming (Scanner Step)
+router.post(
+  '/redemption/verify',
+  auth(ROLE.BUSINESS, ROLE.ADMIN),
+  validateRequest(rewardValidation.verifyRedemptionSchema),
+  RewardController.verifyRedemption
+);
+
+// 2. Mark reward as REDEEMED (Final Step)
 router.post(
   '/redemption/:redemptionId/redeem',
   auth(ROLE.BUSINESS, ROLE.ADMIN),
@@ -86,26 +103,25 @@ router.post(
   RewardController.redeemReward
 );
 
-// ====== BUSINESS ADMIN ROUTES ======
-// Create a new reward with image and codes file(s) upload
+// Create a new reward
 router.post(
   '/',
   auth(ROLE.BUSINESS, ROLE.ADMIN),
   upload.fields([
     { name: 'rewardImage', maxCount: 1 },
-    { name: 'codesFiles', maxCount: 10 }, // Multiple code files for online rewards
+    { name: 'codesFiles', maxCount: 10 },
   ]),
   validateRequestFromFormData(rewardValidation.createRewardSchema),
   RewardController.createReward
 );
 
-// Update a reward with optional image upload
+// Update a reward
 router.patch(
   '/:id',
   auth(ROLE.BUSINESS, ROLE.ADMIN),
   upload.fields([
     { name: 'rewardImage', maxCount: 1 },
-    { name: 'codesFiles', maxCount: 10 }, // Multiple code files for online rewards
+    { name: 'codesFiles', maxCount: 10 },
   ]),
   validateRequestFromFormData(rewardValidation.updateRewardSchema),
   RewardController.updateReward
@@ -119,7 +135,7 @@ router.patch(
   RewardController.updateRewardImage
 );
 
-// Delete reward (soft delete)
+// Delete reward (Soft Delete)
 router.delete(
   '/:id',
   auth(ROLE.BUSINESS, ROLE.ADMIN),
@@ -127,17 +143,16 @@ router.delete(
   RewardController.deleteReward
 );
 
-// Upload codes to existing reward (CSV/XLSX parsing) - supports multiple files
+// Upload codes CSV/XLSX to existing reward
 router.post(
   '/:id/codes',
   auth(ROLE.BUSINESS, ROLE.ADMIN),
-  uploadForParsing.array('files', 10), // Multiple code files
+  uploadForParsing.array('files', 10),
   validateRequest(rewardValidation.uploadCodesSchema),
   RewardController.uploadCodes
 );
 
-// ====== ANALYTICS ROUTES ======
-// Get reward statistics
+// Get analytics/stats for rewards
 router.get(
   '/analytics/stats',
   auth(ROLE.BUSINESS, ROLE.ADMIN),
@@ -145,13 +160,23 @@ router.get(
   RewardController.getRewardStats
 );
 
-// ====== ADMIN ONLY ROUTES ======
-// Archive reward (permanent delete)
+// ==========================================
+// ADMIN ROUTES
+// ==========================================
+
+// Archive reward (Hard/Permanent Delete)
 router.delete(
   '/:id/archive',
   auth(ROLE.ADMIN),
   validateRequest(rewardValidation.deleteRewardSchema),
   RewardController.archiveReward
+);
+
+// Manual Trigger for Maintenance Job
+router.post(
+  '/maintenance/trigger',
+  auth(ROLE.ADMIN),
+  RewardController.triggerRewardMaintenance
 );
 
 export const RewardRoutes = router;
