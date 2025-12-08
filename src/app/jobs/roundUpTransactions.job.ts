@@ -397,9 +397,10 @@ export const startRoundUpProcessingCron = () => {
 };
 
 // Manual trigger
-export const manualTriggerRoundUpProcessing = async (
-  _userId?: string
-): Promise<{ success: boolean; data?: Record<string, unknown> }> => {
+export const manualTriggerRoundUpProcessing = async (): Promise<{
+  success: boolean;
+  data?: Record<string, unknown>;
+}> => {
   console.log('\n🔧 Manual RoundUp Sync Triggered...');
   if (isProcessing) {
     console.log('⏭️ Manual trigger skipped — already processing.');
@@ -410,7 +411,6 @@ export const manualTriggerRoundUpProcessing = async (
   }
 
   isProcessing = true;
-  const startTime = Date.now();
   cronJobTracker.startExecution(JOB_NAME);
 
   try {
