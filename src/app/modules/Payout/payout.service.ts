@@ -8,6 +8,7 @@ import {
 import { AppError } from '../../utils';
 import httpStatus from 'http-status';
 import { PAYOUT_STATUS } from './payout.constant';
+import QueryBuilder from '../../builders/QueryBuilder';
 
 /**
  * Generate unique payout number (e.g., PO-20241201-RAND)
@@ -331,16 +332,35 @@ const cancelPayout = async (
 /**
  * Get All Payouts (for Org Dashboard)
  */
+
 const getAllPayouts = async (
   organizationId: string,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   query: Record<string, unknown>
 ) => {
-  // Use QueryBuilder pattern here (simplified for brevity)
-  const payouts = await Payout.find({ organization: organizationId })
-    .sort({ createdAt: -1 })
-    .populate('requestedBy', 'name email');
-  return payouts;
+  // Base query (always filter by org)
+  const payoutQuery = Payout.find({ organization: organizationId });
+
+  // Initialize QueryBuilder
+  const payoutBuilder = new QueryBuilder(payoutQuery, query)
+    .search(['payoutNumber']) // optional search
+    .filter() // status, payoutMethod, etc.
+    .sort() // handles "-createdAt", "-requestedAmount", etc.
+    .paginate() // page + limit
+    .fields(); // field selection if provided
+
+  // Execute main query
+  const payouts = await payoutBuilder.modelQuery.populate(
+    'requestedBy',
+    'name email'
+  );
+
+  // Count totals for pagination
+  const meta = await payoutBuilder.countTotal();
+
+  return {
+    meta,
+    data: payouts,
+  };
 };
 
 export const PayoutService = {

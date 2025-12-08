@@ -54,7 +54,7 @@ export const rewardMaintenanceJob = cron.schedule(
  * Manual trigger for reward maintenance (used for testing/one-time execution)
  */
 export const runRewardMaintenanceManual = async () => {
-  console.log('🔧 Manually triggering reward maintenance...');
+           
   const startTime = Date.now();
 
   try {
