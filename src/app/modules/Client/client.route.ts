@@ -12,5 +12,10 @@ router.get(
   auth(ROLE.CLIENT),
   clientController.getRoundupStats
 );
+router.get(
+  '/onetime-stats',
+  auth(ROLE.CLIENT),
+  clientController.getOnetimeDonationStats
+);
 
 export const clientRoutes = router;

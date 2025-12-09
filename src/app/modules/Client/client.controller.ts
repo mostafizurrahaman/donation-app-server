@@ -19,6 +19,25 @@ const getRoundupStats = asyncHandler(async (req: Request, res: Response) => {
   });
 });
 
+const getOnetimeDonationStats = asyncHandler(
+  async (req: Request, res: Response) => {
+    const userId = req.user._id?.toString();
+
+    if (!userId) {
+      throw new AppError(httpStatus.NOT_FOUND, 'User not found!');
+    }
+
+    const result = await clientService.getOnetimeDonationStats(userId);
+
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      message: 'One time donation stats fetched successfully!',
+      data: result,
+    });
+  }
+);
+
 export const clientController = {
   getRoundupStats,
+  getOnetimeDonationStats,
 };
