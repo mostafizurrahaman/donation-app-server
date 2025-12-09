@@ -4,6 +4,7 @@ import httpStatus from 'http-status';
 import { PayoutService } from './payout.service';
 import Organization from '../Organization/organization.model';
 import { ROLE } from '../Auth/auth.constant';
+import { Date } from 'mongoose';
 
 const requestPayout = asyncHandler(async (req: Request, res: Response) => {
   const userId = req.user?.id;
@@ -78,8 +79,25 @@ const getPayouts = asyncHandler(async (req: Request, res: Response) => {
   });
 });
 
+const getOrganizationNextPayoutDate = asyncHandler(
+  async (req: Request, res: Response) => {
+    const userId = req.user?.id;
+
+    const payoutDate = await PayoutService.getOrganizationNextPayoutDate(
+      userId!
+    );
+
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      message: 'Next scheduled payout date retrieved successfully',
+      data: { nextPayoutDate: payoutDate },
+    });
+  }
+);
+
 export const PayoutController = {
   requestPayout,
   cancelPayout,
   getPayouts,
+  getOrganizationNextPayoutDate,
 };
