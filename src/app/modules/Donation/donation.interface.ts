@@ -281,6 +281,7 @@ export interface IClientDonationStats {
     amount: number;
     type: string;
   }>;
+  uniqueDonationDates: string[];
   upcomingDonations: Array<{
     _id: string;
     amount: number;

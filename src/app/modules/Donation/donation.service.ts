@@ -43,6 +43,8 @@ import {
   REFUND_WINDOW_DAYS,
 } from './donation.constant';
 import { ScheduledDonation } from '../ScheduledDonation/scheduledDonation.model';
+import { RoundUpModel } from '../RoundUp/roundUp.model';
+import { IORGANIZATION } from '../Organization/organization.interface';
 
 // Helper function to generate unique idempotency key
 const generateIdempotencyKey = (): string => {
@@ -1486,7 +1488,7 @@ const getClientStats = async (
     current: { startDate: start, endDate: end },
   } = getDateRanges(timeFilter);
 
-  // 3. Aggregate Donations
+  // 3. Aggregate Donations using $facet for parallel processing
   const stats = await Donation.aggregate([
     {
       $match: {
@@ -1496,38 +1498,71 @@ const getClientStats = async (
       },
     },
     {
-      $group: {
-        _id: null,
-        totalAmount: { $sum: '$amount' }, // Using base amount (tax deductible)
-        count: { $sum: 1 },
-        roundUpAmount: {
-          $sum: {
-            $cond: [{ $eq: ['$donationType', 'round-up'] }, '$amount', 0],
+      $facet: {
+        // Pipeline 1: Global Summary (Totals, counts, list of dates)
+        summary: [
+          {
+            $group: {
+              _id: null,
+              totalAmount: { $sum: '$amount' }, // Using base amount (tax deductible)
+              count: { $sum: 1 },
+              roundUpAmount: {
+                $sum: {
+                  $cond: [{ $eq: ['$donationType', 'round-up'] }, '$amount', 0],
+                },
+              },
+              recurringAmount: {
+                $sum: {
+                  $cond: [
+                    { $eq: ['$donationType', 'recurring'] },
+                    '$amount',
+                    0,
+                  ],
+                },
+              },
+              oneTimeAmount: {
+                $sum: {
+                  $cond: [{ $eq: ['$donationType', 'one-time'] }, '$amount', 0],
+                },
+              },
+              dates: { $push: '$donationDate' }, // For streak calc
+              donationList: {
+                $push: {
+                  date: '$donationDate',
+                  amount: '$amount',
+                  type: '$donationType',
+                },
+              },
+            },
           },
-        },
-        recurringAmount: {
-          $sum: {
-            $cond: [{ $eq: ['$donationType', 'recurring'] }, '$amount', 0],
+        ],
+        // Pipeline 2: Daily Aggregated Stats (For Charts)
+        dailyStats: [
+          {
+            $group: {
+              _id: {
+                $dateToString: { format: '%Y-%m-%d', date: '$donationDate' },
+              },
+              totalAmount: { $sum: '$amount' },
+              count: { $sum: 1 },
+            },
           },
-        },
-        oneTimeAmount: {
-          $sum: {
-            $cond: [{ $eq: ['$donationType', 'one-time'] }, '$amount', 0],
+          { $sort: { _id: 1 } }, // Sort by date ascending
+          {
+            $project: {
+              _id: 0,
+              date: '$_id',
+              totalAmount: { $round: ['$totalAmount', 2] },
+              count: 1,
+            },
           },
-        },
-        dates: { $push: '$donationDate' }, // For streak calc
-        donationList: {
-          $push: {
-            date: '$donationDate',
-            amount: '$amount',
-            type: '$donationType',
-          },
-        },
+        ],
       },
     },
   ]);
 
-  const result = stats[0] || {
+  // Extract results from facet
+  const result = stats[0].summary[0] || {
     totalAmount: 0,
     count: 0,
     roundUpAmount: 0,
@@ -1537,22 +1572,22 @@ const getClientStats = async (
     donationList: [],
   };
 
+  const dailyStats = stats[0].dailyStats || [];
+
   // 4. Calculate Streaks
-  // Note: Streaks are usually calculated based on ALL history, or just the range?
-  // Requirement implies "consistency within range" or general consistency.
-  // I will calculate streaks based on the *filtered* dates to match "consistency within top filter".
   const { maxStreak, currentStreak } = calculateStreaks(result.dates);
 
   // 5. Get Upcoming Donations (Scheduled)
-  // This is future data, so we don't filter by the past date range usually,
-  // but we filter for the *current* active schedules.
   const upcomingDonations = await ScheduledDonation.find({
     user: donor._id,
     isActive: true,
     nextDonationDate: { $gte: new Date() },
   })
     .populate('cause', 'name')
-    .populate('organization', 'name')
+    .populate(
+      'organization',
+      'name registeredCharityName logoImage coverImage country postalCode address state'
+    )
     .sort({ nextDonationDate: 1 })
     .limit(5)
     .lean();
@@ -1561,9 +1596,50 @@ const getClientStats = async (
     _id: sd._id.toString(),
     amount: sd.amount,
     nextDate: sd.nextDonationDate,
-    causeName: sd.cause?.name || 'Unknown Cause',
-    organizationName: sd.organization?.name || 'Unknown Organization',
+    causeName: sd.cause?.name,
+    organizationName: sd.organization?.name,
+    organizationLogo: sd.organization?.logoImage,
+    organizationCoverImage: sd.organization?.coverImage,
+    organizationRegisteredName: sd.organization?.registeredCharityName,
+    organizationCountry: sd.organization?.country,
+    organizationPostalCode: sd.organization?.postalCode,
+    organizationAddress: sd.organization?.address,
+    organizationState: sd.organization?.state,
   }));
+
+  // Active Roundup configs:
+  const activeRoundUp = await RoundUpModel.findOne({
+    user: userId,
+    isActive: true,
+    enabled: true,
+  }).populate('organization', 'name registeredCharityName ');
+
+  let roundUpStatusData: Record<string, unknown> = {
+    isEnabled: false,
+    organizationName: null,
+    registeredCharityName: null,
+    daysRemaining: null,
+    nextDate: null,
+  };
+
+  if (activeRoundUp) {
+    const now = new Date();
+    // Calculate the 1st day of the NEXT month (Standard RoundUp Cycle)
+    const nextDonationDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+    // Calculate days remaining
+    const diffTime = nextDonationDate.getTime() - now.getTime();
+    const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    roundUpStatusData = {
+      isEnabled: true,
+      organizationName: (activeRoundUp?.organization as any)?.name,
+      registeredCharityName: (activeRoundUp?.organization as any)
+        ?.registeredCharityName,
+      daysRemaining: daysRemaining,
+      nextDate: nextDonationDate,
+    };
+  }
 
   // 6. Assemble Response
   return {
@@ -1576,13 +1652,29 @@ const getClientStats = async (
         ? Number((result.totalAmount / result.count).toFixed(2))
         : 0,
     maxConsistencyStreak: maxStreak,
-    currentStreak: currentStreak, // Often 0 if filter is 'last year' etc.
+    currentStreak: currentStreak,
+
+    // Detailed list sorted descending
     donationDates: result.donationList.sort(
       (a: any, b: any) =>
         new Date(b.date).getTime() - new Date(a.date).getTime()
-    ), // Descending
+    ),
+
+    // Unique dates set
+    uniqueDonationDates: Array.from(
+      new Set(
+        result.donationList.map(
+          (d: any) => new Date(d.date).toISOString().split('T')[0]
+        )
+      )
+    ).sort((a: any, b: any) => (a > b ? -1 : 1)),
+
+    // ✅ NEW: Daily aggregated stats
+    dailyStats: dailyStats,
+
     upcomingDonations: formattedUpcoming,
-  } as any; // Type casting to match strict interface if needed
+    roundUpStatusData,
+  } as any;
 };
 
 export const DonationService = {
