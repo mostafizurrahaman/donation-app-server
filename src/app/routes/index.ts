@@ -23,6 +23,7 @@ import { BadgeRoutes } from '../modules/badge/badge.route';
 import { BusinessRoutes } from '../modules/Business/business.routes';
 import { BalanceRoutes } from '../modules/Balance/balance.route';
 import { PayoutRoutes } from '../modules/Payout/payout.route';
+import { clientRoutes } from '../modules/Client/client.route';
 
 const router = Router();
 
@@ -35,10 +36,10 @@ const moduleRoutes = [
     path: '/admin',
     route: AdminRoutes,
   },
-  // {
-  //   path: '/client',
-  //   route: ClientRoutes,
-  // },
+  {
+    path: '/client',
+    route: clientRoutes,
+  },
   // {
   //   path: '/organization',
   //   route: OrganizationRoutes,
