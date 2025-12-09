@@ -9,6 +9,7 @@ import { AppError } from '../../utils';
 import httpStatus from 'http-status';
 import { PAYOUT_STATUS } from './payout.constant';
 import QueryBuilder from '../../builders/QueryBuilder';
+import { stripe } from '../../lib/stripeHelper';
 
 /**
  * Generate unique payout number (e.g., PO-20241201-RAND)
@@ -338,7 +339,10 @@ const getAllPayouts = async (
   query: Record<string, unknown>
 ) => {
   // Base query (always filter by org)
-  const payoutQuery = Payout.find({ organization: organizationId });
+  const payoutQuery = Payout.find({ organization: organizationId }).populate(
+    'organization',
+    'name stripeConnectAccountId'
+  );
 
   // Initialize QueryBuilder
   const payoutBuilder = new QueryBuilder(payoutQuery, query)
@@ -353,6 +357,14 @@ const getAllPayouts = async (
     'requestedBy',
     'name email'
   );
+
+  const stripeBankInfoMap = await Promise.all(
+    payouts.map(async (p) => {
+      return stripe.accounts.retrieve(p?.organization?.stripeConnectAccountId!);
+    })
+  );
+
+  console.log(stripeBankInfoMap, { depth: Infinity });
 
   // Count totals for pagination
   const meta = await payoutBuilder.countTotal();
