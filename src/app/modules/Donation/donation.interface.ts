@@ -245,6 +245,17 @@ export interface IDonationAnalytics {
   breakDownByCause: IOrganizationStatsResponse;
 }
 
+// Define the filter type for reuse
+export type TTimeFilter =
+  | 'today'
+  | 'yesterday'
+  | 'this_week'
+  | 'last_week'
+  | 'this_month'
+  | 'last_month'
+  | 'this_year'
+  | 'last_year';
+
 export interface MonthlyTrend {
   month: string;
   totalAmount: number;
@@ -255,4 +266,26 @@ export interface MonthlyTrend {
   oneTimeTotal: number;
   recurringTotal: number;
   roundUpTotal: number;
+}
+
+export interface IClientDonationStats {
+  roundUpAmount: number;
+  recurringAmount: number;
+  oneTimeAmount: number;
+  totalDonationAmount: number;
+  averageDonationAmount: number;
+  maxConsistencyStreak: number; // The "4 days" example you gave
+  currentStreak: number;
+  donationDates: Array<{
+    date: Date;
+    amount: number;
+    type: string;
+  }>;
+  upcomingDonations: Array<{
+    _id: string;
+    amount: number;
+    nextDate: Date;
+    causeName: string;
+    organizationName: string;
+  }>;
 }

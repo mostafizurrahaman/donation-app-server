@@ -14,6 +14,8 @@ import {
   IRecentDonor,
   ITopDonor,
   MonthlyTrend,
+  TTimeFilter,
+  IClientDonationStats,
 } from './donation.interface';
 import { TCreateOneTimeDonationPayload } from './donation.validation';
 import { AppError } from '../../utils';
@@ -28,6 +30,7 @@ import QueryBuilder from '../../builders/QueryBuilder';
 import {
   buildBaseQuery,
   calculatePercentageChange,
+  calculateStreaks,
   formatCurrency,
   getDateRanges,
 } from '../../lib/filter-helper';
@@ -39,6 +42,7 @@ import {
   monthAbbreviations,
   REFUND_WINDOW_DAYS,
 } from './donation.constant';
+import { ScheduledDonation } from '../ScheduledDonation/scheduledDonation.model';
 
 // Helper function to generate unique idempotency key
 const generateIdempotencyKey = (): string => {
@@ -1466,6 +1470,121 @@ const getOrganizationYearlyTrends = async (
   return monthlyTrends;
 };
 
+// Cient Dashboard Stats :
+const getClientStats = async (
+  userId: string,
+  timeFilter: TTimeFilter
+): Promise<IClientDonationStats> => {
+  // 1. Get User
+  const donor = await Client.findOne({ auth: userId });
+  if (!donor) {
+    throw new AppError(httpStatus.NOT_FOUND, 'Donor profile not found!');
+  }
+
+  // 2. Determine Date Range
+  const {
+    current: { startDate: start, endDate: end },
+  } = getDateRanges(timeFilter);
+
+  // 3. Aggregate Donations
+  const stats = await Donation.aggregate([
+    {
+      $match: {
+        donor: donor._id,
+        status: 'completed',
+        donationDate: { $gte: start, $lte: end },
+      },
+    },
+    {
+      $group: {
+        _id: null,
+        totalAmount: { $sum: '$amount' }, // Using base amount (tax deductible)
+        count: { $sum: 1 },
+        roundUpAmount: {
+          $sum: {
+            $cond: [{ $eq: ['$donationType', 'round-up'] }, '$amount', 0],
+          },
+        },
+        recurringAmount: {
+          $sum: {
+            $cond: [{ $eq: ['$donationType', 'recurring'] }, '$amount', 0],
+          },
+        },
+        oneTimeAmount: {
+          $sum: {
+            $cond: [{ $eq: ['$donationType', 'one-time'] }, '$amount', 0],
+          },
+        },
+        dates: { $push: '$donationDate' }, // For streak calc
+        donationList: {
+          $push: {
+            date: '$donationDate',
+            amount: '$amount',
+            type: '$donationType',
+          },
+        },
+      },
+    },
+  ]);
+
+  const result = stats[0] || {
+    totalAmount: 0,
+    count: 0,
+    roundUpAmount: 0,
+    recurringAmount: 0,
+    oneTimeAmount: 0,
+    dates: [],
+    donationList: [],
+  };
+
+  // 4. Calculate Streaks
+  // Note: Streaks are usually calculated based on ALL history, or just the range?
+  // Requirement implies "consistency within range" or general consistency.
+  // I will calculate streaks based on the *filtered* dates to match "consistency within top filter".
+  const { maxStreak, currentStreak } = calculateStreaks(result.dates);
+
+  // 5. Get Upcoming Donations (Scheduled)
+  // This is future data, so we don't filter by the past date range usually,
+  // but we filter for the *current* active schedules.
+  const upcomingDonations = await ScheduledDonation.find({
+    user: donor._id,
+    isActive: true,
+    nextDonationDate: { $gte: new Date() },
+  })
+    .populate('cause', 'name')
+    .populate('organization', 'name')
+    .sort({ nextDonationDate: 1 })
+    .limit(5)
+    .lean();
+
+  const formattedUpcoming = upcomingDonations.map((sd: any) => ({
+    _id: sd._id.toString(),
+    amount: sd.amount,
+    nextDate: sd.nextDonationDate,
+    causeName: sd.cause?.name || 'Unknown Cause',
+    organizationName: sd.organization?.name || 'Unknown Organization',
+  }));
+
+  // 6. Assemble Response
+  return {
+    roundUpAmount: Number(result.roundUpAmount.toFixed(2)),
+    recurringAmount: Number(result.recurringAmount.toFixed(2)),
+    oneTimeAmount: Number(result.oneTimeAmount.toFixed(2)),
+    totalDonationAmount: Number(result.totalAmount.toFixed(2)),
+    averageDonation:
+      result.count > 0
+        ? Number((result.totalAmount / result.count).toFixed(2))
+        : 0,
+    maxConsistencyStreak: maxStreak,
+    currentStreak: currentStreak, // Often 0 if filter is 'last year' etc.
+    donationDates: result.donationList.sort(
+      (a: any, b: any) =>
+        new Date(b.date).getTime() - new Date(a.date).getTime()
+    ), // Descending
+    upcomingDonations: formattedUpcoming,
+  } as any; // Type casting to match strict interface if needed
+};
+
 export const DonationService = {
   createOneTimeDonation,
   getDonationById,
@@ -1490,4 +1609,5 @@ export const DonationService = {
   getTopDonors,
   getRecentDonors,
   getOrganizationYearlyTrends,
+  getClientStats,
 };

@@ -8,6 +8,7 @@ import { TRetryFailedPaymentParams } from './donation.validation';
 import Client from '../Client/client.model';
 import { ROLE } from '../Auth/auth.constant';
 import { OrganizationModel } from '../Organization/organization.model';
+import { TTimeFilter } from './donation.interface';
 
 // 1. Create one-time donation with Payment Intent
 const createOneTimeDonation = asyncHandler(
@@ -439,6 +440,27 @@ const getOrganizationYearlyDonationTrends = asyncHandler(async (req, res) => {
   });
 });
 
+// 13. Get client stats
+const getClientStats = asyncHandler(
+  async (req: ExtendedRequest, res: Response) => {
+    const userId = req.user?._id.toString();
+    if (!userId) {
+      throw new AppError(httpStatus.UNAUTHORIZED, 'User not authenticated');
+    }
+
+    // Extract query from validated request or raw query
+    const timeFilter = (req.query.timeFilter as TTimeFilter) || 'this_month';
+
+    const stats = await DonationService.getClientStats(userId, timeFilter);
+
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      message: 'Client donation statistics retrieved successfully',
+      data: stats,
+    });
+  }
+);
+
 export const DonationController = {
   createOneTimeDonation,
 
@@ -457,4 +479,7 @@ export const DonationController = {
   // Analytics endpoint
   getDonationAnalyticsController,
   getOrganizationYearlyDonationTrends,
+
+  // Client Stats
+  getClientStats,
 };

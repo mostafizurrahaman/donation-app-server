@@ -465,6 +465,30 @@ const getOrganizationDonationYearlyTrends = z.object({
   }),
 });
 
+const getClientStatsSchema = z.object({
+  query: z.object({
+    timeFilter: z
+      .enum(
+        [
+          'today',
+          'yesterday',
+          'this_week',
+          'last_week',
+          'this_month',
+          'last_month',
+          'this_year',
+          'last_year',
+        ],
+        {
+          message:
+            'Invalid time filter. Allowed: today, yesterday, this_week, last_week, this_month, last_month, this_year, last_year',
+        }
+      )
+      .optional()
+      .default('this_month'),
+  }),
+});
+
 export const DonationAnalyticsValidation = {
   getDonationAnalyticsSchema,
 };
@@ -485,6 +509,7 @@ export const DonationValidation = {
   refundDonationSchema,
   getDonationAnalyticsSchema,
   getOrganizationDonationYearlyTrends,
+  getClientStatsSchema,
 };
 
 // Export types for TypeScript inference
@@ -545,3 +570,4 @@ export type TGetDonationAnalyticsQuery = z.infer<
 export type TGetOrganizatinDonationYearlyTrendsQuery = z.infer<
   typeof getOrganizationDonationYearlyTrends.shape.query
 >;
+export type TGetClientStats = z.infer<typeof getClientStatsSchema.shape.query>;
