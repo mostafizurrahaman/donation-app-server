@@ -59,6 +59,7 @@ const fileFilter = (
 ) => {
   const allowedImageTypes = [
     'image/jpeg',
+    'image/jpg',
     'image/png',
     'image/gif',
     'image/webp',

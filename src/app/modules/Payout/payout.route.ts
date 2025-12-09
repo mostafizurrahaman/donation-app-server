@@ -28,4 +28,11 @@ router.get(
   PayoutController.getPayouts
 );
 
+// get next organization next payoutDate
+router.get(
+  '/next-payout',
+  auth(ROLE.ORGANIZATION, ROLE.ADMIN),
+  PayoutController.getOrganizationNextPayoutDate
+);
+
 export const PayoutRoutes = router;

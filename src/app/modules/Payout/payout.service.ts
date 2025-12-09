@@ -9,6 +9,9 @@ import { AppError } from '../../utils';
 import httpStatus from 'http-status';
 import { PAYOUT_STATUS } from './payout.constant';
 import QueryBuilder from '../../builders/QueryBuilder';
+import { stripe } from '../../lib/stripeHelper';
+import Organization from '../Organization/organization.model';
+import { schedule } from 'node-cron';
 
 /**
  * Generate unique payout number (e.g., PO-20241201-RAND)
@@ -338,7 +341,10 @@ const getAllPayouts = async (
   query: Record<string, unknown>
 ) => {
   // Base query (always filter by org)
-  const payoutQuery = Payout.find({ organization: organizationId });
+  const payoutQuery = Payout.find({ organization: organizationId }).populate(
+    'organization',
+    'name stripeConnectAccountId'
+  );
 
   // Initialize QueryBuilder
   const payoutBuilder = new QueryBuilder(payoutQuery, query)
@@ -363,8 +369,35 @@ const getAllPayouts = async (
   };
 };
 
+const getOrganizationNextPayoutDate = async (userId: string) => {
+  const organization = await Organization.findOne({ auth: userId });
+
+  if (!organization) {
+    throw new AppError(
+      httpStatus.NOT_FOUND,
+      'Organization or Stripe account not found'
+    );
+  }
+
+  const now = new Date();
+
+  const nextPayout = await Payout.findOne({
+    organization: organization._id,
+    scheduledDate: { $gte: new Date(now.getFullYear(), now.getMonth(), 1) },
+    status: { $in: [PAYOUT_STATUS.PENDING, PAYOUT_STATUS.PROCESSING] },
+  })
+    .sort({
+      scheduledDate: -1,
+    })
+    .limit(1)
+    .select('scheduledDate');
+
+  return nextPayout ? nextPayout.scheduledDate : null;
+};
+
 export const PayoutService = {
   requestPayout,
   cancelPayout,
   getAllPayouts,
+  getOrganizationNextPayoutDate,
 };

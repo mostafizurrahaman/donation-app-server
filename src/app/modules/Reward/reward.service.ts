@@ -13,6 +13,7 @@ import { pointsServices } from '../Points/points.service';
 import { PointsBalance } from '../Points/points.model';
 import { AppError } from '../../utils';
 import { getFileUrl, deleteFile } from '../../lib/upload';
+import fs from 'fs';
 
 import {
   ICreateRewardPayload,
@@ -66,43 +67,6 @@ const generateInStoreCodes = (count: number): string[] => {
   return codes;
 };
 
-const parseSingleCodesFile = async (
-  file: Express.Multer.File
-): Promise<IParsedCodeFromCSV[]> => {
-  try {
-    const content = file.buffer.toString('utf-8');
-    const lines = content.split(/\r?\n/).filter((line) => line.trim());
-    if (lines.length === 0) return [];
-    const header = lines[0].toLowerCase();
-    const hasHeader =
-      header.includes('code') ||
-      header.includes('value') ||
-      header.includes('url');
-    const dataLines = hasHeader ? lines.slice(1) : lines;
-    const parsedCodes: IParsedCodeFromCSV[] = [];
-    const seenCodes = new Set<string>();
-    for (const line of dataLines) {
-      const values = line.split(',').map((v) => v.trim().replace(/"/g, ''));
-      const codeValue = values[0];
-      if (!codeValue || seenCodes.has(codeValue)) continue;
-      seenCodes.add(codeValue);
-      const isURLPattern = /^https?:\/\//i.test(codeValue);
-      parsedCodes.push({
-        code: codeValue,
-        isGiftCard: isURLPattern,
-        isDiscountCode: !isURLPattern,
-      });
-    }
-    return parsedCodes;
-  } catch (error: any) {
-    console.log(error);
-    throw new AppError(
-      httpStatus.BAD_REQUEST,
-      `Failed to parse file: ${file.originalname}`
-    );
-  }
-};
-
 const parseCodesFiles = async (
   files: Express.Multer.File[]
 ): Promise<{ codes: IParsedCodeFromCSV[]; filesProcessed: number }> => {
@@ -128,6 +92,67 @@ const parseCodesFiles = async (
   return { codes: allCodes, filesProcessed };
 };
 
+const parseSingleCodesFile = async (
+  file: Express.Multer.File
+): Promise<IParsedCodeFromCSV[]> => {
+  try {
+    let content = '';
+
+    // Check if buffer exists (MemoryStorage)
+    if (file.buffer) {
+      content = file.buffer.toString('utf-8');
+    }
+    // Check if path exists (DiskStorage) - This fixes your error
+    else if (file.path) {
+      content = fs.readFileSync(file.path, 'utf-8');
+
+      // Optional: Delete the CSV file from public folder after parsing to save space
+      try {
+        fs.unlinkSync(file.path);
+      } catch (cleanupError) {
+        console.error('Error deleting temp CSV file:', cleanupError);
+      }
+    } else {
+      throw new Error('File source not found (no buffer or path)');
+    }
+
+    const lines = content.split(/\r?\n/).filter((line) => line.trim());
+    if (lines.length === 0) return [];
+
+    const header = lines[0].toLowerCase();
+    const hasHeader =
+      header.includes('code') ||
+      header.includes('value') ||
+      header.includes('url');
+
+    const dataLines = hasHeader ? lines.slice(1) : lines;
+    const parsedCodes: IParsedCodeFromCSV[] = [];
+    const seenCodes = new Set<string>();
+
+    for (const line of dataLines) {
+      const values = line.split(',').map((v) => v.trim().replace(/"/g, ''));
+      const codeValue = values[0];
+      if (!codeValue || seenCodes.has(codeValue)) continue;
+
+      seenCodes.add(codeValue);
+      // Auto-detect URL for gift cards
+      const isURLPattern = /^https?:\/\//i.test(codeValue);
+
+      parsedCodes.push({
+        code: codeValue,
+        isGiftCard: isURLPattern,
+        isDiscountCode: !isURLPattern,
+      });
+    }
+    return parsedCodes;
+  } catch (error: any) {
+    console.log(error);
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      `Failed to parse file: ${file.originalname}`
+    );
+  }
+};
 // ==========================================
 // REWARD CRUD OPERATIONS
 // ==========================================
@@ -204,6 +229,7 @@ const createReward = async (
       throw new AppError(httpStatus.BAD_REQUEST, REWARD_MESSAGES.FILE_REQUIRED);
     }
     const { codes: parsedCodes } = await parseCodesFiles(codesFiles);
+    console.log({ parsedCodes });
     const isUnique = await Reward.checkCodeUniqueness(
       parsedCodes.map((c) => c.code)
     );

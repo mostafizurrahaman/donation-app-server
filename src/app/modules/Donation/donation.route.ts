@@ -94,4 +94,11 @@ router.get(
   DonationController.getOrganizationYearlyDonationTrends
 );
 
+router.get(
+  '/analytics/client-stats',
+  auth(ROLE.CLIENT),
+  validateRequest(DonationValidation.getClientStatsSchema),
+  DonationController.getClientStats
+);
+
 export default router;
