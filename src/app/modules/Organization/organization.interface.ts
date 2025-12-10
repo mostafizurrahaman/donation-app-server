@@ -29,3 +29,4 @@ export interface IORGANIZATION extends Document {
   registeredCharityName: string;
   isProfileVisible?: boolean;
 }
+

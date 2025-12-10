@@ -228,6 +228,25 @@ const businessSignupWithProfile = asyncHandler(async (req, res) => {
   });
 });
 
+const organizationSignupWithProfile = asyncHandler(async (req, res) => {
+  const files = {
+    logoImage: (req.files as any)?.logoImage || undefined,
+    coverImage: (req.files as any)?.coverImage || undefined,
+    drivingLicense: (req.files as any)?.drivingLicense || undefined,
+  };
+
+  const result = await AuthService.organizationSignupWithProfile(
+    req.body,
+    files
+  );
+
+  sendResponse(res, {
+    statusCode: httpStatus.CREATED,
+    message: result.message,
+    data: result.data,
+  });
+});
+
 export const AuthController = {
   createAuth,
   sendSignupOtpAgain,
@@ -246,4 +265,5 @@ export const AuthController = {
   getNewAccessToken,
   updateAuthData,
   businessSignupWithProfile,
+  organizationSignupWithProfile,
 };

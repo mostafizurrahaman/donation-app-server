@@ -154,4 +154,16 @@ router
     validateRequestFromFormData(AuthValidation.businessSignupWithProfileSchema),
     AuthController.businessSignupWithProfile
   );
+
+router.route('/organization-signup').post(
+  upload.fields([
+    { name: 'logoImage', maxCount: 1 },
+    { name: 'coverImage', maxCount: 1 },
+    { name: 'drivingLicense', maxCount: 1 }, // Used for ID/Doc verification
+  ]),
+  validateRequestFromFormData(
+    AuthValidation.organizationSignupWithProfileSchema
+  ),
+  AuthController.organizationSignupWithProfile
+);
 export const AuthRoutes = router;

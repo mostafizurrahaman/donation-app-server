@@ -24,6 +24,7 @@ import { BusinessRoutes } from '../modules/Business/business.routes';
 import { BalanceRoutes } from '../modules/Balance/balance.route';
 import { PayoutRoutes } from '../modules/Payout/payout.route';
 import { clientRoutes } from '../modules/Client/client.route';
+import { boardMemberRoutes } from '../modules/BoardMember/board-member.router';
 
 const router = Router();
 
@@ -82,6 +83,10 @@ const moduleRoutes = [
   {
     path: '/organization',
     route: OrganizationRoutes,
+  },
+  {
+    path: '/board-member',
+    route: boardMemberRoutes,
   },
   {
     path: '/bank-connection',

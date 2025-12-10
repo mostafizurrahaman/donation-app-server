@@ -20,6 +20,8 @@ import { AuthValidation, TProfilePayload } from './auth.validation';
 import { updateProfileImage } from './auth.utils';
 import z from 'zod';
 import jwt, { JwtPayload, SignOptions } from 'jsonwebtoken';
+import { BoardMemberStatus } from '../BoardMember/board-member.constant';
+import { BoardMemeber } from '../BoardMember/board-member.model';
 
 const OTP_EXPIRY_MINUTES =
   Number.parseInt(config.jwt.otpSecretExpiresIn as string, 10) || 5;
@@ -1488,6 +1490,187 @@ const businessSignupWithProfile = async (
   }
 };
 
+const organizationSignupWithProfile = async (
+  payload: any,
+  files?: {
+    logoImage?: Express.Multer.File[];
+    coverImage?: Express.Multer.File[];
+    drivingLicense?: Express.Multer.File[];
+  }
+) => {
+  // Extract auth and organization data
+  const { email, password, ...orgData } = payload;
+
+  // Check if user already exists
+  const existingUser = await Auth.isUserExistsByEmail(email);
+
+  if (existingUser) {
+    // Clean up uploaded files immediately if user exists to save space
+    const allFiles = [
+      ...(files?.logoImage || []),
+      ...(files?.coverImage || []),
+      ...(files?.drivingLicense || []),
+    ];
+
+    allFiles.forEach((file) => {
+      try {
+        if (file.path && fs.existsSync(file.path)) fs.unlinkSync(file.path);
+      } catch (err) {
+        console.error('Cleanup error:', err);
+      }
+    });
+
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'User with this email already exists!'
+    );
+  }
+
+  // Extract file paths
+  const logoImage = files?.logoImage?.[0]?.path.replace(/\\/g, '/') || null;
+  const coverImage = files?.coverImage?.[0]?.path.replace(/\\/g, '/') || null;
+  const drivingLicenseURL =
+    files?.drivingLicense?.[0]?.path.replace(/\\/g, '/') || null;
+
+  // Generate OTP
+  const otp = generateOtp();
+  const now = new Date();
+  const otpExpiry = new Date(
+    now.getTime() + (Number(config.jwt.otpSecretExpiresIn) || 5) * 60 * 1000
+  );
+
+  const session = await startSession();
+
+  try {
+    session.startTransaction();
+
+    // 1. Create Auth record
+    const authPayload = {
+      email,
+      password,
+      otp,
+      otpExpiry,
+      isVerifiedByOTP: false,
+      isProfile: true,
+      role: ROLE.ORGANIZATION,
+      isActive: true,
+      isDeleted: false,
+      status: AUTH_STATUS.PENDING,
+    };
+
+    const [newAuth] = await Auth.create([authPayload], { session });
+
+    if (!newAuth) {
+      throw new AppError(
+        httpStatus.INTERNAL_SERVER_ERROR,
+        'Failed to create authentication record!'
+      );
+    }
+
+    // 2. Create Organization Profile
+    const organizationPayload = {
+      auth: newAuth._id,
+      name: orgData.name,
+      serviceType: orgData.serviceType,
+      address: orgData.address,
+      state: orgData.state,
+      country: orgData.country,
+      postalCode: orgData.postalCode,
+      website: orgData.website,
+      phoneNumber: orgData.phoneNumber,
+      aboutUs: orgData.aboutUs,
+      registeredCharityName: orgData.registeredCharityName,
+      dateOfEstablishment: orgData.dateOfEstablishment,
+
+      // Verification details
+      tfnOrAbnNumber: orgData.tfnOrAbnNumber,
+      zakatLicenseHolderNumber: orgData.zakatLicenseHolderNumber,
+
+      // Images/Docs
+      logoImage,
+      coverImage,
+    };
+
+    const [newOrganization] = await Organization.create([organizationPayload], {
+      session,
+    });
+
+    if (!newOrganization) {
+      throw new AppError(
+        httpStatus.INTERNAL_SERVER_ERROR,
+        'Failed to create organization profile!'
+      );
+    }
+
+    const boardMemeberPayload = {
+      organization: newOrganization?._id,
+      boardMemberName: orgData.boardMemberName,
+      boardMemberEmail: orgData.boardMemberEmail,
+      boardMemberPhoneNumber: orgData.boardMemberPhoneNumber,
+      drivingLicenseURL,
+      status: BoardMemberStatus.PENDING,
+    };
+
+    const [boardMember] = await BoardMemeber.create([boardMemeberPayload], {
+      session,
+    });
+
+    if (!boardMember) {
+      throw new AppError(
+        httpStatus.INTERNAL_SERVER_ERROR,
+        'Failed to create board member!'
+      );
+    }
+
+    // 3. Send OTP Email
+    await sendOtpEmail({
+      email,
+      otp,
+      name: orgData.name,
+      customMessage:
+        'Welcome! Please verify your organization account to proceed.',
+    });
+
+    await session.commitTransaction();
+    await session.endSession();
+
+    return {
+      message: 'Organization account created successfully! Please verify OTP.',
+      data: {
+        email: newAuth.email,
+        organizationName: newOrganization.name,
+        requiresVerification: true,
+      },
+    };
+  } catch (error: any) {
+    await session.abortTransaction();
+    await session.endSession();
+
+    // Clean up uploaded files on error
+    const allFiles = [
+      ...(files?.logoImage || []),
+      ...(files?.coverImage || []),
+      ...(files?.drivingLicense || []),
+    ];
+
+    allFiles.forEach((file) => {
+      try {
+        if (file.path && fs.existsSync(file.path)) fs.unlinkSync(file.path);
+      } catch (err) {
+        console.error('Cleanup error:', err);
+      }
+    });
+
+    if (error instanceof AppError) throw error;
+    if (error.code === 11000)
+      throw new AppError(httpStatus.BAD_REQUEST, 'Email already exists!');
+
+    throw new AppError(
+      httpStatus.INTERNAL_SERVER_ERROR,
+      error?.message || 'Failed to create organization account!'
+    );
+  }
+};
 export const AuthService = {
   createAuthIntoDB,
   sendSignupOtpAgain,
@@ -1506,4 +1689,5 @@ export const AuthService = {
   getNewAccessTokenFromServer,
   updateAuthDataIntoDB,
   businessSignupWithProfile,
+  organizationSignupWithProfile,
 };
