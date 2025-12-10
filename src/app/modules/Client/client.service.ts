@@ -6,6 +6,8 @@ import Client from './client.model';
 import httpStatus from 'http-status';
 import { Types } from 'mongoose';
 import { ScheduledDonation } from '../ScheduledDonation/scheduledDonation.model';
+import { IORGANIZATION } from '../Organization/organization.interface';
+import { getDateRanges, getRecurringLabel } from '../../lib/filter-helper';
 
 // 1. Roundup donation stats
 const getRoundupStats = async (userId: string) => {
@@ -363,24 +365,148 @@ const getOnetimeDonationStats = async (userId: string) => {
   };
 };
 
-// 3. Recurring Donation Stats:
-// const getRecurringDonationStats = async (userId: string) => {
-//   const client = await Client.findOne({
-//     auth: userId,
-//   });
+// 3. Recurring Donation Stats (API for the Screen):
+const getRecurringDonationStats = async (userId: string) => {
+  const client = await Client.findOne({
+    auth: userId,
+  });
 
-//   if (!client) {
-//     throw new AppError(httpStatus.NOT_FOUND, 'User not found!');
-//   }
+  if (!client) {
+    throw new AppError(httpStatus.NOT_FOUND, 'User not found!');
+  }
 
-//   const  result = await Donation?.find({
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
 
-//   })
-// }
+  const currentWeek = getDateRanges('this_week');
 
+  const result = await Donation.aggregate([
+    {
+      $match: {
+        donor: client._id,
+        donationType: 'recurring',
+      },
+    },
+
+    {
+      $facet: {
+        //  calculate date based total recurring
+        todaysRecurringAmount: [
+          {
+            $match: {
+              donationDate: {
+                $gte: startOfToday,
+              },
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              totalAmount: {
+                $sum: '$amount',
+              },
+            },
+          },
+        ],
+      },
+    },
+  ]);
+
+  const recurringStats = await ScheduledDonation?.aggregate([
+    {
+      $match: {
+        isActive: true,
+        user: client?._id,
+        nextDonationDate: {
+          $gte: currentWeek.current.startDate,
+          $lte: currentWeek.current.endDate,
+        },
+      },
+    },
+    {
+      $match: {
+        $or: [
+          { fequency: 'weekly' },
+          {
+            frequency: 'custom',
+            'customInterval.unit': 'weeks',
+          },
+        ],
+      },
+    },
+    {
+      $facet: {
+        totalWeeklyRecurringAmount: [
+          {
+            $group: {
+              _id: null,
+              totalAmount: { $sum: '$amount' },
+            },
+          },
+        ],
+        orgCount: [
+          {
+            $group: {
+              _id: '$organization',
+            },
+          },
+          {
+            $count: 'organizationCount',
+          },
+        ],
+      },
+    },
+  ]);
+
+  const organizationDonations = await ScheduledDonation?.aggregate([
+    {
+      $match: {
+        isActive: true,
+        user: client?._id,
+      },
+    },
+    {
+      $sort: {
+        createdAt: -1,
+      },
+    },
+    {
+      $lookup: {
+        from: 'organizations',
+        foreignField: '_id',
+        localField: 'organization',
+        as: 'organizationDetails',
+      },
+    },
+    {
+      $unwind: '$organizationDetails',
+    },
+    {
+      $project: {
+        'organizationDetails.name': 1,
+        'organizationDetails.logoImage': 1,
+        'organizationDetails.coverImage': 1,
+        'organizationDetails.registeredCharityName': 1,
+        frequency: 1,
+        customInterval: 1,
+        startDate: 1,
+        amount: 1,
+      },
+    },
+  ]);
+
+  const labeledDonations = organizationDonations.map((donation) => ({
+    ...donation,
+    label: getRecurringLabel(donation),
+  }));
+
+  const 
+
+  return { result, recurringStats, organizationDonations: labeledDonations };
+};
 
 export const clientService = {
   getRoundupStats,
   getOnetimeDonationStats,
-  getRecurringDonationStats
+  getRecurringDonationStats,
 };

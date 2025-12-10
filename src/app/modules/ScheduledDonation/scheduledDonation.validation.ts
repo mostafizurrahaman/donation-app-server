@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-// Custom interval schema (no changes)
+// Custom interval schema
 const customIntervalSchema = z.object({
   value: z
     .number()
@@ -24,8 +24,14 @@ const createScheduledDonationSchema = z.object({
         .min(0.01, 'Amount must be at least $0.01')
         .positive('Amount must be positive'),
 
-      // ✅ NEW: Fee preference (Default to true in AU)
       coverFees: z.boolean().optional().default(true),
+
+      startDate: z
+        .string({ message: 'Start Date and Time is required!' })
+        .datetime({ message: 'Invalid date format. Must be ISO 8601.' })
+        .refine((date) => new Date(date) > new Date(), {
+          message: 'Start Date and Time must be in the future!',
+        }),
 
       frequency: z.enum(
         ['daily', 'weekly', 'monthly', 'quarterly', 'yearly', 'custom'],

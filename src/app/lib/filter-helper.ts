@@ -313,3 +313,85 @@ export const calculateStreaks = (dates: Date[]) => {
 
   return { maxStreak, currentStreak };
 };
+
+export const getRecurringLabel = (donation: any) => {
+  const { frequency, customInterval, startDate } = donation;
+  const start = new Date(startDate);
+
+  // Format time in AM/PM
+  const hours = start.getHours();
+  const minutes = start.getMinutes().toString().padStart(2, '0');
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  const hour12 = hours % 12 === 0 ? 12 : hours % 12;
+  const time = `${hour12}:${minutes} ${ampm}`;
+
+  const daysOfWeek = [
+    'Sunday',
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+  ];
+  const dayName = daysOfWeek[start.getDay()];
+
+  switch (frequency) {
+    case 'daily':
+      return `Every day at ${time}`;
+
+    case 'weekly':
+      return `Every ${dayName} at ${time}`;
+
+    case 'monthly':
+      const dayOfMonth = start.getDate();
+      return `Every month on the ${dayOfMonth}${getOrdinal(
+        dayOfMonth
+      )} at ${time}`;
+
+    case 'yearly':
+      const month = start.toLocaleString('default', { month: 'long' });
+      const day = start.getDate();
+      return `Every year on ${month} ${day}${getOrdinal(day)} at ${time}`;
+
+    case 'custom':
+      if (!customInterval) return 'Custom schedule';
+
+      const { unit, value } = customInterval;
+
+      if (unit === 'days') {
+        return `Every ${value} day(s) at ${time}`;
+      }
+
+      if (unit === 'weeks') {
+        return `Every ${value} week(s) on ${dayName} at ${time}`;
+      }
+
+      if (unit === 'months') {
+        const dayCustom = start.getDate();
+        return `Every ${value} month(s) on the ${dayCustom}${getOrdinal(
+          dayCustom
+        )} at ${time}`;
+      }
+
+      if (unit === 'years') {
+        const monthCustom = start.toLocaleString('default', { month: 'long' });
+        const dayCustom = start.getDate();
+        return `Every ${value} year(s) on ${monthCustom} ${dayCustom}${getOrdinal(
+          dayCustom
+        )} at ${time}`;
+      }
+
+      return 'Custom schedule';
+
+    default:
+      return 'Unknown schedule';
+  }
+};
+
+// Helper to get ordinal (1st, 2nd, 3rd…)
+export const getOrdinal = (n: number) => {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return s[(v - 20) % 10] || s[v] || s[0];
+};

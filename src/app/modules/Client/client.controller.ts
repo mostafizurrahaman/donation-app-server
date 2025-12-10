@@ -37,7 +37,26 @@ const getOnetimeDonationStats = asyncHandler(
   }
 );
 
+const getRecurringDonationStats = asyncHandler(
+  async (req: Request, res: Response) => {
+    const userId = req.user._id?.toString();
+
+    if (!userId) {
+      throw new AppError(httpStatus.NOT_FOUND, 'User not found!');
+    }
+
+    const result = await clientService.getRecurringDonationStats(userId);
+
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      message: 'Recurring donation stats fetched successfully!',
+      data: result,
+    });
+  }
+);
+
 export const clientController = {
   getRoundupStats,
   getOnetimeDonationStats,
+  getRecurringDonationStats,
 };

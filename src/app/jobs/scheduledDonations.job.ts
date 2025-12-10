@@ -19,8 +19,8 @@ let isProcessing = false; // Prevent overlapping executions
 const JOB_NAME = 'scheduled-donations';
 
 export const startScheduledDonationsCron = () => {
-  // Run every hour at the start of the hour
-  const schedule = '* 1 * * *'; // Each Day at 1 AM
+  const schedule = '0 * * * *';
+  // const schedule = '*/1 * * * *';
 
   // Register job with tracker
   cronJobTracker.registerJob(JOB_NAME, schedule);
@@ -45,7 +45,7 @@ export const startScheduledDonationsCron = () => {
     cronJobTracker.startExecution(JOB_NAME);
 
     console.log('\n═══════════════════════════════════════════════════════');
-    console.log('🔄 Starting Scheduled Donations Execution');
+    console.log('🔄 Starting Hourly Scheduled Donations Check');
     console.log(`   Time: ${new Date().toISOString()}`);
     console.log('═══════════════════════════════════════════════════════');
 
@@ -220,11 +220,6 @@ export const manualTriggerScheduledDonations = async () => {
     console.log({
       dueDonations,
     });
-
-    // return {
-    //   success: true,
-    //   result: dueDonations,
-    // };
 
     console.log(
       `Found ${dueDonations.length} scheduled donation(s) to process`

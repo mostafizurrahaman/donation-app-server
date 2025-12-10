@@ -17,5 +17,10 @@ router.get(
   auth(ROLE.CLIENT),
   clientController.getOnetimeDonationStats
 );
+router.get(
+  '/recurring-stats',
+  auth(ROLE.CLIENT),
+  clientController.getRecurringDonationStats
+);
 
 export const clientRoutes = router;

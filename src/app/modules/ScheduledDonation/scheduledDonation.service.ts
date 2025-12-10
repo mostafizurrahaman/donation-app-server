@@ -79,11 +79,12 @@ const createScheduledDonation = async (
     organizationId,
     causeId,
     amount,
-    coverFees = false, // Default to true
+    coverFees = false,
     frequency,
     customInterval,
     specialMessage,
     paymentMethodId,
+    startDate, 
   } = payload;
 
   // ✅ Calculate purely for logging/checking
@@ -125,28 +126,24 @@ const createScheduledDonation = async (
   }
 
   const stripeCustomerId = paymentMethod.stripeCustomerId;
-  const startDate = new Date();
-  const nextDonationDate = calculateNextDonationDate(
-    startDate,
-    frequency,
-    customInterval
-  );
+
+  
+  const startDateTime = new Date(startDate);
+  const nextDonationDate = startDateTime;
 
   const scheduledDonation = await ScheduledDonation.create({
     user: user._id,
     organization: new Types.ObjectId(organizationId),
     cause: new Types.ObjectId(causeId),
 
-    amount: financials.baseAmount, // Save Base Amount
-    coverFees, // Save preference
-
-    // We don't save calculated totals here anymore as per model update
+    amount: financials.baseAmount, 
+    coverFees, 
 
     currency: 'USD',
     frequency,
     customInterval,
-    startDate,
-    nextDonationDate,
+    startDate: startDateTime, 
+    nextDonationDate: nextDonationDate, 
     isActive: true,
     totalExecutions: 0,
     specialMessage,
@@ -289,6 +286,10 @@ const updateScheduledDonation = async (
     scheduledDonation.isActive = payload.isActive;
   }
 
+  // If frequency changes, we might want to recalculate next date,
+  // but usually it's safer to keep the current next date and apply new frequency AFTER that.
+  // However, if the user explicitly wants to "reschedule", they might need a way to change nextDonationDate.
+  // For now, we keep the logic that if frequency changes, we recalc from NOW.
   if (payload.frequency !== undefined || payload.customInterval !== undefined) {
     const nextDate = calculateNextDonationDate(
       new Date(),
@@ -345,6 +346,9 @@ const resumeScheduledDonation = async (
     throw new AppError(httpStatus.NOT_FOUND, 'Scheduled donation not found!');
   }
 
+  // Recalculate next date to avoid executing immediately if it was paused for a long time
+  // OR keep original schedule. Usually resuming means "start from now or keep cycle".
+  // The safest is to calculate next date from NOW to avoid backlog execution.
   const nextDate = calculateNextDonationDate(
     new Date(),
     scheduledDonation.frequency,
@@ -385,11 +389,12 @@ const getScheduledDonationsDueForExecution = async (): Promise<
   IScheduledDonationModel[]
 > => {
   const now = new Date();
-  console.log({ now });
 
+  // ✅ CHANGE: Query checks if nextDonationDate is NOW or in the PAST
+  // This ensures that if the cron job runs at 4:00 PM, it catches 4:00 PM donations.
   const scheduledDonations = await ScheduledDonation.find({
     isActive: true,
-    // nextDonationDate: { $lte: now },
+    nextDonationDate: { $lte: now },
   })
     .populate('user')
     .populate('organization')
@@ -454,9 +459,6 @@ const executeScheduledDonation = async (
     );
   }
 
-  const organization =
-    scheduledDonation.organization as unknown as IORGANIZATION;
-
   const cause = await Cause.findById(causeId);
   if (!cause) {
     throw new AppError(httpStatus.NOT_FOUND, 'Cause not found!');
@@ -469,7 +471,6 @@ const executeScheduledDonation = async (
   }
 
   //  Recalculate Fees at Execution Time
-  // Rates might have changed, but user's preference (coverFees) remains
   const financials = calculateAustralianFees(
     scheduledDonation.amount,
     scheduledDonation.coverFees
@@ -662,6 +663,8 @@ const updateScheduledDonationAfterExecution = async (
     scheduledDonation.lastExecutedDate = new Date();
     scheduledDonation.totalExecutions += 1;
 
+    // Use current date to calculate next schedule (Standard behavior)
+    // Or usage of lastExecutedDate if you want to keep strict intervals
     const nextDate = calculateNextDonationDate(
       new Date(),
       scheduledDonation.frequency,
