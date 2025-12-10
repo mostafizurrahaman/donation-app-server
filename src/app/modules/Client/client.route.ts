@@ -1,8 +1,9 @@
 import express from 'express';
 
-import { auth } from '../../middlewares';
+import { auth, validateRequest } from '../../middlewares';
 import { ROLE } from '../Auth/auth.constant';
 import { clientController } from './client.controller';
+import { clientValidationSchema } from './client.validation';
 
 const router = express.Router();
 
@@ -21,6 +22,15 @@ router.get(
   '/recurring-stats',
   auth(ROLE.CLIENT),
   clientController.getRecurringDonationStats
+);
+
+router.get(
+  '/recurring',
+  validateRequest(
+    clientValidationSchema.getUserRecurringDonationsForSpecificOrganizationSchema
+  ),
+  auth(ROLE.CLIENT),
+  clientController.getUserRecurringDonationsForSpecificOrganization
 );
 
 export const clientRoutes = router;

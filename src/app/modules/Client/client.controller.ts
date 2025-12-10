@@ -55,8 +55,39 @@ const getRecurringDonationStats = asyncHandler(
   }
 );
 
+const getUserRecurringDonationsForSpecificOrganization = asyncHandler(
+  async (req: Request, res: Response) => {
+    const userId = req.user._id?.toString();
+    const organizationId = req.query.organizationId as string;
+    console.log({
+      organizationId,
+    });
+
+    if (!userId) {
+      throw new AppError(httpStatus.NOT_FOUND, 'User not found!');
+    }
+
+    if (!organizationId) {
+      throw new AppError(httpStatus.NOT_FOUND, 'OrganizationId is required!');
+    }
+
+    const result =
+      await clientService.getUserRecurringDonationsForSpecificOrganization(
+        userId,
+        organizationId
+      );
+
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      message: 'Recurring donation stats fetched successfully!',
+      data: result,
+    });
+  }
+);
+
 export const clientController = {
   getRoundupStats,
   getOnetimeDonationStats,
   getRecurringDonationStats,
+  getUserRecurringDonationsForSpecificOrganization,
 };

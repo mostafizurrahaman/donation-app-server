@@ -9,6 +9,7 @@ import { ScheduledDonation } from '../ScheduledDonation/scheduledDonation.model'
 import { IORGANIZATION } from '../Organization/organization.interface';
 import { getDateRanges, getRecurringLabel } from '../../lib/filter-helper';
 import Organization from '../Organization/organization.model';
+import { IScheduledDonation } from '../Donation/donation.interface';
 
 // 1. Roundup donation stats
 const getRoundupStats = async (userId: string) => {
@@ -484,11 +485,45 @@ export const getUserRecurringDonationsForSpecificOrganization = async (
     throw new AppError(httpStatus.NOT_FOUND, 'User not found!');
   }
 
-  //
+  const today = getDateRanges('today');
+
+  // all donations :
+  const [previousDonations, upcommingDoantions] = await Promise.all([
+    await Donation.find({
+      donor: client?._id,
+      organization: organization?._id,
+      donationType: 'recurring',
+    })
+      .populate<{ scheduledDonationId: IScheduledDonation }>(
+        'scheduledDonationId',
+        'isActive frequency customInterval '
+      )
+      .select(
+        'donationDate totalAmount amount donationType scheduledDonationId netAmount stripeFee gstOnFee platformFee coverFess'
+      ),
+    await ScheduledDonation.aggregate([
+      {
+        $match: {
+          donor: client?._id,
+          organization: organization?._id,
+          isActive: true,
+          nextDonationDate: {
+            $gt: today.current.startDate,
+          },
+        },
+      },
+    ]),
+  ]);
+
+  return {
+    upcommingDoantions,
+    previousDonations,
+  };
 };
 
 export default {
   getRoundupStats,
   getOnetimeDonationStats,
   getRecurringDonationStats,
+  getUserRecurringDonationsForSpecificOrganization,
 };

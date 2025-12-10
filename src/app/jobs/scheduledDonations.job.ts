@@ -19,8 +19,8 @@ let isProcessing = false; // Prevent overlapping executions
 const JOB_NAME = 'scheduled-donations';
 
 export const startScheduledDonationsCron = () => {
-  const schedule = '0 * * * *';
-  // const schedule = '*/1 * * * *';
+  // const schedule = '0 * * * *';
+  const schedule = '*/1 * * * *';
 
   // Register job with tracker
   cronJobTracker.registerJob(JOB_NAME, schedule);
