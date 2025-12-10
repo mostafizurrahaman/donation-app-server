@@ -6,7 +6,6 @@ import Client from './client.model';
 import httpStatus from 'http-status';
 import { Types } from 'mongoose';
 import { ScheduledDonation } from '../ScheduledDonation/scheduledDonation.model';
-import { IORGANIZATION } from '../Organization/organization.interface';
 import { getDateRanges, getRecurringLabel } from '../../lib/filter-helper';
 import Organization from '../Organization/organization.model';
 import { IScheduledDonation } from '../Donation/donation.interface';

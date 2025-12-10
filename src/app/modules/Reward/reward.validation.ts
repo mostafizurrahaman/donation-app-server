@@ -1,15 +1,12 @@
-// src/app/modules/Reward/reward.validation.ts
 import { z } from 'zod';
 import {
   REWARD_TYPE_VALUES,
   REWARD_CATEGORY_VALUES,
   REWARD_STATUS_VALUES,
-  REDEMPTION_STATUS_VALUES,
   MIN_REDEMPTION_LIMIT,
   MAX_REDEMPTION_LIMIT,
   MAX_TITLE_LENGTH,
   MAX_DESCRIPTION_LENGTH,
-  REDEMPTION_METHOD_VALUES,
 } from './reward.constant';
 
 // Helper schemas
@@ -197,79 +194,42 @@ export const getRewardStatsSchema = z.object({
   }),
 });
 
-// Claim reward schema
-export const claimRewardSchema = z.object({
-  params: z.object({
-    id: z.string().min(1, 'Reward ID is required'),
-  }),
-  body: z.object({
-    preferredCodeType: z.enum(['discount', 'giftcard']).optional(),
-    idempotencyKey: z.string().max(100).optional(),
-  }),
-});
-
-// Cancel claimed reward schema
-export const cancelClaimedRewardSchema = z.object({
-  params: z.object({
-    redemptionId: z.string().min(1, 'Redemption ID is required'),
-  }),
-  body: z.object({
-    reason: z
-      .string()
-      .max(500, 'Reason cannot exceed 500 characters')
-      .optional(),
-  }),
-});
-
-// Redeem reward schema (Single Endpoint supports both ID and Code)
-export const redeemRewardSchema = z.object({
-  body: z
-    .object({
-      redemptionId: z.string().optional(), // ID from QR
-      code: z.string({
-        error: 'Code must be a valid string',
-      }), // Static code
-      location: z.string().max(200).optional(),
-      notes: z.string().max(500).optional(),
-      method: z.enum(REDEMPTION_METHOD_VALUES as [string, ...string[]], {
-        error: 'Invalid redemption method provided',
-      }),
-    })
-    .refine((data) => data.redemptionId || data.code, {
-      message: "Either 'redemptionId' or 'code' is required",
-    }),
-});
-
-// Verify redemption schema (Optional Pre-Check)
-export const verifyRedemptionSchema = z.object({
-  body: z
-    .object({
-      code: z.string().optional(),
-      redemptionId: z.string().optional(),
-    })
-    .refine((data) => data.code || data.redemptionId, {
-      message: "Either 'code' or 'redemptionId' must be provided",
-    }),
-});
-
-// Get user claimed rewards schema
-export const getUserClaimedRewardsSchema = z.object({
+// API 1: Business Get Rewards
+const getBusinessRewardsSchema = z.object({
   query: z.object({
-    includeExpired: z.enum(['true', 'false']).optional(),
     status: z
-      .enum([...REDEMPTION_STATUS_VALUES] as [string, ...string[]])
-      .optional(),
-    page: z.coerce.number().int().min(1).default(1),
-    limit: z.coerce.number().int().min(1).max(100).default(20),
-    sortBy: z.string().default('claimedAt'),
-    sortOrder: z.enum(['asc', 'desc']).default('desc'),
+      .enum(['all', 'active', 'disabled', 'expires_soon'])
+      .optional()
+      .default('all'),
+    search: z.string().optional(),
+    page: z.coerce.number().min(1).default(1),
+    limit: z.coerce.number().min(1).max(100).default(10),
   }),
 });
 
-// Get claimed reward by ID schema
-export const getClaimedRewardByIdSchema = z.object({
-  params: z.object({
-    redemptionId: z.string().min(1, 'Redemption ID is required'),
+// API 2: User Explore Rewards
+const getUserExploreRewardsSchema = z.object({
+  query: z.object({
+    category: z
+      .enum(REWARD_CATEGORY_VALUES as [string, ...string[]])
+      .optional(),
+    businessId: z.string().optional(),
+    search: z.string().optional(),
+    page: z.coerce.number().min(1).default(1),
+    limit: z.coerce.number().min(1).max(100).default(20),
+  }),
+});
+
+// API 4: Admin Get All Rewards
+const getAdminRewardsSchema = z.object({
+  query: z.object({
+    status: z.enum(REWARD_STATUS_VALUES as [string, ...string[]]).optional(),
+    businessId: z.string().optional(),
+    fromDate: z.string().optional(), // Date string validation handled in service/querybuilder if needed
+    toDate: z.string().optional(),
+    search: z.string().optional(),
+    page: z.coerce.number().min(1).default(1),
+    limit: z.coerce.number().min(1).max(100).default(20),
   }),
 });
 
@@ -284,11 +244,7 @@ export const rewardValidation = {
   uploadCodesSchema,
   checkAvailabilitySchema,
   getRewardStatsSchema,
-  // Claim/redeem validations
-  claimRewardSchema,
-  cancelClaimedRewardSchema,
-  redeemRewardSchema,
-  getUserClaimedRewardsSchema,
-  getClaimedRewardByIdSchema,
-  verifyRedemptionSchema,
+  getBusinessRewardsSchema,
+  getUserExploreRewardsSchema,
+  getAdminRewardsSchema,
 };

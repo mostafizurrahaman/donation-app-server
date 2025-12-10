@@ -1,4 +1,3 @@
-// src/app/modules/Reward/reward.route.ts
 import express from 'express';
 import { auth } from '../../middlewares';
 import { ROLE } from '../Auth/auth.constant';
@@ -12,98 +11,109 @@ import { upload, uploadForParsing } from '../../lib/upload';
 
 const router = express.Router();
 
-// ==========================================
-// PUBLIC / GENERAL ROUTES
-// ==========================================
+// ==================================================
+// 1. SPECIFIC STATIC ROUTES (Must come first)
+// ==================================================
 
-// Get featured rewards
+// User: Explore Active Rewards
+router.get(
+  '/explore',
+  auth(ROLE.CLIENT),
+  validateRequest(rewardValidation.getUserExploreRewardsSchema),
+  RewardController.getUserExploreRewards
+);
+
+// Public: Get Featured Rewards
 router.get('/featured', RewardController.getFeaturedRewards);
 
-// Get all rewards with filters (search, category, type)
+// Business: Get Own Rewards (Specific Path)
 router.get(
-  '/',
-  validateRequest(rewardValidation.getRewardsSchema),
-  RewardController.getRewards
+  '/business/my-rewards',
+  auth(ROLE.BUSINESS),
+  validateRequest(rewardValidation.getBusinessRewardsSchema),
+  RewardController.getBusinessRewards
 );
 
-// Get reward by ID
+// Business: Get Analytics
 router.get(
-  '/:id',
-  validateRequest(rewardValidation.getRewardByIdSchema),
-  RewardController.getRewardById
+  '/analytics/stats',
+  auth(ROLE.BUSINESS, ROLE.ADMIN),
+  validateRequest(rewardValidation.getRewardStatsSchema),
+  RewardController.getRewardStats
 );
 
-// Check if a reward is available for a specific user
+// Admin: Get All Rewards
 router.get(
-  '/:id/availability',
-  validateRequest(rewardValidation.checkAvailabilitySchema),
-  RewardController.checkAvailability
+  '/admin/all',
+  auth(ROLE.ADMIN),
+  validateRequest(rewardValidation.getAdminRewardsSchema),
+  RewardController.getAdminRewards
 );
 
-// Get rewards belonging to a specific business
+// ==================================================
+// 2. DYNAMIC ROUTES (Parameters come after static)
+// ==================================================
+
+// Public: Get Rewards by Business ID (Dynamic :businessId)
+// This catches /business/xyz, so it must be below /business/my-rewards
 router.get(
   '/business/:businessId',
   validateRequest(rewardValidation.getRewardsByBusinessSchema),
   RewardController.getRewardsByBusiness
 );
 
-// ==========================================
-// CLIENT ROUTES (User Actions)
-// ==========================================
-
-// Claim a reward (Deducts Points)
-router.post(
-  '/:id/claim',
-  auth(ROLE.CLIENT),
-  validateRequest(rewardValidation.claimRewardSchema),
-  RewardController.claimReward
-);
-
-// Get currently logged-in user's claimed rewards
+// Public: Check Reward Availability
 router.get(
-  '/my/claimed',
-  auth(ROLE.CLIENT),
-  validateRequest(rewardValidation.getUserClaimedRewardsSchema),
-  RewardController.getUserClaimedRewards
+  '/:id/availability',
+  validateRequest(rewardValidation.checkAvailabilitySchema),
+  RewardController.checkAvailability
 );
 
-// Get details of a specific claimed reward (Redemption Ticket)
+// Admin: Archive Reward
+router.delete(
+  '/:id/archive',
+  auth(ROLE.ADMIN),
+  validateRequest(rewardValidation.deleteRewardSchema),
+  RewardController.archiveReward
+);
+
+// Business: Upload Codes
+router.post(
+  '/:id/codes',
+  auth(ROLE.BUSINESS, ROLE.ADMIN),
+  uploadForParsing.array('files', 10),
+  validateRequest(rewardValidation.uploadCodesSchema),
+  RewardController.uploadCodes
+);
+
+// Business: Update Reward Image
+router.patch(
+  '/:id/image',
+  auth(ROLE.BUSINESS, ROLE.ADMIN),
+  upload.single('rewardImage'),
+  RewardController.updateRewardImage
+);
+
+// Public: Get Reward Details (Dynamic :id)
+// This catches /:id, so it must be near the bottom
 router.get(
-  '/redemption/:redemptionId',
-  auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ADMIN),
-  validateRequest(rewardValidation.getClaimedRewardByIdSchema),
-  RewardController.getClaimedRewardById
+  '/:id',
+  validateRequest(rewardValidation.getRewardByIdSchema),
+  RewardController.getRewardById
 );
 
-// Cancel a claimed reward (Refunds Points) - Only if not yet redeemed
-router.post(
-  '/redemption/:redemptionId/cancel',
-  auth(ROLE.CLIENT),
-  validateRequest(rewardValidation.cancelClaimedRewardSchema),
-  RewardController.cancelClaimedReward
+// ==================================================
+// 3. ROOT ROUTES & OPERATIONS
+// ==================================================
+
+// Public: Get All Rewards (Generic Filter)
+router.get(
+  '/',
+  validateRequest(rewardValidation.getRewardsSchema),
+  RewardController.getRewards
 );
 
-// ==========================================
-// BUSINESS ROUTES (Redemption & Management)
-// ==========================================
-
-// 1. Verify a redemption code/QR before redeeming (Scanner Step)
-router.post(
-  '/redemption/verify',
-  auth(ROLE.BUSINESS, ROLE.ADMIN),
-  validateRequest(rewardValidation.verifyRedemptionSchema),
-  RewardController.verifyRedemption
-);
-
-// 2. Mark reward as REDEEMED (Final Step)
-router.post(
-  '/redemption/:redemptionId/redeem',
-  auth(ROLE.BUSINESS, ROLE.ADMIN),
-  validateRequest(rewardValidation.redeemRewardSchema),
-  RewardController.redeemReward
-);
-
-// Create a new reward
+// Business: Create Reward
 router.post(
   '/',
   auth(ROLE.BUSINESS, ROLE.ADMIN),
@@ -115,7 +125,7 @@ router.post(
   RewardController.createReward
 );
 
-// Update a reward
+// Business: Update Reward Details
 router.patch(
   '/:id',
   auth(ROLE.BUSINESS, ROLE.ADMIN),
@@ -127,15 +137,7 @@ router.patch(
   RewardController.updateReward
 );
 
-// Update only reward image
-router.patch(
-  '/:id/image',
-  auth(ROLE.BUSINESS, ROLE.ADMIN),
-  upload.single('rewardImage'),
-  RewardController.updateRewardImage
-);
-
-// Delete reward (Soft Delete)
+// Business: Soft Delete Reward
 router.delete(
   '/:id',
   auth(ROLE.BUSINESS, ROLE.ADMIN),
@@ -143,36 +145,7 @@ router.delete(
   RewardController.deleteReward
 );
 
-// Upload codes CSV/XLSX to existing reward
-router.post(
-  '/:id/codes',
-  auth(ROLE.BUSINESS, ROLE.ADMIN),
-  uploadForParsing.array('files', 10),
-  validateRequest(rewardValidation.uploadCodesSchema),
-  RewardController.uploadCodes
-);
-
-// Get analytics/stats for rewards
-router.get(
-  '/analytics/stats',
-  auth(ROLE.BUSINESS, ROLE.ADMIN),
-  validateRequest(rewardValidation.getRewardStatsSchema),
-  RewardController.getRewardStats
-);
-
-// ==========================================
-// ADMIN ROUTES
-// ==========================================
-
-// Archive reward (Hard/Permanent Delete)
-router.delete(
-  '/:id/archive',
-  auth(ROLE.ADMIN),
-  validateRequest(rewardValidation.deleteRewardSchema),
-  RewardController.archiveReward
-);
-
-// Manual Trigger for Maintenance Job
+// Admin: Manual Maintenance Trigger
 router.post(
   '/maintenance/trigger',
   auth(ROLE.ADMIN),

@@ -33,26 +33,6 @@ export const REWARD_CATEGORY = {
 
 export const REWARD_CATEGORY_VALUES = Object.values(REWARD_CATEGORY);
 
-export const REDEMPTION_METHOD = {
-  QR_CODE: 'qr',
-  NFC: 'nfc',
-  STATIC_CODE: 'static-code',
-  DISCOUNT_CODE: 'discount-code',
-  GIFT_CARD: 'gift-card',
-} as const;
-
-export const REDEMPTION_METHOD_VALUES = Object.values(REDEMPTION_METHOD);
-
-// Redemption status
-export const REDEMPTION_STATUS = {
-  CLAIMED: 'claimed',
-  REDEEMED: 'redeemed',
-  EXPIRED: 'expired',
-  CANCELLED: 'cancelled',
-} as const;
-
-export const REDEMPTION_STATUS_VALUES = Object.values(REDEMPTION_STATUS);
-
 // Static points cost for all rewards
 export const STATIC_POINTS_COST = 500;
 
@@ -63,12 +43,7 @@ export const MAX_TITLE_LENGTH = 150;
 export const MAX_DESCRIPTION_LENGTH = 1000;
 export const MAX_CODE_LENGTH = 500;
 export const MAX_CODES_PER_UPLOAD = 10000;
-
-// Time limits
-export const CLAIM_EXPIRY_DAYS = 30;
-export const CANCELLATION_WINDOW_HOURS = 24;
 export const LIMIT_UPDATE_COOLDOWN_HOURS = 24;
-
 // Pagination defaults
 export const DEFAULT_PAGE = 1;
 export const DEFAULT_LIMIT = 20;
