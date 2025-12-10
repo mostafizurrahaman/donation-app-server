@@ -5,6 +5,7 @@ import { RoundUpTransactionModel } from '../RoundUpTransaction/roundUpTransactio
 import Client from './client.model';
 import httpStatus from 'http-status';
 import { Types } from 'mongoose';
+import { ScheduledDonation } from '../ScheduledDonation/scheduledDonation.model';
 
 // 1. Roundup donation stats
 const getRoundupStats = async (userId: string) => {
@@ -361,7 +362,25 @@ const getOnetimeDonationStats = async (userId: string) => {
     recentDonations: stats.recentDonations || [],
   };
 };
+
+// 3. Recurring Donation Stats:
+// const getRecurringDonationStats = async (userId: string) => {
+//   const client = await Client.findOne({
+//     auth: userId,
+//   });
+
+//   if (!client) {
+//     throw new AppError(httpStatus.NOT_FOUND, 'User not found!');
+//   }
+
+//   const  result = await Donation?.find({
+
+//   })
+// }
+
+
 export const clientService = {
   getRoundupStats,
   getOnetimeDonationStats,
+  getRecurringDonationStats
 };
