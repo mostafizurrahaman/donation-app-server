@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { AppError, asyncHandler, sendResponse } from '../../utils';
 import httpStatus from 'http-status';
-import { clientService } from './client.service';
+import clientService from './client.service';
 
 const getRoundupStats = asyncHandler(async (req: Request, res: Response) => {
   const userId = req.user._id?.toString();
