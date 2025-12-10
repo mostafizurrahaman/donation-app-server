@@ -54,6 +54,8 @@ export const startScheduledDonationsCron = () => {
       const dueDonations =
         await ScheduledDonationService.getScheduledDonationsDueForExecution();
 
+      console.log({ dueDonations });
+
       console.log(
         `📊 Found ${dueDonations.length} scheduled donation(s) due for execution`
       );

@@ -479,7 +479,9 @@ export const getUserRecurringDonationsForSpecificOrganization = async (
   //  check organization is exits:
   const organization = await Organization.findOne({
     _id: organizationId,
-  });
+  }).select(
+    'name registeredCharityName serviceType address state country coverImage logoImage aboutUs website'
+  );
 
   if (!organization) {
     throw new AppError(httpStatus.NOT_FOUND, 'User not found!');
@@ -504,18 +506,29 @@ export const getUserRecurringDonationsForSpecificOrganization = async (
     await ScheduledDonation.aggregate([
       {
         $match: {
-          donor: client?._id,
+          user: client?._id,
           organization: organization?._id,
           isActive: true,
           nextDonationDate: {
-            $gt: today.current.startDate,
+            $gte: today.current.startDate,
           },
+        },
+      },
+      {
+        $project: {
+          frequency: 1,
+          coverFees: 1,
+          amount: 1,
+          nextDonationDate: 1,
+          startDate: 1,
+          customInterval: 1,
         },
       },
     ]),
   ]);
 
   return {
+    organization,
     upcommingDoantions,
     previousDonations,
   };
