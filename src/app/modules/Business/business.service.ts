@@ -1,8 +1,9 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import fs from 'fs';
 import httpStatus from 'http-status';
 import { startSession } from 'mongoose';
 import { AppError } from '../../utils';
-import Business from './business.model';
+import Business, { BusinessView, BusinessWebsiteView } from './business.model';
 import { IAuth } from '../Auth/auth.interface';
 import { defaultUserImage } from '../Auth/auth.constant';
 import {
@@ -16,11 +17,13 @@ import { Reward } from '../Reward/reward.model';
 import { REWARD_STATUS } from '../Reward/reward.constant';
 import { monthAbbreviations } from '../Donation/donation.constant';
 import {
-  REDEMPTION_METHOD,
   REDEMPTION_METHOD_VALUES,
   REDEMPTION_STATUS,
 } from '../RewardRedeemtion/reward-redeemtion.constant';
 import { TTimeFilter } from '../Donation/donation.interface';
+
+import Auth from '../Auth/auth.model';
+import { create } from 'domain';
 
 // 1. Update Business Profile Service
 const updateBusinessProfile = async (
@@ -113,7 +116,8 @@ const updateBusinessProfile = async (
       status: user.status,
     };
 
-    return updatedBusiness;
+    return accessTokenPayload;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     await session.abortTransaction();
     await session.endSession();
@@ -151,48 +155,50 @@ const updateBusinessProfile = async (
 };
 
 // 2. Get Business Profile
-const getBusinessProfileById = async (businessId: string) => {
-  const business = await Business.findOneAndUpdate(
-    {
-      _id: businessId,
-    },
-    {
-      $inc: {
-        views: 1,
-      },
-    },
-    {
-      new: true,
-    }
-  );
+const getBusinessProfileById = async (businessId: string, userId: string) => {
+  const auth = await Auth.findById(userId);
+
+  if (!auth) {
+    throw new AppError(httpStatus.NOT_FOUND, 'User not found!');
+  }
+
+  const business = await Business.findOneAndUpdate({
+    _id: businessId,
+  });
 
   if (!business) {
     throw new AppError(httpStatus.NOT_FOUND, `Business doesn't exists!`);
   }
 
-  return business;
+  const view = await BusinessView.create({
+    business: business._id,
+    user: auth._id,
+  });
+
+  return view;
 };
 // 3. Increase Business website count
-const increaseWebsiteCount = async (businessId: string) => {
-  const business = await Business.findOneAndUpdate(
-    {
-      _id: businessId,
-    },
-    {
-      $inc: {
-        websiteViews: 1,
-      },
-    },
-    {
-      new: true,
-    }
-  );
+const increaseWebsiteCount = async (businessId: string, userId: string) => {
+  const auth = await Auth.findById(userId);
+
+  if (!auth) {
+    throw new AppError(httpStatus.NOT_FOUND, 'User not found!');
+  }
+
+  const business = await Business.findOneAndUpdate({
+    _id: businessId,
+  });
 
   if (!business) {
     throw new AppError(httpStatus.NOT_FOUND, `Business doesn't exists!`);
   }
 
-  return business;
+  const view = await BusinessWebsiteView.create({
+    business: business._id,
+    user: auth._id,
+  });
+
+  return view;
 };
 
 // 4. Get Business Oreveiw:
@@ -513,83 +519,145 @@ const getBusinessAnalytics = async (
   userId: string,
   timeFilter: TTimeFilter
 ) => {
-  const business = await Business.findOne({
-    auth: userId,
-  });
-
+  const business = await Business.findOne({ auth: userId });
   if (!business) {
     throw new AppError(httpStatus.NOT_FOUND, `Business doesn't exists!`);
   }
 
-  const { current } = getDateRanges(timeFilter);
+  const { current, previous } = getDateRanges(timeFilter);
 
-  const pipeline = [
+  const getViews = async (Model: any) => {
+    const result = await Model.aggregate([
+      { $match: { business: business._id } },
+      {
+        $facet: {
+          current: [
+            {
+              $match: {
+                createdAt: { $gte: current.startDate, $lte: current.endDate },
+              },
+            },
+            { $count: 'count' },
+          ],
+          previous: [
+            {
+              $match: {
+                createdAt: { $gte: previous.startDate, $lte: previous.endDate },
+              },
+            },
+            { $count: 'count' },
+          ],
+        },
+      },
+      {
+        $project: {
+          current: { $ifNull: [{ $arrayElemAt: ['$current.count', 0] }, 0] },
+          previous: { $ifNull: [{ $arrayElemAt: ['$previous.count', 0] }, 0] },
+        },
+      },
+    ]);
+
+    return result[0];
+  };
+
+  const profileViews = await getViews(BusinessView);
+  const websiteViews = await getViews(BusinessWebsiteView);
+
+  const redemptionData = await RewardRedemption.aggregate([
     {
       $match: {
         business: business._id,
         status: REDEMPTION_STATUS.REDEEMED,
-        redeemedAt: {
-          $gte: current.startDate,
-          $lte: current.endDate,
-        },
+        redeemedAt: { $gte: current.startDate, $lte: current.endDate },
       },
     },
+    { $group: { _id: '$redemptionMethod', count: { $sum: 1 } } },
+  ]);
+
+  const totalRedemptions = redemptionData.reduce((a, b) => a + b.count, 0);
+
+  const methods = REDEMPTION_METHOD_VALUES.slice(0, 3).map((method) => {
+    const found = redemptionData.find((item) => item._id === method);
+    return {
+      method,
+      count: found?.count || 0,
+      percentage: found
+        ? Math.round((found.count / totalRedemptions) * 100)
+        : 0,
+    };
+  });
+
+  const topRewards = await RewardRedemption.aggregate([
     {
-      $group: {
-        _id: '$redemptionMethod',
-        count: { $sum: 1 },
+      $match: {
+        business: business._id,
+        status: REDEMPTION_STATUS.REDEEMED,
       },
     },
+    { $group: { _id: '$reward', totalRedemptions: { $sum: 1 } } },
     {
-      $setWindowFields: {
-        partitionBy: null,
-        output: {
-          totalRedemptions: {
-            $sum: '$count',
-          },
-        },
+      $lookup: {
+        from: 'rewards',
+        localField: '_id',
+        foreignField: '_id',
+        as: 'reward',
       },
     },
+    { $unwind: '$reward' },
     {
       $project: {
-        _id: 0,
-        method: '$_id',
-        count: 1,
+        rewardId: '$_id',
+        title: '$reward.title',
         totalRedemptions: 1,
+        redemptionLimit: '$reward.redemptionLimit',
         percentage: {
           $round: [
             {
-              $multiply: [{ $divide: ['$count', '$totalRedemptions'] }, 100],
+              $multiply: [
+                { $divide: ['$totalRedemptions', '$reward.redemptionLimit'] },
+                100,
+              ],
             },
             2,
           ],
         },
       },
     },
-    {
-      $sort: { count: -1 },
-    },
-  ];
+    { $sort: { percentage: -1 } },
+    { $limit: 3 },
+  ]);
 
-  const redemptionData = await RewardRedemption.aggregate(pipeline);
+  const profileChange = calculatePercentageChange(
+    profileViews.current,
+    profileViews.previous
+  );
 
-  const totalRedemptions =
-    redemptionData.length > 0 ? redemptionData[0].totalRedemptions : 0;
-
-  const formattedStats = REDEMPTION_METHOD_VALUES.slice(0, 3).map((method) => {
-    const found = redemptionData.find((item) => item.method === method);
-    return {
-      method: method,
-      count: found ? found.count : 0,
-      percentage: found ? found.percentage : 0,
-    };
-  });
+  const websiteChange = calculatePercentageChange(
+    websiteViews.current,
+    websiteViews.previous
+  );
 
   return {
     totalRedemptions,
-    breakdown: formattedStats,
+
+    // Profile views
+    profileCurrent: profileViews.current,
+    profilePrevious: profileViews.previous,
+    profileChange: profileChange.percentageChange,
+    profileIncrease: profileChange.isIncrease,
+
+    // Website views
+    websiteCurrent: websiteViews.current,
+    websitePrevious: websiteViews.previous,
+    websiteChange: websiteChange.percentageChange,
+    websiteIncrease: websiteChange.isIncrease,
+
+    // Breakdown & Top Rewards
+    methods,
+    topRewards,
   };
 };
+
 export const BusinessService = {
   updateBusinessProfile,
   getBusinessProfileById,

@@ -1,11 +1,8 @@
-import { Document, Model, ObjectId } from 'mongoose';
+import { Document, Model } from 'mongoose';
 import { TRole, TAuthStatus } from './auth.constant';
 
 // Instance methods
 export interface IAuth extends Document {
-  // extends Document for using .save() method
-  _id: ObjectId;
-
   email: string;
   password: string;
   passwordChangedAt?: Date;

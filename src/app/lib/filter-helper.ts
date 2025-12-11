@@ -1,5 +1,6 @@
+/* eslint-disable no-case-declarations */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Types } from 'mongoose';
-import { DONATION_STATUS } from '../modules/Donation/donation.constant';
 import {
   IAnalyticsPeriod,
   TTimeFilter,
@@ -313,8 +314,6 @@ export const calculateStreaks = (dates: Date[]) => {
     uniqueSortedDates.includes(todayStr) ||
     uniqueSortedDates.includes(yesterdayStr)
   ) {
-    // Logic to count backwards from latest date
-    let pointerDate = new Date(uniqueSortedDates[0]);
     currentStreak = 1;
 
     for (let i = 0; i < uniqueSortedDates.length - 1; i++) {
