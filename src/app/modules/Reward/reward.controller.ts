@@ -237,25 +237,6 @@ const checkAvailability = asyncHandler(async (req: Request, res: Response) => {
 });
 
 /**
- * Get reward statistics
- */
-const getRewardStats = asyncHandler(async (req: Request, res: Response) => {
-  const { businessId, startDate, endDate } = req.query;
-
-  const stats = await rewardService.getRewardStatistics(
-    businessId as string | undefined,
-    startDate ? new Date(startDate as string) : undefined,
-    endDate ? new Date(endDate as string) : undefined
-  );
-
-  sendResponse(res, {
-    statusCode: httpStatus.OK,
-    message: 'Statistics retrieved successfully',
-    data: stats,
-  });
-});
-
-/**
  * Trigger reward maintenance job manually (Admin/Development only)
  */
 const triggerRewardMaintenance = asyncHandler(
@@ -340,7 +321,7 @@ export const RewardController = {
   archiveReward,
   uploadCodes,
   checkAvailability,
-  getRewardStats,
+
   getBusinessRewards,
   getUserExploreRewards,
   getAdminRewards,

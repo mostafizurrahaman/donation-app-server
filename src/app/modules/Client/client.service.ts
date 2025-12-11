@@ -6,7 +6,12 @@ import Client from './client.model';
 import httpStatus from 'http-status';
 import { Types } from 'mongoose';
 import { ScheduledDonation } from '../ScheduledDonation/scheduledDonation.model';
-import { getDateRanges, getRecurringLabel } from '../../lib/filter-helper';
+import {
+  getDateHeader,
+  getDateRanges,
+  getRecurringLabel,
+  getTimeAgo,
+} from '../../lib/filter-helper';
 import Organization from '../Organization/organization.model';
 import { IScheduledDonation } from '../Donation/donation.interface';
 import { getFileUrl } from '../../lib/upload';
@@ -535,46 +540,7 @@ export const getUserRecurringDonationsForSpecificOrganization = async (
   };
 };
 
-// 5. Get all transaction of client:
-const getTimeAgo = (date: Date): string => {
-  const now = new Date();
-  const seconds = Math.floor((now.getTime() - new Date(date).getTime()) / 1000);
 
-  let interval = seconds / 31536000;
-  if (interval > 1) return Math.floor(interval) + ' years ago';
-
-  interval = seconds / 2592000;
-  if (interval > 1) return Math.floor(interval) + ' months ago';
-
-  interval = seconds / 86400;
-  if (interval > 1) return Math.floor(interval) + ' days ago';
-
-  interval = seconds / 3600;
-  if (interval > 1) return Math.floor(interval) + ' hours ago';
-
-  interval = seconds / 60;
-  if (interval > 1) return Math.floor(interval) + ' minutes ago';
-
-  return Math.floor(seconds) + ' seconds ago';
-};
-
-// Helper to format Date Header
-const getDateHeader = (date: Date): string => {
-  const today = new Date();
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-
-  const d = new Date(date);
-
-  if (d.toDateString() === today.toDateString()) return 'Today';
-  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
-
-  return d.toLocaleDateString('en-US', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
-};
 
 const getUnifiedTransactionHistory = async (
   userId: string,

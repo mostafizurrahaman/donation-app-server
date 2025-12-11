@@ -5,6 +5,16 @@ import { AppError } from '../../utils';
 import Business from './business.model';
 import { IAuth } from '../Auth/auth.interface';
 import { defaultUserImage } from '../Auth/auth.constant';
+import {
+  calculatePercentageChange,
+  getDateHeader,
+  getDateRanges,
+  getTimeAgo,
+} from '../../lib/filter-helper';
+import { RewardRedemption } from '../RewardRedeemtion/reward-redeemtion.model';
+import { Reward } from '../Reward/reward.model';
+import { REWARD_STATUS } from '../Reward/reward.constant';
+import { monthAbbreviations } from '../Donation/donation.constant';
 
 // 1. Update Business Profile Service
 const updateBusinessProfile = async (
@@ -179,10 +189,322 @@ const increaseWebsiteCount = async (businessId: string) => {
   return business;
 };
 
+// 4. Get Business Oreveiw:
+const getBusinessOverview = async (userId: string) => {
+  const business = await Business.findOne({
+    auth: userId,
+  });
 
-// 4. 
+  if (!business) {
+    throw new AppError(httpStatus.NOT_FOUND, `Business doesn't exist!`);
+  }
+
+  // 1. Get Date Ranges using the helper
+  const { current, previous } = getDateRanges('last_7_days');
+
+  const { current: targetYear } = getDateRanges('this_year');
+
+  // 2. Execute Aggregations in Parallel
+  const [sevenDayStats, monthlyRedemptions, monthlyCreations, overallProgress] =
+    await Promise.all([
+      // A. Last 7 Days Comparison (Using your facet structure)
+      RewardRedemption.aggregate([
+        {
+          $match: {
+            business: business._id,
+            status: { $in: ['claimed', 'redeemed'] },
+          },
+        },
+        {
+          $facet: {
+            currentSevenDays: [
+              {
+                $match: {
+                  claimedAt: {
+                    $gte: current.startDate,
+                    $lte: current.endDate,
+                  },
+                },
+              },
+              {
+                $count: 'totalRedeemed',
+              },
+            ],
+            previousSevenDays: [
+              {
+                $match: {
+                  claimedAt: {
+                    $gte: previous.startDate,
+                    $lte: previous.endDate,
+                  },
+                },
+              },
+              {
+                $count: 'totalRedeemed',
+              },
+            ],
+          },
+        },
+      ]),
+
+      // B. Monthly Redemption Trends (For Graph)
+      RewardRedemption.aggregate([
+        {
+          $match: {
+            business: business._id,
+            createdAt: { $gte: targetYear.startDate, $lte: targetYear.endDate },
+            status: { $ne: 'cancelled' },
+          },
+        },
+        {
+          $group: {
+            _id: { $month: '$createdAt' },
+            count: { $sum: 1 },
+          },
+        },
+      ]),
+
+      // C. Monthly Reward Creation Trends (For Graph)
+      Reward.aggregate([
+        {
+          $match: {
+            business: business._id,
+            createdAt: { $gte: targetYear.startDate, $lte: targetYear.endDate },
+            isActive: true,
+          },
+        },
+        {
+          $group: {
+            _id: { $month: '$createdAt' },
+            count: { $sum: 1 },
+          },
+        },
+      ]),
+
+      // D. Overall Progress (Limit vs Usage) & Total Active Count
+      Reward.aggregate([
+        {
+          $match: {
+            business: business._id,
+            status: { $ne: 'inactive' },
+          },
+        },
+        {
+          $facet: {
+            // Total Active Rewards Count
+            activeRewards: [
+              { $match: { isActive: true, status: REWARD_STATUS.ACTIVE } },
+              { $count: 'count' },
+            ],
+            // Progress Stats
+            progress: [
+              {
+                $group: {
+                  _id: null,
+                  totalLimit: { $sum: '$redemptionLimit' },
+                  totalRedeemed: { $sum: '$redeemedCount' },
+                },
+              },
+            ],
+          },
+        },
+      ]),
+    ]);
+
+  // 3. Process 7-Day Stats
+  const currentCount =
+    sevenDayStats[0]?.currentSevenDays[0]?.totalRedeemed || 0;
+  const previousCount =
+    sevenDayStats[0]?.previousSevenDays[0]?.totalRedeemed || 0;
+  const sevenDayGrowth = calculatePercentageChange(currentCount, previousCount);
+
+  // 4. Process Monthly Stats
+  const redemptionMap = new Map(
+    monthlyRedemptions.map((i) => [i._id, i.count])
+  );
+  const creationMap = new Map(monthlyCreations.map((i) => [i._id, i.count]));
+
+  const monthlyStats = monthAbbreviations.map((monthName, index) => {
+    const monthIndex = index + 1;
+    return {
+      month: `${monthName} ${targetYear.startDate?.getFullYear()}`,
+      redeemed: redemptionMap.get(monthIndex) || 0,
+      reward: creationMap.get(monthIndex) || 0,
+    };
+  });
+
+  // 5. Process Overall Progress & Active Count
+  const activeCount = overallProgress[0]?.activeRewards[0]?.count || 0;
+  const progressData = overallProgress[0]?.progress[0] || {
+    totalLimit: 0,
+    totalRedeemed: 0,
+  };
+
+  const progressPercentage =
+    progressData.totalLimit > 0
+      ? (progressData.totalRedeemed / progressData.totalLimit) * 100
+      : 0;
+
+  return {
+    overview: {
+      totalActiveRewards: activeCount,
+      lastSevenDaysRedeemed: currentCount,
+      previousSevenDaysRedeemed: previousCount,
+      sevenDaysGrowthPercentage: sevenDayGrowth.percentageChange,
+      isIncrease: sevenDayGrowth.isIncrease,
+    },
+    monthlyStats,
+    overallProgress: {
+      totalRedemptionLimit: progressData.totalLimit,
+      totalRedeemedCount: progressData.totalRedeemed,
+      percentage: parseFloat(progressPercentage.toFixed(2)),
+    },
+  };
+};
+
+const getBusinessRecentActivity = async (
+  userId: string,
+  query: Record<string, unknown>
+) => {
+  const business = await Business.findOne({ auth: userId });
+
+  if (!business) {
+    throw new AppError(httpStatus.NOT_FOUND, `Business doesn't exist!`);
+  }
+
+  const page = Number(query.page) || 1;
+  const limit = Number(query.limit) || 20;
+  const skip = (page - 1) * limit;
+
+  const pipeline = [
+    // 1. Match Redemptions
+    {
+      $match: {
+        business: business._id,
+        status: { $in: ['redeemed'] },
+      },
+    },
+    // 2. Lookup User
+    {
+      $lookup: {
+        from: 'clients',
+        localField: 'user',
+        foreignField: '_id',
+        as: 'userDetails',
+      },
+    },
+    { $unwind: { path: '$userDetails', preserveNullAndEmptyArrays: true } },
+    // 3. Lookup Reward
+    {
+      $lookup: {
+        from: 'rewards',
+        localField: 'reward',
+        foreignField: '_id',
+        as: 'rewardDetails',
+      },
+    },
+    { $unwind: { path: '$rewardDetails', preserveNullAndEmptyArrays: true } },
+    // 4. Project Raw Data (No text formatting)
+    {
+      $project: {
+        _id: 1,
+        type: { $literal: 'redemption' }, // Identify type
+        timestamp: '$createdAt',
+
+        // Required data for Frontend formatting
+        userName: '$userDetails.name',
+        userImage: '$userDetails.image',
+        rewardTitle: '$rewardDetails.title',
+        redemptionMethod: '$redemptionMethod', // e.g. 'qr', 'nfc', 'static-code'
+
+        // Codes for Scanner/Display
+        qrCode: 1, // Base64 QR string
+        qrCodeUrl: 1, // Data URL for QR image
+        assignedCode: 1, // Static code (e.g. "DISCOUNT50")
+      },
+    },
+    // 5. Merge with Reward Creations
+    {
+      $unionWith: {
+        coll: 'rewards',
+        pipeline: [
+          {
+            $match: {
+              business: business._id,
+            },
+          },
+          {
+            $project: {
+              _id: 1,
+              type: { $literal: 'creation' }, // Identify type
+              timestamp: '$createdAt',
+
+              // Only reward title needed for creation event
+              rewardTitle: '$title',
+
+              // Nullify fields that don't exist for creations to keep shape consistent (optional)
+              userName: { $literal: null },
+              qrCode: { $literal: null },
+            },
+          },
+        ],
+      },
+    },
+    // 6. Sort Combined List (Newest First)
+    { $sort: { timestamp: -1 } },
+    // 7. Pagination
+    {
+      $facet: {
+        metadata: [{ $count: 'total' }],
+        data: [{ $skip: skip }, { $limit: limit }],
+      },
+    },
+  ];
+
+  // Execute Aggregation
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const result = await RewardRedemption.aggregate(pipeline as any);
+
+  const rawData = result[0].data || [];
+  const total = result[0].metadata[0]?.total || 0;
+
+  // 8. Grouping Logic
+  const groupedData = new Map<string, any[]>();
+
+  rawData.forEach((item: any) => {
+    const groupTitle = getDateHeader(new Date(item.timestamp));
+
+    // Add timeAgo calculation for frontend convenience
+    const enrichedItem = {
+      ...item,
+      timeAgo: getTimeAgo(new Date(item.timestamp)),
+    };
+
+    if (!groupedData.has(groupTitle)) {
+      groupedData.set(groupTitle, []);
+    }
+    groupedData.get(groupTitle)?.push(enrichedItem);
+  });
+
+  const formattedActivities = Array.from(groupedData, ([title, items]) => ({
+    title,
+    data: items,
+  }));
+
+  return {
+    activities: formattedActivities,
+    meta: {
+      page,
+      limit,
+      total,
+      totalPage: Math.ceil(total / limit),
+    },
+  };
+};
 export const BusinessService = {
   updateBusinessProfile,
   getBusinessProfileById,
   increaseWebsiteCount,
+  getBusinessOverview,
+  getBusinessRecentActivity,
 };

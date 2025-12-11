@@ -710,97 +710,6 @@ const checkAvailability = async (
   };
 };
 
-const getRewardStatistics = async (
-  businessId?: string,
-  startDate?: Date,
-  endDate?: Date
-): Promise<IRewardStatistics> => {
-  const filter: Record<string, unknown> = {};
-  if (businessId) filter.business = new Types.ObjectId(businessId);
-  const dateFilter: Record<string, unknown> = {};
-  if (startDate || endDate) {
-    dateFilter.createdAt = {};
-    if (startDate)
-      (dateFilter.createdAt as Record<string, Date>).$gte = startDate;
-    if (endDate) (dateFilter.createdAt as Record<string, Date>).$lte = endDate;
-  }
-  const [overallStats, topRewardsResult, categoryStats, typeStats] =
-    await Promise.all([
-      Reward.aggregate([
-        { $match: { ...filter, ...dateFilter } },
-        {
-          $group: {
-            _id: null,
-            totalRewards: { $sum: 1 },
-            activeRewards: {
-              $sum: { $cond: [{ $eq: ['$status', 'active'] }, 1, 0] },
-            },
-            expiredRewards: {
-              $sum: { $cond: [{ $eq: ['$status', 'expired'] }, 1, 0] },
-            },
-            soldOutRewards: {
-              $sum: { $cond: [{ $eq: ['$status', 'sold-out'] }, 1, 0] },
-            },
-            totalRedemptions: { $sum: '$redemptions' },
-            totalViews: { $sum: '$views' },
-          },
-        },
-      ]),
-      Reward.find({ ...filter, ...dateFilter })
-        .sort({ redemptions: -1 })
-        .limit(10)
-        .select('_id title redemptions')
-        .lean(),
-      Reward.aggregate([
-        { $match: { ...filter, ...dateFilter } },
-        { $group: { _id: '$category', count: { $sum: 1 } } },
-      ]),
-      Reward.aggregate([
-        { $match: { ...filter, ...dateFilter } },
-        { $group: { _id: '$type', count: { $sum: 1 } } },
-      ]),
-    ]);
-  const stats = overallStats[0] || {
-    totalRewards: 0,
-    activeRewards: 0,
-    expiredRewards: 0,
-    soldOutRewards: 0,
-    totalRedemptions: 0,
-    totalViews: 0,
-  };
-  const typeMap: Record<string, number> = {};
-  typeStats.forEach((t: { _id: string; count: number }) => {
-    typeMap[t._id] = t.count;
-  });
-  return {
-    totalRewards: stats.totalRewards,
-    activeRewards: stats.activeRewards,
-    expiredRewards: stats.expiredRewards,
-    soldOutRewards: stats.soldOutRewards,
-    totalRedemptions: stats.totalRedemptions,
-    totalViews: stats.totalViews,
-    averageRedemptionRate:
-      stats.totalViews > 0
-        ? (stats.totalRedemptions / stats.totalViews) * 100
-        : 0,
-    topRewards: topRewardsResult.map((reward) => ({
-      reward: reward._id as Types.ObjectId,
-      title: reward.title,
-      redemptions: reward.redemptions,
-    })),
-    rewardsByCategory: categoryStats.map(
-      (cat: { _id: string; count: number }) => ({
-        category: cat._id,
-        count: cat.count,
-      })
-    ),
-    rewardsByType: {
-      inStore: typeMap['in-store'] || 0,
-      online: typeMap['online'] || 0,
-    },
-  };
-};
-
 /**
  * Maintenance: Update expired rewards status
  */
@@ -996,7 +905,6 @@ export const rewardService = {
   archiveReward,
   checkAvailability,
   uploadCodesToReward,
-  getRewardStatistics,
   updateExpiredRewards,
   updateUpcomingRewards,
   getBusinessRewards,

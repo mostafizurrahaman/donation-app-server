@@ -34,14 +34,6 @@ router.get(
   RewardController.getBusinessRewards
 );
 
-// Business: Get Analytics
-router.get(
-  '/analytics/stats',
-  auth(ROLE.BUSINESS, ROLE.ADMIN),
-  validateRequest(rewardValidation.getRewardStatsSchema),
-  RewardController.getRewardStats
-);
-
 // Admin: Get All Rewards
 router.get(
   '/admin/all',
@@ -151,5 +143,8 @@ router.post(
   auth(ROLE.ADMIN),
   RewardController.triggerRewardMaintenance
 );
+
+
+
 
 export const RewardRoutes = router;

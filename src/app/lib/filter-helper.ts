@@ -165,6 +165,26 @@ export const getDateRanges = (
       break;
     }
 
+    case 'last_7_days': {
+      // Current: Last 7 days including today
+      currentEnd = new Date(now);
+      currentEnd.setHours(23, 59, 59, 999);
+
+      currentStart = new Date(now);
+      currentStart.setDate(currentStart.getDate() - 6); // 7 days window
+      currentStart.setHours(0, 0, 0, 0);
+
+      // Previous: The 7 days before the current 7-day window
+      previousEnd = new Date(currentStart);
+      previousEnd.setMilliseconds(-1); // End of the day before currentStart
+
+      previousStart = new Date(previousEnd);
+      previousStart.setDate(previousStart.getDate() - 6);
+      previousStart.setHours(0, 0, 0, 0);
+
+      break;
+    }
+
     default:
       // Default to today if invalid
       currentStart = new Date(now.setHours(0, 0, 0, 0));
@@ -194,6 +214,7 @@ export const isValidFilter = (filter: string): filter is TTimeFilter => {
     'last_month',
     'this_year',
     'last_year',
+    'last_7_days',
   ].includes(filter);
 };
 
@@ -239,6 +260,7 @@ export const getPeriodLabel = (
     last_month: { current: 'Last Month', previous: '2 Months Ago' },
     this_year: { current: 'This Year', previous: 'Last Year' },
     last_year: { current: 'Last Year', previous: '2 Years Ago' },
+    last_7_days: { current: 'Last 7 Days', previous: 'Last 7 Days' },
   };
 
   return labels[filter];
@@ -394,4 +416,45 @@ export const getOrdinal = (n: number) => {
   const s = ['th', 'st', 'nd', 'rd'];
   const v = n % 100;
   return s[(v - 20) % 10] || s[v] || s[0];
+};
+
+// 5. Get all transaction of client:
+export const getTimeAgo = (date: Date): string => {
+  const now = new Date();
+  const seconds = Math.floor((now.getTime() - new Date(date).getTime()) / 1000);
+
+  let interval = seconds / 31536000;
+  if (interval > 1) return Math.floor(interval) + ' years ago';
+
+  interval = seconds / 2592000;
+  if (interval > 1) return Math.floor(interval) + ' months ago';
+
+  interval = seconds / 86400;
+  if (interval > 1) return Math.floor(interval) + ' days ago';
+
+  interval = seconds / 3600;
+  if (interval > 1) return Math.floor(interval) + ' hours ago';
+
+  interval = seconds / 60;
+  if (interval > 1) return Math.floor(interval) + ' minutes ago';
+
+  return Math.floor(seconds) + ' seconds ago';
+};
+
+// Helper to format Date Header
+export const getDateHeader = (date: Date): string => {
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  const d = new Date(date);
+
+  if (d.toDateString() === today.toDateString()) return 'Today';
+  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+
+  return d.toLocaleDateString('en-US', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
 };

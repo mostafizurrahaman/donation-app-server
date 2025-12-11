@@ -1499,7 +1499,6 @@ const getClientStats = async (
     },
     {
       $facet: {
-        // Pipeline 1: Global Summary (Totals, counts, list of dates)
         summary: [
           {
             $group: {
@@ -1536,7 +1535,7 @@ const getClientStats = async (
             },
           },
         ],
-        // Pipeline 2: Daily Aggregated Stats (For Charts)
+
         dailyStats: [
           {
             $group: {
@@ -1547,7 +1546,7 @@ const getClientStats = async (
               count: { $sum: 1 },
             },
           },
-          { $sort: { _id: 1 } }, // Sort by date ascending
+          { $sort: { _id: 1 } },
           {
             $project: {
               _id: 0,

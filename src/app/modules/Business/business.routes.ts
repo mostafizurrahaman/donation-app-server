@@ -12,6 +12,18 @@ import { BusinessController } from './business.controller';
 
 const router = Router();
 
+router.get(
+  '/overview',
+  auth(ROLE.BUSINESS),
+  BusinessController.getBusinessOverview
+);
+
+router.get(
+  '/recent-activity',
+  auth(ROLE.BUSINESS, ROLE.ADMIN),
+  BusinessController.getBusinessRecentActivity
+);
+
 // Update Business Profile Route
 router.patch(
   '/update-profile',
