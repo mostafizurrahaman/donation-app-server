@@ -4,7 +4,6 @@ import { BusinessService } from './business.service';
 import { sendResponse } from '../../utils';
 import { ExtendedRequest } from '../../types';
 import { TTimeFilter } from '../Donation/donation.interface';
-import Business from './business.model';
 
 // Update Business Profile Controller
 const updateBusinessProfile = asyncHandler(async (req, res) => {
