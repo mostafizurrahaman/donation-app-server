@@ -85,9 +85,30 @@ const getUserRecurringDonationsForSpecificOrganization = asyncHandler(
   }
 );
 
+const getUnifiedHistory = asyncHandler(async (req: Request, res: Response) => {
+  const userId = req.user._id?.toString();
+
+  if (!userId) {
+    throw new AppError(httpStatus.NOT_FOUND, 'User not found!');
+  }
+
+  const result = await clientService.getUnifiedTransactionHistory(
+    userId,
+    req.query
+  );
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Transaction history fetched successfully!',
+    data: result.history,
+    meta: result.meta,
+  });
+});
+
 export const clientController = {
   getRoundupStats,
   getOnetimeDonationStats,
   getRecurringDonationStats,
   getUserRecurringDonationsForSpecificOrganization,
+  getUnifiedHistory,
 };

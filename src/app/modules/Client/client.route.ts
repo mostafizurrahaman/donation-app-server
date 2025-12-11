@@ -33,4 +33,10 @@ router.get(
   clientController.getUserRecurringDonationsForSpecificOrganization
 );
 
+router.get(
+  '/transaction/history',
+  auth(ROLE.CLIENT),
+  clientController.getUnifiedHistory
+);
+
 export const clientRoutes = router;

@@ -500,7 +500,7 @@ export const getUserRecurringDonationsForSpecificOrganization = async (
         'isActive frequency customInterval '
       )
       .select(
-        'donationDate totalAmount amount donationType scheduledDonationId netAmount stripeFee gstOnFee platformFee coverFess'
+        'donationDate totalAmount amount donationType scheduledDonationId netAmount status stripeFee gstOnFee platformFee coverFess'
       ),
     await ScheduledDonation.aggregate([
       {
@@ -533,9 +533,232 @@ export const getUserRecurringDonationsForSpecificOrganization = async (
   };
 };
 
+// 5. Get all transaction of client:
+// Helper for "Time Ago"
+const getTimeAgo = (date: Date): string => {
+  const now = new Date();
+  const seconds = Math.floor((now.getTime() - new Date(date).getTime()) / 1000);
+
+  let interval = seconds / 31536000;
+  if (interval > 1) return Math.floor(interval) + ' years ago';
+
+  interval = seconds / 2592000;
+  if (interval > 1) return Math.floor(interval) + ' months ago';
+
+  interval = seconds / 86400;
+  if (interval > 1) return Math.floor(interval) + ' days ago';
+
+  interval = seconds / 3600;
+  if (interval > 1) return Math.floor(interval) + ' hours ago';
+
+  interval = seconds / 60;
+  if (interval > 1) return Math.floor(interval) + ' minutes ago';
+
+  return Math.floor(seconds) + ' seconds ago';
+};
+
+// Helper to format Date Header
+const getDateHeader = (date: Date): string => {
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  const d = new Date(date);
+
+  if (d.toDateString() === today.toDateString()) return 'Today';
+  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+
+  return d.toLocaleDateString('en-US', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+};
+
+const getUnifiedTransactionHistory = async (
+  userId: string,
+  query: Record<string, unknown>
+) => {
+  const client = await Client.findOne({ auth: userId });
+  if (!client) {
+    throw new AppError(httpStatus.NOT_FOUND, 'User not found!');
+  }
+
+  const page = Number(query.page) || 1;
+  const limit = Number(query.limit) || 20;
+  const skip = (page - 1) * limit;
+
+  // Aggregation Pipeline to Merge Collections
+  const pipeline = [
+    // ---------------------------------------------------------
+    // 1. Source: RoundUpTransaction Collection (Spare Change)
+    // ---------------------------------------------------------
+    {
+      $match: {
+        user: client.auth, // RoundUpTransaction uses Auth ID
+        status: { $in: ['processed', 'donated'] },
+      },
+    },
+    {
+      $project: {
+        _id: 1,
+        // ✅ Explicit Type for Round Up Transactions
+        type: { $literal: 'Round Up Transaction' },
+        amount: '$roundUpAmount',
+        originalAmount: '$originalAmount',
+        originalTitle: '$transactionName', // e.g., "Starbucks"
+        date: '$transactionDate',
+        organization: '$organization',
+        status: '$status',
+      },
+    },
+    // ---------------------------------------------------------
+    // 2. Source: Donation Collection (Direct/Monthly Charges)
+    // ---------------------------------------------------------
+    {
+      $unionWith: {
+        coll: 'donations',
+        pipeline: [
+          {
+            $match: {
+              donor: client._id, // Donation uses Client ID
+              status: 'completed',
+            },
+          },
+          {
+            $project: {
+              _id: 1,
+              // ✅ Map Donation Type to specific labels
+              type: {
+                $switch: {
+                  branches: [
+                    {
+                      case: { $eq: ['$donationType', 'one-time'] },
+                      then: 'One Time Donation',
+                    },
+                    {
+                      case: { $eq: ['$donationType', 'recurring'] },
+                      then: 'Recurring Donation',
+                    },
+                    {
+                      case: { $eq: ['$donationType', 'round-up'] },
+                      then: 'Round Up Donation', // Monthly aggregated transfer
+                    },
+                  ],
+                  default: 'Donation',
+                },
+              },
+              amount: '$amount', // Donation amount
+              originalAmount: '$totalAmount', // Amount charged to card
+              originalTitle: { $literal: null }, // Donations don't have merchant names
+              date: '$donationDate',
+              organization: '$organization',
+              status: '$status',
+            },
+          },
+        ],
+      },
+    },
+    // ---------------------------------------------------------
+    // 3. Sort, Paginate & Format
+    // ---------------------------------------------------------
+    { $sort: { date: -1 } },
+    {
+      $facet: {
+        metadata: [{ $count: 'total' }],
+        data: [
+          { $skip: skip },
+          { $limit: limit },
+          // Lookup Organization for Logo/Name
+          {
+            $lookup: {
+              from: 'organizations',
+              localField: 'organization',
+              foreignField: '_id',
+              as: 'orgDetails',
+            },
+          },
+          {
+            $unwind: { path: '$orgDetails', preserveNullAndEmptyArrays: true },
+          },
+          // Final Projection
+          {
+            $project: {
+              _id: 1,
+              type: 1, // "Round Up Transaction", "One Time Donation", etc.
+              amount: 1,
+              originalAmount: 1,
+
+              // ✅ Title Logic
+              title: {
+                $cond: {
+                  if: { $eq: ['$type', 'Round Up Transaction'] },
+                  then: { $concat: ['Round up from ', '$originalTitle'] }, // e.g. "Round up from Starbucks"
+                  else: '$type', // e.g. "Round Up Donation", "One Time Donation"
+                },
+              },
+
+              organizationName: '$orgDetails.name', // e.g. "Red Cross"
+              image: '$orgDetails.logoImage',
+              date: 1,
+            },
+          },
+        ],
+      },
+    },
+  ];
+
+  // Execute Aggregation
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const result = await RoundUpTransactionModel.aggregate(pipeline as any);
+
+  const rawData = result[0].data;
+  const total = result[0].metadata[0]?.total || 0;
+
+  // Post-Processing: Group by Date
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const groupedData: Record<string, any[]> = {};
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  rawData.forEach((tx: any) => {
+    const header = getDateHeader(new Date(tx.date));
+    if (!groupedData[header]) {
+      groupedData[header] = [];
+    }
+
+    groupedData[header].push({
+      id: tx._id,
+      title: tx.title, // e.g. "Round up from Uber" OR "Round Up Donation"
+      organizationName: tx.organizationName, // e.g. "Save the Children"
+      amount: tx.amount, // The donation part
+      originalAmount: tx.originalAmount, // The spend/charge part
+      type: tx.type, // The specific type string
+      image: tx.image,
+      timeAgo: getTimeAgo(tx.date),
+      fullDate: tx.date,
+    });
+  });
+
+  const formattedResponse = Object.keys(groupedData).map((key) => ({
+    title: key,
+    transactions: groupedData[key],
+  }));
+
+  return {
+    history: formattedResponse,
+    meta: {
+      page,
+      limit,
+      total,
+      totalPage: Math.ceil(total / limit),
+    },
+  };
+};
+
 export default {
   getRoundupStats,
   getOnetimeDonationStats,
   getRecurringDonationStats,
   getUserRecurringDonationsForSpecificOrganization,
+  getUnifiedTransactionHistory,
 };
