@@ -60,7 +60,6 @@ export interface IReward {
   featured: boolean;
   priority: number;
 
-  
   redemptions: number;
 
   lastLimitUpdate?: Date;
@@ -115,7 +114,6 @@ export interface IRewardRedemption {
 // Document Interfaces
 export interface IRewardDocument extends IReward, Document {
   _id: Types.ObjectId;
-  incrementViews(): Promise<void>;
   incrementRedemptions(): Promise<void>;
   decrementStock(): Promise<boolean>;
   getAvailableCode(type?: 'discount' | 'giftcard'): IRewardCode | null;

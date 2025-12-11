@@ -86,8 +86,33 @@ const getRecentActivitySchema = z.object({
     limit: z.coerce.number().min(1).max(100).default(20),
   }),
 });
+
+const getBusinessAnalyticsSchema = z.object({
+  query: z.object({
+    timeFilter: z.enum(
+      [
+        'today',
+        'yesterday',
+        'this_week',
+        'last_week',
+        'this_month',
+        'last_month',
+        'this_year',
+        'last_year',
+        'last_7_days',
+        'last_30_days',
+      ],
+      {
+        message:
+          'Invalid time filter. Allowed values are: today, yesterday, this_week, last_week, this_month, last_month, this_year, last_year, last_7_days, last_30_days.',
+      }
+    ),
+  }),
+});
+
 export const BusinessValidation = {
   updateBusinessProfileSchema,
   getBusinessProfileValidaitonSchema,
   getRecentActivitySchema,
+  getBusinessAnalyticsSchema,
 };

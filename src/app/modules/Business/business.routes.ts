@@ -23,6 +23,11 @@ router.get(
   auth(ROLE.BUSINESS, ROLE.ADMIN),
   BusinessController.getBusinessRecentActivity
 );
+router.get(
+  '/analytics',
+  auth(ROLE.BUSINESS, ROLE.ADMIN),
+  BusinessController.getBusinessAnalytics
+);
 
 // Update Business Profile Route
 router.patch(

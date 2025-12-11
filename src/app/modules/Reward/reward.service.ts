@@ -1,10 +1,12 @@
+// src/app/modules/Reward/reward.service.ts
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Types } from 'mongoose';
 import crypto from 'crypto';
 import httpStatus from 'http-status';
 import fs from 'fs';
 
-import { Reward } from './reward.model';
+import { Reward, ViewReward } from './reward.model';
 // Imported only for availability check (Read Only)
 import { RewardRedemption } from '../RewardRedeemtion/reward-redeemtion.model';
 import Business from '../Business/business.model';
@@ -446,8 +448,17 @@ const getRewardById = async (
     throw new AppError(httpStatus.NOT_FOUND, REWARD_MESSAGES.NOT_FOUND);
   }
 
-  // eslint-disable-next-line no-console
-  reward.incrementViews().catch(console.error);
+  // Handle Reward Views
+  if (userId) {
+    const client = await Client.findOne({ auth: userId });
+    if (client) {
+      await ViewReward.findOneAndUpdate(
+        { user: client._id, reward: rewardId },
+        { $inc: { view: 1 } },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+    }
+  }
 
   let userCanAfford = false;
   let userBalance = 0;
@@ -811,9 +822,7 @@ const getUserExploreRewards = async (
   const rewardQuery = new QueryBuilder(
     Reward.find(filter)
       .populate('business', 'name coverImage  logoImage')
-      .select(
-        '-codes -views -limitUpdateHistory -priority -redemptions -featured'
-      ), // ❌ Exclude codes and views here
+      .select('-codes -limitUpdateHistory -priority -redemptions -featured'), 
     { page, limit }
   )
     .sort()
@@ -892,8 +901,6 @@ const getAdminRewards = async (query: Record<string, unknown>) => {
 
   return { result, meta };
 };
-
-//
 
 export const rewardService = {
   createReward,

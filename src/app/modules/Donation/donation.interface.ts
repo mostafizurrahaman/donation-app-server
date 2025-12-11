@@ -255,7 +255,8 @@ export type TTimeFilter =
   | 'last_month'
   | 'this_year'
   | 'last_year'
-  | 'last_7_days';
+  | 'last_7_days'
+  | 'last_30_days';
 
 export interface MonthlyTrend {
   month: string;

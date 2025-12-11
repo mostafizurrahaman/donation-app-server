@@ -184,6 +184,25 @@ export const getDateRanges = (
 
       break;
     }
+    case 'last_30_days': {
+      // Current: Last 30 days including today
+      currentEnd = new Date(now);
+      currentEnd.setHours(23, 59, 59, 999);
+
+      currentStart = new Date(now);
+      currentStart.setDate(currentStart.getDate() - 29); // 30-day window
+      currentStart.setHours(0, 0, 0, 0);
+
+      // Previous: The 30 days before the current 30-day window
+      previousEnd = new Date(currentStart);
+      previousEnd.setMilliseconds(-1); // End of the day before currentStart
+
+      previousStart = new Date(previousEnd);
+      previousStart.setDate(previousStart.getDate() - 29);
+      previousStart.setHours(0, 0, 0, 0);
+
+      break;
+    }
 
     default:
       // Default to today if invalid
@@ -215,6 +234,7 @@ export const isValidFilter = (filter: string): filter is TTimeFilter => {
     'this_year',
     'last_year',
     'last_7_days',
+    'last_30_days',
   ].includes(filter);
 };
 
@@ -261,6 +281,7 @@ export const getPeriodLabel = (
     this_year: { current: 'This Year', previous: 'Last Year' },
     last_year: { current: 'Last Year', previous: '2 Years Ago' },
     last_7_days: { current: 'Last 7 Days', previous: 'Last 7 Days' },
+    last_30_days: { current: 'Last 30 Days', previous: 'Last 30 Days' },
   };
 
   return labels[filter];

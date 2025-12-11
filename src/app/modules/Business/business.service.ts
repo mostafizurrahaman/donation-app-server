@@ -15,6 +15,12 @@ import { RewardRedemption } from '../RewardRedeemtion/reward-redeemtion.model';
 import { Reward } from '../Reward/reward.model';
 import { REWARD_STATUS } from '../Reward/reward.constant';
 import { monthAbbreviations } from '../Donation/donation.constant';
+import {
+  REDEMPTION_METHOD,
+  REDEMPTION_METHOD_VALUES,
+  REDEMPTION_STATUS,
+} from '../RewardRedeemtion/reward-redeemtion.constant';
+import { TTimeFilter } from '../Donation/donation.interface';
 
 // 1. Update Business Profile Service
 const updateBusinessProfile = async (
@@ -361,7 +367,7 @@ const getBusinessOverview = async (userId: string) => {
     },
   };
 };
-
+// 5. Get Business Recent Activity
 const getBusinessRecentActivity = async (
   userId: string,
   query: Record<string, unknown>
@@ -501,10 +507,94 @@ const getBusinessRecentActivity = async (
     },
   };
 };
+
+// 6.Get Business Stats (analyst)
+const getBusinessAnalytics = async (
+  userId: string,
+  timeFilter: TTimeFilter
+) => {
+  const business = await Business.findOne({
+    auth: userId,
+  });
+
+  if (!business) {
+    throw new AppError(httpStatus.NOT_FOUND, `Business doesn't exists!`);
+  }
+
+  const { current } = getDateRanges(timeFilter);
+
+  const pipeline = [
+    {
+      $match: {
+        business: business._id,
+        status: REDEMPTION_STATUS.REDEEMED,
+        redeemedAt: {
+          $gte: current.startDate,
+          $lte: current.endDate,
+        },
+      },
+    },
+    {
+      $group: {
+        _id: '$redemptionMethod',
+        count: { $sum: 1 },
+      },
+    },
+    {
+      $setWindowFields: {
+        partitionBy: null,
+        output: {
+          totalRedemptions: {
+            $sum: '$count',
+          },
+        },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        method: '$_id',
+        count: 1,
+        totalRedemptions: 1,
+        percentage: {
+          $round: [
+            {
+              $multiply: [{ $divide: ['$count', '$totalRedemptions'] }, 100],
+            },
+            2,
+          ],
+        },
+      },
+    },
+    {
+      $sort: { count: -1 },
+    },
+  ];
+
+  const redemptionData = await RewardRedemption.aggregate(pipeline);
+
+  const totalRedemptions =
+    redemptionData.length > 0 ? redemptionData[0].totalRedemptions : 0;
+
+  const formattedStats = REDEMPTION_METHOD_VALUES.slice(0, 3).map((method) => {
+    const found = redemptionData.find((item) => item.method === method);
+    return {
+      method: method,
+      count: found ? found.count : 0,
+      percentage: found ? found.percentage : 0,
+    };
+  });
+
+  return {
+    totalRedemptions,
+    breakdown: formattedStats,
+  };
+};
 export const BusinessService = {
   updateBusinessProfile,
   getBusinessProfileById,
   increaseWebsiteCount,
   getBusinessOverview,
   getBusinessRecentActivity,
+  getBusinessAnalytics,
 };

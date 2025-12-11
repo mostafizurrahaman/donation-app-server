@@ -4,6 +4,7 @@ import { BusinessService } from './business.service';
 import { sendResponse } from '../../utils';
 import { rewardRedemptionService } from '../RewardRedeemtion/reward-redeemtion.service';
 import { ExtendedRequest } from '../../types';
+import { TTimeFilter } from '../Donation/donation.interface';
 
 // Update Business Profile Controller
 const updateBusinessProfile = asyncHandler(async (req, res) => {
@@ -110,10 +111,31 @@ const getBusinessRecentActivity = asyncHandler(
   }
 );
 
+/**
+ * Get Business Analytics
+ */
+const getBusinessAnalytics = asyncHandler(async (req: ExtendedRequest, res) => {
+  const userId = req.user?._id?.toString();
+  const timeFilter = req.query.timeFilter as TTimeFilter;
+
+  if (!userId) {
+    throw new AppError(httpStatus.UNAUTHORIZED, 'User not authenticated');
+  }
+
+  const result = await BusinessService.getBusinessAnalytics(userId, timeFilter);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Recent activity retrieved successfully',
+    data: result,
+  });
+});
+
 export const BusinessController = {
   updateBusinessProfile,
   getBusinessProfileById,
   increaseWebsiteCount,
   getBusinessOverview,
   getBusinessRecentActivity,
+  getBusinessAnalytics,
 };
