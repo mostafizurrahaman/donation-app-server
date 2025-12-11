@@ -2,7 +2,10 @@ import { Router } from 'express';
 
 import { upload } from '../../lib';
 import { ROLE } from '../Auth/auth.constant';
-import { validateRequestFromFormData } from '../../middlewares/validateRequest';
+import {
+  validateRequest,
+  validateRequestFromFormData,
+} from '../../middlewares/validateRequest';
 import { auth } from '../../middlewares';
 import { BusinessValidation } from './business.validation';
 import { BusinessController } from './business.controller';
@@ -19,6 +22,20 @@ router.patch(
   ]),
   validateRequestFromFormData(BusinessValidation.updateBusinessProfileSchema),
   BusinessController.updateBusinessProfile
+);
+
+router.get(
+  '/:businessId',
+  auth(ROLE.CLIENT, ROLE.ADMIN),
+  validateRequest(BusinessValidation.getBusinessProfileValidaitonSchema),
+  BusinessController.getBusinessProfileById
+);
+
+router.patch(
+  '/:businessId',
+  auth(ROLE.CLIENT, ROLE.ADMIN),
+  validateRequest(BusinessValidation.getBusinessProfileValidaitonSchema),
+  BusinessController.increaseWebsiteCount
 );
 
 export const BusinessRoutes = router;

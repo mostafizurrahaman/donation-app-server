@@ -14,6 +14,8 @@ export interface IBusiness extends Document {
   businessPhoneNumber: string;
   businessEmail: string;
   businessWebsite: string;
+  websiteViews: number;
+  views: number;
 
   locations: string[];
 }

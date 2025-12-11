@@ -1,4 +1,4 @@
-import { AppError } from '../../utils';
+import { AppError, deleteFile } from '../../utils';
 import Donation from '../Donation/donation.model';
 import { RoundUpModel } from '../RoundUp/roundUp.model';
 import { RoundUpTransactionModel } from '../RoundUpTransaction/roundUpTransaction.model';
@@ -9,6 +9,8 @@ import { ScheduledDonation } from '../ScheduledDonation/scheduledDonation.model'
 import { getDateRanges, getRecurringLabel } from '../../lib/filter-helper';
 import Organization from '../Organization/organization.model';
 import { IScheduledDonation } from '../Donation/donation.interface';
+import { getFileUrl } from '../../lib/upload';
+import { IClient } from './client.interface';
 
 // 1. Roundup donation stats
 const getRoundupStats = async (userId: string) => {
@@ -534,7 +536,6 @@ export const getUserRecurringDonationsForSpecificOrganization = async (
 };
 
 // 5. Get all transaction of client:
-// Helper for "Time Ago"
 const getTimeAgo = (date: Date): string => {
   const now = new Date();
   const seconds = Math.floor((now.getTime() - new Date(date).getTime()) / 1000);
@@ -588,47 +589,41 @@ const getUnifiedTransactionHistory = async (
   const limit = Number(query.limit) || 20;
   const skip = (page - 1) * limit;
 
-  // Aggregation Pipeline to Merge Collections
   const pipeline = [
-    // ---------------------------------------------------------
-    // 1. Source: RoundUpTransaction Collection (Spare Change)
-    // ---------------------------------------------------------
     {
       $match: {
-        user: client.auth, // RoundUpTransaction uses Auth ID
+        user: client.auth,
         status: { $in: ['processed', 'donated'] },
       },
     },
     {
       $project: {
         _id: 1,
-        // ✅ Explicit Type for Round Up Transactions
+
         type: { $literal: 'Round Up Transaction' },
         amount: '$roundUpAmount',
         originalAmount: '$originalAmount',
-        originalTitle: '$transactionName', // e.g., "Starbucks"
+        originalTitle: '$transactionName',
         date: '$transactionDate',
         organization: '$organization',
         status: '$status',
       },
     },
-    // ---------------------------------------------------------
-    // 2. Source: Donation Collection (Direct/Monthly Charges)
-    // ---------------------------------------------------------
+
     {
       $unionWith: {
         coll: 'donations',
         pipeline: [
           {
             $match: {
-              donor: client._id, // Donation uses Client ID
+              donor: client._id,
               status: 'completed',
             },
           },
           {
             $project: {
               _id: 1,
-              // ✅ Map Donation Type to specific labels
+
               type: {
                 $switch: {
                   branches: [
@@ -642,15 +637,15 @@ const getUnifiedTransactionHistory = async (
                     },
                     {
                       case: { $eq: ['$donationType', 'round-up'] },
-                      then: 'Round Up Donation', // Monthly aggregated transfer
+                      then: 'Round Up Donation',
                     },
                   ],
                   default: 'Donation',
                 },
               },
-              amount: '$amount', // Donation amount
-              originalAmount: '$totalAmount', // Amount charged to card
-              originalTitle: { $literal: null }, // Donations don't have merchant names
+              amount: '$amount',
+              originalAmount: '$totalAmount',
+              originalTitle: { $literal: null },
               date: '$donationDate',
               organization: '$organization',
               status: '$status',
@@ -659,9 +654,7 @@ const getUnifiedTransactionHistory = async (
         ],
       },
     },
-    // ---------------------------------------------------------
-    // 3. Sort, Paginate & Format
-    // ---------------------------------------------------------
+
     { $sort: { date: -1 } },
     {
       $facet: {
@@ -669,7 +662,7 @@ const getUnifiedTransactionHistory = async (
         data: [
           { $skip: skip },
           { $limit: limit },
-          // Lookup Organization for Logo/Name
+
           {
             $lookup: {
               from: 'organizations',
@@ -681,24 +674,23 @@ const getUnifiedTransactionHistory = async (
           {
             $unwind: { path: '$orgDetails', preserveNullAndEmptyArrays: true },
           },
-          // Final Projection
+
           {
             $project: {
               _id: 1,
-              type: 1, // "Round Up Transaction", "One Time Donation", etc.
+              type: 1,
               amount: 1,
               originalAmount: 1,
 
-              // ✅ Title Logic
               title: {
                 $cond: {
                   if: { $eq: ['$type', 'Round Up Transaction'] },
-                  then: { $concat: ['Round up from ', '$originalTitle'] }, // e.g. "Round up from Starbucks"
-                  else: '$type', // e.g. "Round Up Donation", "One Time Donation"
+                  then: { $concat: ['Round up from ', '$originalTitle'] },
+                  else: '$type',
                 },
               },
 
-              organizationName: '$orgDetails.name', // e.g. "Red Cross"
+              organizationName: '$orgDetails.name',
               image: '$orgDetails.logoImage',
               date: 1,
             },
@@ -708,18 +700,13 @@ const getUnifiedTransactionHistory = async (
     },
   ];
 
-  // Execute Aggregation
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const result = await RoundUpTransactionModel.aggregate(pipeline as any);
 
   const rawData = result[0].data;
   const total = result[0].metadata[0]?.total || 0;
 
-  // Post-Processing: Group by Date
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const groupedData: Record<string, any[]> = {};
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   rawData.forEach((tx: any) => {
     const header = getDateHeader(new Date(tx.date));
     if (!groupedData[header]) {
@@ -728,11 +715,11 @@ const getUnifiedTransactionHistory = async (
 
     groupedData[header].push({
       id: tx._id,
-      title: tx.title, // e.g. "Round up from Uber" OR "Round Up Donation"
-      organizationName: tx.organizationName, // e.g. "Save the Children"
-      amount: tx.amount, // The donation part
-      originalAmount: tx.originalAmount, // The spend/charge part
-      type: tx.type, // The specific type string
+      title: tx.title,
+      organizationName: tx.organizationName,
+      amount: tx.amount,
+      originalAmount: tx.originalAmount,
+      type: tx.type,
       image: tx.image,
       timeAgo: getTimeAgo(tx.date),
       fullDate: tx.date,
@@ -755,10 +742,40 @@ const getUnifiedTransactionHistory = async (
   };
 };
 
+const updateClientProfile = async (
+  userId: string,
+  payload: Partial<IClient>,
+  file?: Express.Multer.File
+) => {
+  const client = await Client.findOne({ auth: userId });
+
+  if (!client) {
+    if (file) deleteFile(file.path);
+    throw new AppError(httpStatus.NOT_FOUND, 'Client profile not found!');
+  }
+
+  if (file) {
+    if (client.image && !client.image.includes('default')) {
+      deleteFile(`public${client.image}`);
+    }
+
+    payload.image = getFileUrl(file);
+  }
+
+  // Update Database
+  const result = await Client.findOneAndUpdate(
+    { auth: userId },
+    { $set: payload },
+    { new: true, runValidators: true }
+  );
+
+  return result;
+};
 export default {
   getRoundupStats,
   getOnetimeDonationStats,
   getRecurringDonationStats,
   getUserRecurringDonationsForSpecificOrganization,
   getUnifiedTransactionHistory,
+  updateClientProfile,
 };

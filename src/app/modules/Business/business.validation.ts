@@ -74,6 +74,12 @@ const updateBusinessProfileSchema = z.object({
   }),
 });
 
+const getBusinessProfileValidaitonSchema = z.object({
+  params: z.object({
+    businessId: z.string({ message: 'businessId is missing!' }),
+  }),
+});
 export const BusinessValidation = {
   updateBusinessProfileSchema,
+  getBusinessProfileValidaitonSchema,
 };

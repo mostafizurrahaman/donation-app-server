@@ -1,5 +1,5 @@
 import httpStatus from 'http-status';
-import { asyncHandler } from '../../utils';
+import { AppError, asyncHandler } from '../../utils';
 import { BusinessService } from './business.service';
 import { sendResponse } from '../../utils';
 
@@ -32,6 +32,42 @@ const updateBusinessProfile = asyncHandler(async (req, res) => {
   });
 });
 
+// Update Business Profile Controller
+const getBusinessProfileById = asyncHandler(async (req, res) => {
+  const businessId = req.params?.businessId;
+
+  if (!businessId) {
+    throw new AppError(httpStatus.NOT_FOUND, 'BusinessId is missing!');
+  }
+
+  const result = await BusinessService.getBusinessProfileById(businessId);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Business profile retrived successfully!',
+    data: result,
+  });
+});
+
+// Update Business Profile Controller
+const increaseWebsiteCount = asyncHandler(async (req, res) => {
+  const businessId = req.params?.businessId;
+
+  if (!businessId) {
+    throw new AppError(httpStatus.NOT_FOUND, 'BusinessId is missing!');
+  }
+
+  const result = await BusinessService.increaseWebsiteCount(businessId);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Business website views updated!',
+    data: result,
+  });
+});
+
 export const BusinessController = {
   updateBusinessProfile,
+  getBusinessProfileById,
+  increaseWebsiteCount,
 };

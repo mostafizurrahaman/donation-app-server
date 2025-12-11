@@ -1,13 +1,12 @@
 import fs from 'fs';
 import httpStatus from 'http-status';
 import { startSession } from 'mongoose';
-import { createAccessToken } from '../../lib';
 import { AppError } from '../../utils';
 import Business from './business.model';
 import { IAuth } from '../Auth/auth.interface';
 import { defaultUserImage } from '../Auth/auth.constant';
 
-// Update Business Profile Service
+// 1. Update Business Profile Service
 const updateBusinessProfile = async (
   payload: {
     category?: string;
@@ -135,6 +134,55 @@ const updateBusinessProfile = async (
   }
 };
 
+// 2. Get Business Profile
+const getBusinessProfileById = async (businessId: string) => {
+  const business = await Business.findOneAndUpdate(
+    {
+      _id: businessId,
+    },
+    {
+      $inc: {
+        views: 1,
+      },
+    },
+    {
+      new: true,
+    }
+  );
+
+  if (!business) {
+    throw new AppError(httpStatus.NOT_FOUND, `Business doesn't exists!`);
+  }
+
+  return business;
+};
+// 3. Increase Business website count
+const increaseWebsiteCount = async (businessId: string) => {
+  const business = await Business.findOneAndUpdate(
+    {
+      _id: businessId,
+    },
+    {
+      $inc: {
+        websiteViews: 1,
+      },
+    },
+    {
+      new: true,
+    }
+  );
+
+  if (!business) {
+    throw new AppError(httpStatus.NOT_FOUND, `Business doesn't exists!`);
+  }
+
+  return business;
+};
+
+
+// 4. 
 export const BusinessService = {
   updateBusinessProfile,
+  getBusinessProfileById,
+  increaseWebsiteCount,
 };

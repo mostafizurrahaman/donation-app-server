@@ -16,7 +16,18 @@ const getHistorySchema = z.object({
   }),
 });
 
+const updateClientProfileSchema = z.object({
+  body: z.object({
+    name: z.string().optional(),
+    address: z.string().optional(),
+    state: z.string().optional(),
+    postalCode: z.string().optional(),
+    phoneNumber: z.string().optional(),
+  }),
+});
+
 export const clientValidationSchema = {
   getUserRecurringDonationsForSpecificOrganizationSchema,
   getHistorySchema,
+  updateClientProfileSchema,
 };

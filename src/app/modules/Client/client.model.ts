@@ -33,10 +33,9 @@ const clientSchema = new Schema<IClient>(
       default: defaultUserImage,
     },
 
-    // phoneNumber: {
-    //   type: String,
-    //   unique: [true, 'This phone number is already used!'],
-    // },
+    phoneNumber: {
+      type: String,
+    },
   },
   { timestamps: true, versionKey: false }
 );

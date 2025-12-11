@@ -43,6 +43,14 @@ const businessSchema = new Schema<IBusiness>(
     locations: {
       type: [String],
     },
+    websiteViews: {
+      type: Number,
+      default: 0,
+    },
+    views: {
+      type: Number,
+      default: 0,
+    },
   },
   { timestamps: true, versionKey: false }
 );

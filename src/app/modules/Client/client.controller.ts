@@ -105,10 +105,33 @@ const getUnifiedHistory = asyncHandler(async (req: Request, res: Response) => {
   });
 });
 
+const updateClientProfile = asyncHandler(
+  async (req: Request, res: Response) => {
+    const userId = req.user._id?.toString();
+
+    if (!userId) {
+      throw new AppError(httpStatus.UNAUTHORIZED, 'User not authenticated');
+    }
+
+    const result = await clientService.updateClientProfile(
+      userId,
+      req.body,
+      req.file
+    );
+
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      message: 'Profile updated successfully!',
+      data: result,
+    });
+  }
+);
+
 export const clientController = {
   getRoundupStats,
   getOnetimeDonationStats,
   getRecurringDonationStats,
   getUserRecurringDonationsForSpecificOrganization,
   getUnifiedHistory,
+  updateClientProfile,
 };
