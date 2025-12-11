@@ -60,7 +60,7 @@ export interface IReward {
   featured: boolean;
   priority: number;
 
-  views: number;
+  
   redemptions: number;
 
   lastLimitUpdate?: Date;
@@ -351,4 +351,13 @@ export interface IRedemptionPopulated
     name: string;
     image?: string;
   };
+}
+
+export interface IViewReward extends Document {
+  _id: Types.ObjectId;
+  user: Types.ObjectId;
+  reward: Types.ObjectId;
+  view: number;
+  createdAt: Date;
+  updatedAt: Date;
 }

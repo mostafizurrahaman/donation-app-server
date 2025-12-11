@@ -6,6 +6,7 @@ import {
   IRewardModel,
   IRewardCode,
   ILimitUpdateRecord,
+  IViewReward,
 } from './reward.interface';
 import {
   REWARD_TYPE_VALUES,
@@ -189,11 +190,6 @@ const rewardSchema = new Schema<IRewardDocument, IRewardModel>(
       max: [10, 'Priority cannot exceed 10'],
     },
 
-    views: {
-      type: Number,
-      default: 0,
-      min: [0, 'Views cannot be negative'],
-    },
     redemptions: {
       type: Number,
       default: 0,
@@ -211,6 +207,25 @@ const rewardSchema = new Schema<IRewardDocument, IRewardModel>(
     versionKey: false,
   }
 );
+
+const viewRewardsSchema = new Schema<IViewReward>({
+  user: {
+    type: Schema.Types.ObjectId,
+    ref: 'User',
+    required: [true, 'User is required'],
+    index: true,
+  },
+  reward: {
+    type: Schema.Types.ObjectId,
+    ref: 'Reward',
+    required: [true, 'Reward is required'],
+    index: true,
+  },
+  view: {
+    type: Number,
+    required: true,
+  },
+});
 
 // Indexes
 rewardSchema.index({ business: 1, status: 1 });
@@ -436,3 +451,5 @@ export const Reward = model<IRewardDocument, IRewardModel>(
   'Reward',
   rewardSchema
 );
+
+export const ViewReward = model<IViewReward>('ViewReward', viewRewardsSchema);

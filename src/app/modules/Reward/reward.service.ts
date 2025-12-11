@@ -256,7 +256,6 @@ const createReward = async (
     featured: rewardData.featured || false,
     priority: rewardData.featured ? 10 : 1,
     isActive: true,
-    views: 0,
     redemptions: 0,
   });
 
@@ -893,6 +892,8 @@ const getAdminRewards = async (query: Record<string, unknown>) => {
 
   return { result, meta };
 };
+
+//
 
 export const rewardService = {
   createReward,
