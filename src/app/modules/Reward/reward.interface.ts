@@ -355,7 +355,6 @@ export interface IViewReward extends Document {
   _id: Types.ObjectId;
   user: Types.ObjectId;
   reward: Types.ObjectId;
-  view: number;
   createdAt: Date;
   updatedAt: Date;
 }

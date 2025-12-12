@@ -1,6 +1,6 @@
 import fs from 'fs';
 import httpStatus from 'http-status';
-import { startSession } from 'mongoose';
+import { startSession, PipelineStage } from 'mongoose';
 import { AppError } from '../../utils';
 import Business from './business.model';
 import { IAuth } from '../Auth/auth.interface';
@@ -12,7 +12,7 @@ import {
   getTimeAgo,
 } from '../../lib/filter-helper';
 import { RewardRedemption } from '../RewardRedeemtion/reward-redeemtion.model';
-import { Reward } from '../Reward/reward.model';
+import { Reward, ViewReward } from '../Reward/reward.model';
 import { REWARD_STATUS } from '../Reward/reward.constant';
 import { monthAbbreviations } from '../Donation/donation.constant';
 import {
@@ -22,7 +22,6 @@ import {
 } from '../RewardRedeemtion/reward-redeemtion.constant';
 import { TTimeFilter } from '../Donation/donation.interface';
 
-// 1. Update Business Profile Service
 const updateBusinessProfile = async (
   payload: {
     category?: string;
@@ -40,30 +39,25 @@ const updateBusinessProfile = async (
     logoImage?: Express.Multer.File[];
   }
 ) => {
-  // Check if user exists and is a business
   if (!user || user.role !== 'BUSINESS') {
     throw new AppError(httpStatus.UNAUTHORIZED, 'Unauthorized access!');
   }
 
-  // Find existing business profile
   const existingBusiness = await Business.findOne({ auth: user._id });
 
   if (!existingBusiness) {
     throw new AppError(httpStatus.NOT_FOUND, 'Business profile not found!');
   }
 
-  // Extract file paths
   const coverImagePath =
     files?.coverImage?.[0]?.path.replace(/\\/g, '/') || null;
   const logoImagePath = files?.logoImage?.[0]?.path.replace(/\\/g, '/') || null;
 
-  // Start a MongoDB session for transaction
   const session = await startSession();
 
   try {
     session.startTransaction();
 
-    // Prepare update payload
     const businessUpdatePayload: any = {};
 
     if (payload.category) businessUpdatePayload.category = payload.category;
@@ -81,7 +75,6 @@ const updateBusinessProfile = async (
     if (coverImagePath) businessUpdatePayload.coverImage = coverImagePath;
     if (logoImagePath) businessUpdatePayload.logoImage = logoImagePath;
 
-    // Update business profile
     const updatedBusiness = await Business.findOneAndUpdate(
       { auth: user._id },
       businessUpdatePayload,
@@ -98,27 +91,11 @@ const updateBusinessProfile = async (
     await session.commitTransaction();
     await session.endSession();
 
-    // Prepare access token payload
-    const accessTokenPayload = {
-      id: user._id.toString(),
-      name: updatedBusiness?.name,
-      image:
-        updatedBusiness?.logoImage ||
-        updatedBusiness?.coverImage ||
-        defaultUserImage,
-      email: user.email,
-      role: user.role,
-      isProfile: user.isProfile,
-      isActive: user.isActive,
-      status: user.status,
-    };
-
     return updatedBusiness;
   } catch (error: any) {
     await session.abortTransaction();
     await session.endSession();
 
-    // Clean up uploaded files on error
     if (files) {
       Object.values(files).forEach((fileArray) => {
         fileArray.forEach((file) => {
@@ -137,12 +114,10 @@ const updateBusinessProfile = async (
       });
     }
 
-    // Re-throw application-specific errors
     if (error instanceof AppError) {
       throw error;
     }
 
-    // Throw generic internal server error
     throw new AppError(
       httpStatus.INTERNAL_SERVER_ERROR,
       error?.message || 'Failed to update business profile. Please try again!'
@@ -150,7 +125,6 @@ const updateBusinessProfile = async (
   }
 };
 
-// 2. Get Business Profile
 const getBusinessProfileById = async (businessId: string) => {
   const business = await Business.findOneAndUpdate(
     {
@@ -172,7 +146,7 @@ const getBusinessProfileById = async (businessId: string) => {
 
   return business;
 };
-// 3. Increase Business website count
+
 const increaseWebsiteCount = async (businessId: string) => {
   const business = await Business.findOneAndUpdate(
     {
@@ -195,7 +169,6 @@ const increaseWebsiteCount = async (businessId: string) => {
   return business;
 };
 
-// 4. Get Business Oreveiw:
 const getBusinessOverview = async (userId: string) => {
   const business = await Business.findOne({
     auth: userId,
@@ -205,15 +178,12 @@ const getBusinessOverview = async (userId: string) => {
     throw new AppError(httpStatus.NOT_FOUND, `Business doesn't exist!`);
   }
 
-  // 1. Get Date Ranges using the helper
   const { current, previous } = getDateRanges('last_7_days');
 
   const { current: targetYear } = getDateRanges('this_year');
 
-  // 2. Execute Aggregations in Parallel
   const [sevenDayStats, monthlyRedemptions, monthlyCreations, overallProgress] =
     await Promise.all([
-      // A. Last 7 Days Comparison (Using your facet structure)
       RewardRedemption.aggregate([
         {
           $match: {
@@ -253,7 +223,6 @@ const getBusinessOverview = async (userId: string) => {
         },
       ]),
 
-      // B. Monthly Redemption Trends (For Graph)
       RewardRedemption.aggregate([
         {
           $match: {
@@ -270,7 +239,6 @@ const getBusinessOverview = async (userId: string) => {
         },
       ]),
 
-      // C. Monthly Reward Creation Trends (For Graph)
       Reward.aggregate([
         {
           $match: {
@@ -287,7 +255,6 @@ const getBusinessOverview = async (userId: string) => {
         },
       ]),
 
-      // D. Overall Progress (Limit vs Usage) & Total Active Count
       Reward.aggregate([
         {
           $match: {
@@ -297,12 +264,10 @@ const getBusinessOverview = async (userId: string) => {
         },
         {
           $facet: {
-            // Total Active Rewards Count
             activeRewards: [
               { $match: { isActive: true, status: REWARD_STATUS.ACTIVE } },
               { $count: 'count' },
             ],
-            // Progress Stats
             progress: [
               {
                 $group: {
@@ -317,14 +282,12 @@ const getBusinessOverview = async (userId: string) => {
       ]),
     ]);
 
-  // 3. Process 7-Day Stats
   const currentCount =
     sevenDayStats[0]?.currentSevenDays[0]?.totalRedeemed || 0;
   const previousCount =
     sevenDayStats[0]?.previousSevenDays[0]?.totalRedeemed || 0;
   const sevenDayGrowth = calculatePercentageChange(currentCount, previousCount);
 
-  // 4. Process Monthly Stats
   const redemptionMap = new Map(
     monthlyRedemptions.map((i) => [i._id, i.count])
   );
@@ -339,7 +302,6 @@ const getBusinessOverview = async (userId: string) => {
     };
   });
 
-  // 5. Process Overall Progress & Active Count
   const activeCount = overallProgress[0]?.activeRewards[0]?.count || 0;
   const progressData = overallProgress[0]?.progress[0] || {
     totalLimit: 0,
@@ -367,7 +329,7 @@ const getBusinessOverview = async (userId: string) => {
     },
   };
 };
-// 5. Get Business Recent Activity
+
 const getBusinessRecentActivity = async (
   userId: string,
   query: Record<string, unknown>
@@ -383,14 +345,12 @@ const getBusinessRecentActivity = async (
   const skip = (page - 1) * limit;
 
   const pipeline = [
-    // 1. Match Redemptions
     {
       $match: {
         business: business._id,
         status: { $in: ['redeemed'] },
       },
     },
-    // 2. Lookup User
     {
       $lookup: {
         from: 'clients',
@@ -400,7 +360,6 @@ const getBusinessRecentActivity = async (
       },
     },
     { $unwind: { path: '$userDetails', preserveNullAndEmptyArrays: true } },
-    // 3. Lookup Reward
     {
       $lookup: {
         from: 'rewards',
@@ -410,26 +369,18 @@ const getBusinessRecentActivity = async (
       },
     },
     { $unwind: { path: '$rewardDetails', preserveNullAndEmptyArrays: true } },
-    // 4. Project Raw Data (No text formatting)
     {
       $project: {
         _id: 1,
-        type: { $literal: 'redemption' }, // Identify type
+        type: { $literal: 'redemption' },
         timestamp: '$createdAt',
 
-        // Required data for Frontend formatting
         userName: '$userDetails.name',
         userImage: '$userDetails.image',
         rewardTitle: '$rewardDetails.title',
-        redemptionMethod: '$redemptionMethod', // e.g. 'qr', 'nfc', 'static-code'
-
-        // Codes for Scanner/Display
-        qrCode: 1, // Base64 QR string
-        qrCodeUrl: 1, // Data URL for QR image
-        assignedCode: 1, // Static code (e.g. "DISCOUNT50")
+        redemptionMethod: '$redemptionMethod',
       },
     },
-    // 5. Merge with Reward Creations
     {
       $unionWith: {
         coll: 'rewards',
@@ -442,13 +393,11 @@ const getBusinessRecentActivity = async (
           {
             $project: {
               _id: 1,
-              type: { $literal: 'creation' }, // Identify type
+              type: { $literal: 'creation' },
               timestamp: '$createdAt',
 
-              // Only reward title needed for creation event
               rewardTitle: '$title',
 
-              // Nullify fields that don't exist for creations to keep shape consistent (optional)
               userName: { $literal: null },
               qrCode: { $literal: null },
             },
@@ -456,9 +405,7 @@ const getBusinessRecentActivity = async (
         ],
       },
     },
-    // 6. Sort Combined List (Newest First)
     { $sort: { timestamp: -1 } },
-    // 7. Pagination
     {
       $facet: {
         metadata: [{ $count: 'total' }],
@@ -467,20 +414,16 @@ const getBusinessRecentActivity = async (
     },
   ];
 
-  // Execute Aggregation
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const result = await RewardRedemption.aggregate(pipeline as any);
 
   const rawData = result[0].data || [];
   const total = result[0].metadata[0]?.total || 0;
 
-  // 8. Grouping Logic
   const groupedData = new Map<string, any[]>();
 
   rawData.forEach((item: any) => {
     const groupTitle = getDateHeader(new Date(item.timestamp));
 
-    // Add timeAgo calculation for frontend convenience
     const enrichedItem = {
       ...item,
       timeAgo: getTimeAgo(new Date(item.timestamp)),
@@ -508,7 +451,6 @@ const getBusinessRecentActivity = async (
   };
 };
 
-// 6.Get Business Stats (analyst)
 const getBusinessAnalytics = async (
   userId: string,
   timeFilter: TTimeFilter
@@ -523,7 +465,7 @@ const getBusinessAnalytics = async (
 
   const { current } = getDateRanges(timeFilter);
 
-  const pipeline = [
+  const pipeline: PipelineStage[] = [
     {
       $match: {
         business: business._id,
@@ -567,7 +509,7 @@ const getBusinessAnalytics = async (
       },
     },
     {
-      $sort: { count: -1 },
+      $sort: { count: -1 } as Record<string, 1 | -1>,
     },
   ];
 
@@ -590,6 +532,123 @@ const getBusinessAnalytics = async (
     breakdown: formattedStats,
   };
 };
+
+const getSingleRewardAnalytics = async (userId: string, rewardId: string) => {
+  const business = await Business.findOne({
+    auth: userId,
+  });
+
+  if (!business) {
+    throw new AppError(httpStatus.NOT_FOUND, `Business doesn't exists!`);
+  }
+
+  const reward = await Reward.findById(rewardId);
+
+  if (!reward) {
+    throw new AppError(httpStatus.NOT_FOUND, `Reward not found!`);
+  }
+
+  const { current } = getDateRanges('last_7_days');
+
+  const dateLabels: string[] = [];
+  const startDate = current.startDate as Date;
+  const tempDate = new Date(startDate);
+
+  for (let i = 0; i < 7; i++) {
+    dateLabels.push(tempDate.toLocaleDateString('en-CA'));
+    tempDate.setDate(tempDate.getDate() + 1);
+  }
+
+  const [viewsData, claimsData, redemptionsData] = await Promise.all([
+    ViewReward.aggregate([
+      {
+        $match: {
+          reward: reward._id,
+          createdAt: { $gte: current.startDate, $lte: current.endDate },
+        },
+      },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+          count: { $sum: 1 },
+        },
+      },
+    ]),
+
+    RewardRedemption.aggregate([
+      {
+        $match: {
+          reward: reward._id,
+          claimedAt: { $gte: current.startDate, $lte: current.endDate },
+        },
+      },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$claimedAt' } },
+          count: { $sum: 1 },
+        },
+      },
+    ]),
+
+    RewardRedemption.aggregate([
+      {
+        $match: {
+          reward: reward._id,
+          status: REDEMPTION_STATUS.REDEEMED,
+          redeemedAt: { $gte: current.startDate, $lte: current.endDate },
+        },
+      },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$redeemedAt' } },
+          count: { $sum: 1 },
+        },
+      },
+    ]),
+  ]);
+
+  console.log({
+    redemptionsData,
+    claimsData,
+    viewsData,
+  });
+
+  const viewsMap = new Map(viewsData.map((d) => [d._id, d.count]));
+  const claimsMap = new Map(claimsData.map((d) => [d._id, d.count]));
+  const redemptionsMap = new Map(redemptionsData.map((d) => [d._id, d.count]));
+
+  let totalViews = 0;
+  let totalClaims = 0;
+  let totalRedemptions = 0;
+
+  const chartData = dateLabels.map((date) => {
+    const views = viewsMap.get(date) || 0;
+    const claims = claimsMap.get(date) || 0;
+    const redemptions = redemptionsMap.get(date) || 0;
+
+    totalViews += views;
+    totalClaims += claims;
+    totalRedemptions += redemptions;
+
+    return {
+      date,
+      day: new Date(date).getDate(),
+      views,
+      claims,
+      redemptions,
+    };
+  });
+
+  return {
+    summary: {
+      views: totalViews,
+      claims: totalClaims,
+      redemptions: totalRedemptions,
+    },
+    chartData,
+  };
+};
+
 export const BusinessService = {
   updateBusinessProfile,
   getBusinessProfileById,
@@ -597,4 +656,5 @@ export const BusinessService = {
   getBusinessOverview,
   getBusinessRecentActivity,
   getBusinessAnalytics,
+  getSingleRewardAnalytics,
 };

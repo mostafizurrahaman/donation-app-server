@@ -233,6 +233,16 @@ const getAdminRewardsSchema = z.object({
   }),
 });
 
+const toggleRewardStatusSchema = z.object({
+  params: z.object({
+    id: z.string().min(1, 'Reward ID is required'),
+  }),
+  body: z.object({
+    isActive: z.boolean({
+      error: 'isActive is required',
+    }),
+  }),
+});
 // Export validation object
 export const rewardValidation = {
   createRewardSchema,
@@ -247,4 +257,5 @@ export const rewardValidation = {
   getBusinessRewardsSchema,
   getUserExploreRewardsSchema,
   getAdminRewardsSchema,
+  toggleRewardStatusSchema,
 };

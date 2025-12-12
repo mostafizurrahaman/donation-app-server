@@ -131,6 +131,31 @@ const getBusinessAnalytics = asyncHandler(async (req: ExtendedRequest, res) => {
   });
 });
 
+/**
+ * Get Business Analytics
+ */
+const getSingleRewardAnalytics = asyncHandler(
+  async (req: ExtendedRequest, res) => {
+    const userId = req.user?._id?.toString();
+    const rewardId = req.params?.rewardId?.toString();
+
+    if (!userId) {
+      throw new AppError(httpStatus.UNAUTHORIZED, 'User not authenticated');
+    }
+
+    const result = await BusinessService.getSingleRewardAnalytics(
+      userId,
+      rewardId
+    );
+
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      message: 'Reward analytics retrived successfully!',
+      data: result,
+    });
+  }
+);
+
 export const BusinessController = {
   updateBusinessProfile,
   getBusinessProfileById,
@@ -138,4 +163,5 @@ export const BusinessController = {
   getBusinessOverview,
   getBusinessRecentActivity,
   getBusinessAnalytics,
+  getSingleRewardAnalytics,
 };

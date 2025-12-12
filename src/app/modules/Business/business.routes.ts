@@ -29,6 +29,12 @@ router.get(
   BusinessController.getBusinessAnalytics
 );
 
+router.get(
+  '/analytics/:rewardId',
+  auth(ROLE.BUSINESS, ROLE.ADMIN),
+  BusinessController.getSingleRewardAnalytics
+);
+
 // Update Business Profile Route
 router.patch(
   '/update-profile',

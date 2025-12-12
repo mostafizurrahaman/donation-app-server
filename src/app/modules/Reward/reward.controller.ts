@@ -98,7 +98,7 @@ const updateRewardImage = asyncHandler(
  * Get reward by ID
  */
 const getRewardById = asyncHandler(async (req: Request, res: Response) => {
-  const userId = req.query.userId as string | undefined;
+  const userId = req.user._id?.toString();
   const reward = await rewardService.getRewardById(req.params.id, userId);
 
   sendResponse(res, {
@@ -121,6 +121,32 @@ const getRewards = asyncHandler(async (req: Request, res: Response) => {
     meta: result.meta,
   });
 });
+
+/**
+ * Toggle Reward Status
+ */
+const toggleRewardStatus = asyncHandler(
+  async (req: ExtendedRequest, res: Response) => {
+    const userId = req.user?._id?.toString();
+
+    if (!userId) {
+      throw new AppError(httpStatus.UNAUTHORIZED, 'User not authenticated');
+    }
+
+    const { id } = req.params;
+    const { isActive } = req.body;
+
+    const result = await rewardService.toggleRewardStatus(id, userId, isActive);
+
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      message: isActive
+        ? 'Reward activated successfully'
+        : 'Reward disabled successfully',
+      data: result,
+    });
+  }
+);
 
 /**
  * Get featured rewards
@@ -328,4 +354,5 @@ export const RewardController = {
 
   // Admin/Dev Tools
   triggerRewardMaintenance,
+  toggleRewardStatus,
 };

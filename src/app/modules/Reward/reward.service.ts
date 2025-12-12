@@ -34,6 +34,8 @@ import {
 } from './reward.constant';
 import QueryBuilder from '../../builders/QueryBuilder';
 import Client from '../Client/client.model';
+import Auth from '../Auth/auth.model';
+import { ROLE } from '../Auth/auth.constant';
 
 // ==========================================
 // HELPER FUNCTIONS
@@ -448,15 +450,19 @@ const getRewardById = async (
     throw new AppError(httpStatus.NOT_FOUND, REWARD_MESSAGES.NOT_FOUND);
   }
 
+  console.log({
+    userId,
+    rewardId,
+  });
+
   // Handle Reward Views
   if (userId) {
     const client = await Client.findOne({ auth: userId });
+    console.log({
+      client,
+    });
     if (client) {
-      await ViewReward.findOneAndUpdate(
-        { user: client._id, reward: rewardId },
-        { $inc: { view: 1 } },
-        { upsert: true, new: true, setDefaultsOnInsert: true }
-      );
+      await ViewReward.create({ user: client.auth, reward: rewardId });
     }
   }
 
@@ -579,6 +585,55 @@ const getRewardsByBusiness = async (
   query: IRewardFilterQuery
 ): Promise<IRewardsListResult> => {
   return getRewards({ ...query, businessId });
+};
+
+/**
+ * Toggle reward status (Active/Inactive)
+ */
+const toggleRewardStatus = async (
+  rewardId: string,
+  userId: string,
+  isActive: boolean
+) => {
+  const reward = await Reward.findById(rewardId);
+
+  if (!reward) {
+    throw new AppError(httpStatus.NOT_FOUND, REWARD_MESSAGES.NOT_FOUND);
+  }
+
+  const user = await Auth.findById(userId);
+
+  if (!user) {
+    throw new AppError(httpStatus.NOT_FOUND, 'User not found!');
+  }
+
+  const business = await Business.findOne({ auth: userId });
+
+  if (
+    (user.role === ROLE.BUSINESS && !business) ||
+    reward.business.toString() !== business?._id.toString()
+  ) {
+    throw new AppError(
+      httpStatus.FORBIDDEN,
+      'You do not have permission to modify this reward'
+    );
+  }
+
+  if (
+    ![ROLE.ADMIN, ROLE.BUSINESS].includes(user?.role as 'ADMIN' | 'BUSINESS')
+  ) {
+    throw new AppError(
+      httpStatus.FORBIDDEN,
+      'You do not have permission to modify this reward'
+    );
+  }
+  reward.isActive = isActive;
+
+  await reward.save();
+
+  await reward.updateStatus();
+
+  return reward;
 };
 
 const deleteReward = async (rewardId: string): Promise<void> => {
@@ -822,7 +877,7 @@ const getUserExploreRewards = async (
   const rewardQuery = new QueryBuilder(
     Reward.find(filter)
       .populate('business', 'name coverImage  logoImage')
-      .select('-codes -limitUpdateHistory -priority -redemptions -featured'), 
+      .select('-codes -limitUpdateHistory -priority -redemptions -featured'),
     { page, limit }
   )
     .sort()
@@ -918,4 +973,5 @@ export const rewardService = {
   getBusinessRewards,
   getUserExploreRewards,
   getAdminRewards,
+  toggleRewardStatus,
 };

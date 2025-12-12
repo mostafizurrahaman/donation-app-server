@@ -90,6 +90,7 @@ router.patch(
 // This catches /:id, so it must be near the bottom
 router.get(
   '/:id',
+  auth(ROLE.CLIENT, ROLE.ADMIN),
   validateRequest(rewardValidation.getRewardByIdSchema),
   RewardController.getRewardById
 );
@@ -115,6 +116,13 @@ router.post(
   ]),
   validateRequestFromFormData(rewardValidation.createRewardSchema),
   RewardController.createReward
+);
+
+router.patch(
+  '/:id/status',
+  auth(ROLE.BUSINESS, ROLE.ADMIN),
+  validateRequest(rewardValidation.toggleRewardStatusSchema),
+  RewardController.toggleRewardStatus
 );
 
 // Business: Update Reward Details
@@ -143,8 +151,5 @@ router.post(
   auth(ROLE.ADMIN),
   RewardController.triggerRewardMaintenance
 );
-
-
-
 
 export const RewardRoutes = router;

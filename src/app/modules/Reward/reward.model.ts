@@ -208,24 +208,26 @@ const rewardSchema = new Schema<IRewardDocument, IRewardModel>(
   }
 );
 
-const viewRewardsSchema = new Schema<IViewReward>({
-  user: {
-    type: Schema.Types.ObjectId,
-    ref: 'User',
-    required: [true, 'User is required'],
-    index: true,
+const viewRewardsSchema = new Schema<IViewReward>(
+  {
+    user: {
+      type: Schema.Types.ObjectId,
+      ref: 'Auth',
+      required: [true, 'User is required'],
+      index: true,
+    },
+    reward: {
+      type: Schema.Types.ObjectId,
+      ref: 'Reward',
+      required: [true, 'Reward is required'],
+      index: true,
+    },
   },
-  reward: {
-    type: Schema.Types.ObjectId,
-    ref: 'Reward',
-    required: [true, 'Reward is required'],
-    index: true,
-  },
-  view: {
-    type: Number,
-    required: true,
-  },
-});
+  {
+    timestamps: true,
+    versionKey: false,
+  }
+);
 
 // Indexes
 rewardSchema.index({ business: 1, status: 1 });
