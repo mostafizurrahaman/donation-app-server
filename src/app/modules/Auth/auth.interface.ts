@@ -1,8 +1,9 @@
-import { Document, Model } from 'mongoose';
+import { Document, Model, Types } from 'mongoose';
 import { TRole, TAuthStatus } from './auth.constant';
 
 // Instance methods
 export interface IAuth extends Document {
+  _id: Types.ObjectId;
   email: string;
   password: string;
   passwordChangedAt?: Date;
