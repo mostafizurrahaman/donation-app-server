@@ -4,6 +4,7 @@ import { auth, validateRequest } from '../../middlewares';
 import { badgeController } from './badge.controller';
 import { createBadgeSchema, updateBadgeSchema } from './badge.validation';
 import { upload } from '../../lib';
+import { validateRequestFromFormData } from '../../middlewares/validateRequest';
 
 const router = express.Router();
 
@@ -23,7 +24,7 @@ router.post(
   '/',
   auth(ROLE.ADMIN),
   upload.single('icon'),
-  validateRequest(createBadgeSchema),
+  validateRequestFromFormData(createBadgeSchema),
   badgeController.createBadge
 );
 
@@ -31,7 +32,7 @@ router.patch(
   '/:id',
   auth(ROLE.ADMIN),
   upload.single('icon'),
-  validateRequest(updateBadgeSchema),
+  validateRequestFromFormData(updateBadgeSchema),
   badgeController.updateBadge
 );
 

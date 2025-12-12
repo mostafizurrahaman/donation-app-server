@@ -1,0 +1,309 @@
+{
+  "info": {
+    "name": "Badge Module API",
+    "description": "Complete API collection for Badge management system",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{authToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000/api/v1",
+      "type": "string"
+    },
+    {
+      "key": "authToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "badgeId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Admin Operations",
+      "item": [
+        {
+          "name": "Create Badge",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    pm.environment.set('badgeId', response.data._id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "name",
+                  "value": "",
+                  "description": "Badge name (required)",
+                  "type": "text"
+                },
+                {
+                  "key": "description",
+                  "value": "",
+                  "description": "Badge description (required)",
+                  "type": "text"
+                },
+                {
+                  "key": "unlockType",
+                  "value": "",
+                  "description": "donation_count | donation_amount | category_specific | round_up | round_up_amount | recurring_streak | donation_size | frequency | unique_categories | time_based | seasonal",
+                  "type": "text"
+                },
+                {
+                  "key": "conditionLogic",
+                  "value": "or",
+                  "description": "and | or (default: or)",
+                  "type": "text"
+                },
+                {
+                  "key": "tiers",
+                  "value": "",
+                  "description": "JSON array of tier objects [{tier, name, requiredCount, requiredAmount}]",
+                  "type": "text"
+                },
+                {
+                  "key": "specificCategories",
+                  "value": "",
+                  "description": "JSON array of categories (for category_specific type)",
+                  "type": "text",
+                  "disabled": true
+                },
+                {
+                  "key": "seasonalPeriod",
+                  "value": "",
+                  "description": "ramadan | laylat_al_qadr | dhul_hijjah | winter | fitrah_deadline",
+                  "type": "text",
+                  "disabled": true
+                },
+                {
+                  "key": "timeRange",
+                  "value": "",
+                  "description": "JSON object {start: 0-23, end: 0-23}",
+                  "type": "text",
+                  "disabled": true
+                },
+                {
+                  "key": "minDonationAmount",
+                  "value": "",
+                  "description": "Minimum donation amount",
+                  "type": "text",
+                  "disabled": true
+                },
+                {
+                  "key": "maxDonationAmount",
+                  "value": "",
+                  "description": "Maximum donation amount",
+                  "type": "text",
+                  "disabled": true
+                },
+                {
+                  "key": "isActive",
+                  "value": "true",
+                  "description": "true | false",
+                  "type": "text"
+                },
+                {
+                  "key": "featured",
+                  "value": "false",
+                  "description": "true | false",
+                  "type": "text"
+                },
+                {
+                  "key": "icon",
+                  "type": "file",
+                  "description": "Badge icon image file (required)"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/badges",
+              "host": ["{{baseUrl}}"],
+              "path": ["badges"]
+            }
+          }
+        },
+        {
+          "name": "Update Badge",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "name",
+                  "value": "",
+                  "description": "Badge name",
+                  "type": "text",
+                  "disabled": true
+                },
+                {
+                  "key": "description",
+                  "value": "",
+                  "description": "Badge description",
+                  "type": "text",
+                  "disabled": true
+                },
+                {
+                  "key": "isActive",
+                  "value": "",
+                  "description": "true | false",
+                  "type": "text",
+                  "disabled": true
+                },
+                {
+                  "key": "featured",
+                  "value": "",
+                  "description": "true | false",
+                  "type": "text",
+                  "disabled": true
+                },
+                {
+                  "key": "tiers",
+                  "value": "",
+                  "description": "JSON array of tier objects",
+                  "type": "text",
+                  "disabled": true
+                },
+                {
+                  "key": "specificCategories",
+                  "value": "",
+                  "description": "JSON array of categories",
+                  "type": "text",
+                  "disabled": true
+                },
+                {
+                  "key": "icon",
+                  "type": "file",
+                  "description": "New badge icon image file",
+                  "disabled": true
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/badges/{{badgeId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["badges", "{{badgeId}}"]
+            }
+          }
+        },
+        {
+          "name": "Delete Badge",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/badges/{{badgeId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["badges", "{{badgeId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Public/User Operations",
+      "item": [
+        {
+          "name": "Get All Badges",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/badges?isActive=true&featured=false&unlockType=&page=1&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["badges"],
+              "query": [
+                {
+                  "key": "isActive",
+                  "value": "true",
+                  "description": "Filter by active status"
+                },
+                {
+                  "key": "featured",
+                  "value": "false",
+                  "description": "Filter by featured status",
+                  "disabled": true
+                },
+                {
+                  "key": "unlockType",
+                  "value": "",
+                  "description": "Filter by unlock type",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "Page number",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "description": "Items per page",
+                  "disabled": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Badge by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/badges/{{badgeId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["badges", "{{badgeId}}"]
+            }
+          }
+        },
+        {
+          "name": "Get User Badge Progress",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/badges/user/progress",
+              "host": ["{{baseUrl}}"],
+              "path": ["badges", "user", "progress"]
+            },
+            "description": "Get all badges with user's progress. Requires authenticated user."
+          }
+        }
+      ]
+    }
+  ]
+}

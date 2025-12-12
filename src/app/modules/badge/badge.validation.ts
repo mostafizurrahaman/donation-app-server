@@ -59,7 +59,7 @@ const badgeTierSchema = z.object({
 
 // Comprehensive create badge validation
 export const createBadgeSchema = z.object({
-  file: fileSchema, // Validate uploaded file
+  // file: fileSchema, // Validate uploaded file
   body: z
     .object({
       name: z
