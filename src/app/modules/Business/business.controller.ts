@@ -2,7 +2,6 @@ import httpStatus from 'http-status';
 import { AppError, asyncHandler } from '../../utils';
 import { BusinessService } from './business.service';
 import { sendResponse } from '../../utils';
-import { rewardRedemptionService } from '../RewardRedeemtion/reward-redeemtion.service';
 import { ExtendedRequest } from '../../types';
 import { TTimeFilter } from '../Donation/donation.interface';
 
@@ -39,11 +38,20 @@ const updateBusinessProfile = asyncHandler(async (req, res) => {
 const getBusinessProfileById = asyncHandler(async (req, res) => {
   const businessId = req.params?.businessId;
 
+  const userId = req.user?._id?.toString();
+
+  if (!userId) {
+    throw new AppError(httpStatus.NOT_FOUND, 'userId is missing!');
+  }
+
   if (!businessId) {
     throw new AppError(httpStatus.NOT_FOUND, 'BusinessId is missing!');
   }
 
-  const result = await BusinessService.getBusinessProfileById(businessId);
+  const result = await BusinessService.getBusinessProfileById(
+    businessId,
+    userId
+  );
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -55,12 +63,17 @@ const getBusinessProfileById = asyncHandler(async (req, res) => {
 // Update Business Profile Controller
 const increaseWebsiteCount = asyncHandler(async (req, res) => {
   const businessId = req.params?.businessId;
+  const userId = req.user?._id?.toString();
+
+  if (!userId) {
+    throw new AppError(httpStatus.NOT_FOUND, 'userId is missing!');
+  }
 
   if (!businessId) {
     throw new AppError(httpStatus.NOT_FOUND, 'BusinessId is missing!');
   }
 
-  const result = await BusinessService.increaseWebsiteCount(businessId);
+  const result = await BusinessService.increaseWebsiteCount(businessId, userId);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -126,7 +139,7 @@ const getBusinessAnalytics = asyncHandler(async (req: ExtendedRequest, res) => {
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
-    message: 'Recent activity retrieved successfully',
+    message: 'Business analytics retrieved successfully',
     data: result,
   });
 });

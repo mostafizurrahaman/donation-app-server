@@ -55,6 +55,56 @@ const businessSchema = new Schema<IBusiness>(
   { timestamps: true, versionKey: false }
 );
 
+interface IBusinessViews {
+  business: Schema.Types.ObjectId;
+  user: Schema.Types.ObjectId;
+}
+interface IBusinessWebsiteViews {
+  business: Schema.Types.ObjectId;
+  user: Schema.Types.ObjectId;
+}
+
+const businessViewsSchema = new Schema<IBusinessViews>(
+  {
+    business: {
+      type: Schema.Types.ObjectId,
+      ref: 'Business',
+      required: true,
+    },
+    user: {
+      type: Schema.Types.ObjectId,
+      ref: 'Auth',
+      required: true,
+    },
+  },
+  { timestamps: true, versionKey: false }
+);
+
+const businessWebsiteViewSchema = new Schema<IBusinessWebsiteViews>(
+  {
+    business: {
+      type: Schema.Types.ObjectId,
+      ref: 'Business',
+      required: true,
+    },
+    user: {
+      type: Schema.Types.ObjectId,
+      ref: 'Auth',
+      required: true,
+    },
+  },
+  { timestamps: true, versionKey: false }
+);
+
 const Business = model<IBusiness>('Business', businessSchema);
+
+export const BusinessView = model<IBusinessViews>(
+  'BusinessView',
+  businessViewsSchema
+);
+export const BusinessWebsiteView = model<IBusinessWebsiteViews>(
+  'BusinessWebsiteView',
+  businessWebsiteViewSchema
+);
 
 export default Business;
