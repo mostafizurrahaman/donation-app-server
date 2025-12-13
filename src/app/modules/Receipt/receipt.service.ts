@@ -52,7 +52,15 @@ interface ISendReceiptEmailServicePayload {
   donorName: string;
   organizationName: string;
   pdfUrl: string;
-  amount: number;
+
+  // ✅ Financial Breakdown
+  amount: number; // Base Donation
+  coverFees: boolean;
+  platformFee: number;
+  gstOnFee: number;
+  stripeFee: number; // ✅ NEW: Transaction Fee
+  totalAmount: number; // Total Paid
+
   currency: string;
   donationDate: Date;
   receiptNumber?: string;
@@ -82,7 +90,7 @@ const generateReceipt = async (payload: IReceiptGenerationPayload) => {
     if (!organization)
       throw new AppError(httpStatus.NOT_FOUND, 'Organization not found');
 
-    // Fetch cause (optional) - not used but kept for potential future use
+    // Fetch cause (optional)
     if (payload.causeId) {
       await Cause.findById(payload.causeId);
     }
@@ -96,11 +104,20 @@ const generateReceipt = async (payload: IReceiptGenerationPayload) => {
       donorEmail: (donor.auth as unknown as { email: string }).email,
       organizationName: organization.name,
       organizationAddress: organization.address,
-      organizationEmail: (organization.auth as unknown as { email: string }).email,
+      organizationEmail: (organization.auth as unknown as { email: string })
+        .email,
       abnNumber: organization.tfnOrAbnNumber,
       taxDeductible: true,
       zakatEligible: !!organization.zakatLicenseHolderNumber,
+
+      // ✅ Financial Breakdown (No legacy tax fields)
       amount: payload.amount,
+      coverFees: payload.coverFees,
+      platformFee: payload.platformFee,
+      gstOnFee: payload.gstOnFee,
+      stripeFee: payload.stripeFee, // ✅ NEW
+      totalAmount: payload.totalAmount,
+
       currency: payload.currency,
       donationType: payload.donationType,
       donationDate: payload.donationDate,
@@ -130,21 +147,35 @@ const generateReceipt = async (payload: IReceiptGenerationPayload) => {
       organization: payload.organizationId,
       cause: payload.causeId,
       receiptNumber,
+
+      // ✅ Store Financial Breakdown
       amount: payload.amount,
+      platformFee: payload.platformFee,
+      gstOnFee: payload.gstOnFee,
+      stripeFee: payload.stripeFee, // ✅ NEW
+      totalAmount: payload.totalAmount,
+
       currency: payload.currency,
       donationType: payload.donationType,
       donationDate: payload.donationDate,
       paymentMethod: payload.paymentMethod,
+
+      // Meta
       taxDeductible: pdfData.taxDeductible,
       abnNumber: pdfData.abnNumber,
       zakatEligible: pdfData.zakatEligible,
+
+      // File info
       pdfUrl: url,
       pdfKey: key,
+
+      // Snapshot
       donorName: pdfData.donorName,
       donorEmail: pdfData.donorEmail,
       organizationName: pdfData.organizationName,
       organizationEmail: pdfData.organizationEmail,
       organizationAddress: pdfData.organizationAddress,
+
       specialMessage: payload.specialMessage,
       status: RECEIPT_STATUS.GENERATED,
       generatedAt: new Date(),
@@ -158,14 +189,22 @@ const generateReceipt = async (payload: IReceiptGenerationPayload) => {
       receiptId: receipt._id,
     });
 
-    // Send email asynchronously using the email service function
+    // Send email asynchronously
     sendReceiptEmailService({
       receiptId: receipt._id as Types.ObjectId,
       donorEmail: pdfData.donorEmail,
       donorName: pdfData.donorName,
       organizationName: pdfData.organizationName,
       pdfUrl: url,
+
+      // Pass breakdown to email
       amount: payload.amount,
+      coverFees: payload.coverFees,
+      platformFee: payload.platformFee,
+      gstOnFee: payload.gstOnFee,
+      stripeFee: payload.stripeFee, // ✅ NEW
+      totalAmount: payload.totalAmount,
+
       currency: payload.currency,
       donationDate: payload.donationDate,
       receiptNumber: receipt.receiptNumber,
@@ -212,7 +251,15 @@ const sendReceiptEmailService = async (
       donorName: payload.donorName,
       organizationName: payload.organizationName,
       receiptNumber: payload.receiptNumber || receipt.receiptNumber,
+
+      // Financials
       amount: payload.amount,
+      totalAmount: payload.totalAmount,
+      coverFees: payload.coverFees,
+      platformFee: payload.platformFee,
+      gstOnFee: payload.gstOnFee,
+      stripeFee: payload.stripeFee, // ✅ NEW
+
       currency: payload.currency,
       donationDate: payload.donationDate,
       pdfUrl: payload.pdfUrl,
@@ -258,13 +305,25 @@ const resendReceiptEmail = async (receiptId: string) => {
   if (!receipt)
     throw new AppError(httpStatus.NOT_FOUND, RECEIPT_MESSAGES.NOT_FOUND);
 
+  // Infer coverFees if not explicitly stored, or retrieve if stored
+  // Assuming we rely on (platformFee > 0) logic if specific boolean isn't in DB,
+  // but `receipt.totalAmount > receipt.amount` is a safer check for "covered fees".
+  const coverFees = receipt.totalAmount > receipt.amount;
+
   return sendReceiptEmailService({
     receiptId: receipt._id as Types.ObjectId,
     donorEmail: receipt.donorEmail,
     donorName: receipt.donorName,
     organizationName: receipt.organizationName,
     pdfUrl: receipt.pdfUrl,
+
     amount: receipt.amount,
+    totalAmount: receipt.totalAmount,
+    platformFee: receipt.platformFee,
+    gstOnFee: receipt.gstOnFee,
+    stripeFee: receipt.stripeFee || 0, // ✅ NEW: Pass stored fee or 0
+    coverFees,
+
     currency: receipt.currency,
     donationDate: receipt.donationDate,
     receiptNumber: receipt.receiptNumber,

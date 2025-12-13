@@ -213,10 +213,32 @@ const updateAuthData = asyncHandler(async (req, res) => {
 // 17. Besiness Profile Create :
 const businessSignupWithProfile = asyncHandler(async (req, res) => {
   const files = {
-    coverImage: (req.files as any)?.coverImage || undefined,
+    logoImage: (req.files as any)?.logoImage || undefined,
   };
+  console.log({
+    files,
+  });
 
   const result = await AuthService.businessSignupWithProfile(req.body, files);
+
+  sendResponse(res, {
+    statusCode: httpStatus.CREATED,
+    message: result.message,
+    data: result.data,
+  });
+});
+
+const organizationSignupWithProfile = asyncHandler(async (req, res) => {
+  const files = {
+    logoImage: (req.files as any)?.logoImage || undefined,
+    coverImage: (req.files as any)?.coverImage || undefined,
+    drivingLicense: (req.files as any)?.drivingLicense || undefined,
+  };
+
+  const result = await AuthService.organizationSignupWithProfile(
+    req.body,
+    files
+  );
 
   sendResponse(res, {
     statusCode: httpStatus.CREATED,
@@ -243,4 +265,5 @@ export const AuthController = {
   getNewAccessToken,
   updateAuthData,
   businessSignupWithProfile,
+  organizationSignupWithProfile,
 };

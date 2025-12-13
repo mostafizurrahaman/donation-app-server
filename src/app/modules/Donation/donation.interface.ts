@@ -5,7 +5,16 @@ export interface IDonation {
   organization: Types.ObjectId;
   cause: Types.ObjectId;
   donationType: 'one-time' | 'recurring' | 'round-up';
-  amount: number;
+
+  // ✅ Financial Fields (Australian Logic)
+  amount: number; // Base Donation Amount (Tax Deductible for Donor)
+  coverFees: boolean; // Did donor choose to cover fees?
+  platformFee: number; // 5% Platform Fee
+  gstOnFee: number; // 10% GST on the Platform Fee
+  stripeFee: number; // ✅ NEW: Stripe Transaction Fee (e.g. 1.75% + 30c)
+  netAmount: number; // The clean amount credited to the Organization
+  totalAmount: number; // The actual charge to the card
+
   currency: string;
   status:
     | 'pending'
@@ -24,13 +33,14 @@ export interface IDonation {
   specialMessage?: string;
   refundReason?: string;
   pointsEarned: number;
-  connectedAccountId?: string;
+
   // Additional fields for recurring and round-up donations
   scheduledDonationId?: Types.ObjectId;
   roundUpId?: Types.ObjectId;
   roundUpTransactionIds?: Types.ObjectId[];
   receiptGenerated: boolean;
   receiptId?: Types.ObjectId;
+
   // New fields for idempotency and payment tracking
   idempotencyKey?: string;
   paymentAttempts?: number;
@@ -52,7 +62,11 @@ export interface IDonationWithPopulated {
   organization: { _id: Types.ObjectId; name: string };
   cause?: { _id: Types.ObjectId; name: string; description?: string };
   donationType: 'one-time' | 'recurring' | 'round-up';
+
   amount: number;
+  coverFees: boolean;
+  totalAmount: number;
+
   currency: string;
   status: 'pending' | 'processing' | 'completed' | 'failed' | 'refunded';
   donationDate: Date;
@@ -62,7 +76,7 @@ export interface IDonationWithPopulated {
   stripeCustomerId?: string;
   specialMessage?: string;
   pointsEarned: number;
-  connectedAccountId?: string;
+
   paidAmount?: number;
 }
 
@@ -76,21 +90,22 @@ export interface ICheckoutSessionRequest {
   causeId?: string;
   organizationId: string;
   userId: string;
-  connectedAccountId?: string;
   specialMessage?: string;
+  coverFees?: boolean;
 }
 
 /**
- * ScheduledDonation interface - Minimal Approach
- *
- * Stores ONLY scheduling configuration, execution tracking, and template data.
- * When executed, creates full Donation records with donationType: 'recurring'
+ * ScheduledDonation interface
  */
 export interface IScheduledDonation {
   // Template Data (what to donate)
   user: Types.ObjectId;
   organization: Types.ObjectId;
   amount: number;
+
+  // ✅ Fee Preference
+  coverFees: boolean;
+
   currency: string;
   cause: Types.ObjectId;
   specialMessage?: string;
@@ -120,6 +135,10 @@ export interface IRoundUp {
   user: Types.ObjectId;
   organization: Types.ObjectId;
   bankConnection: Types.ObjectId;
+
+  // ✅ Fee Preference
+  coverFees: boolean;
+
   thresholdAmount?: number;
   monthlyLimit?: number;
   autoDonateTrigger: {
@@ -135,9 +154,6 @@ export interface IRoundUp {
   cycleStartDate: Date;
 }
 
-// Note: IRoundUpTransaction interface is handled by the existing RoundUpTransaction module
-// The existing module has a more comprehensive interface with additional fields
-
 // Extended model interfaces
 export interface IScheduledDonationModel extends IScheduledDonation, Document {
   createdAt: Date;
@@ -149,8 +165,7 @@ export interface IRoundUpModel extends IRoundUp, Document {
   updatedAt: Date;
 }
 
-// src/app/modules/Donation/donation.interface.ts (add these)
-
+// Analytics interfaces
 export interface IAnalyticsPeriod {
   startDate?: Date;
   endDate?: Date;
@@ -204,14 +219,17 @@ export interface CategoryData {
   totalDonationAmount: number;
   causes: CauseData[];
 }
+
 export interface IOrganizationStatsResponse {
   totalDonationAmount: number;
   categories: CategoryData[];
 }
+
 export interface ICauseMonthlyStat {
   month: string;
   totalAmount: number;
 }
+
 export interface IDonationAnalytics {
   totalDonatedAmount: IPercentageChange;
   averageDonationPerUser: IPercentageChange;
@@ -227,6 +245,19 @@ export interface IDonationAnalytics {
   breakDownByCause: IOrganizationStatsResponse;
 }
 
+// Define the filter type for reuse
+export type TTimeFilter =
+  | 'today'
+  | 'yesterday'
+  | 'this_week'
+  | 'last_week'
+  | 'this_month'
+  | 'last_month'
+  | 'this_year'
+  | 'last_year'
+  | 'last_7_days'
+  | 'last_30_days';
+
 export interface MonthlyTrend {
   month: string;
   totalAmount: number;
@@ -237,4 +268,27 @@ export interface MonthlyTrend {
   oneTimeTotal: number;
   recurringTotal: number;
   roundUpTotal: number;
+}
+
+export interface IClientDonationStats {
+  roundUpAmount: number;
+  recurringAmount: number;
+  oneTimeAmount: number;
+  totalDonationAmount: number;
+  averageDonationAmount: number;
+  maxConsistencyStreak: number; // The "4 days" example you gave
+  currentStreak: number;
+  donationDates: Array<{
+    date: Date;
+    amount: number;
+    type: string;
+  }>;
+  uniqueDonationDates: string[];
+  upcomingDonations: Array<{
+    _id: string;
+    amount: number;
+    nextDate: Date;
+    causeName: string;
+    organizationName: string;
+  }>;
 }

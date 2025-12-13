@@ -343,6 +343,56 @@ const createProfileSchema = z.object({
     }),
 });
 
+const organizationSignupWithProfileSchema = z.object({
+  body: z.object({
+    // Auth fields (Required)
+    email: z
+      .string()
+      .email({ message: 'Invalid email format!' })
+      .transform((email) => email.toLowerCase()),
+
+    password: z
+      .string()
+      .min(8, { message: 'Password must be at least 8 characters long!' })
+      .max(20, { message: 'Password cannot exceed 20 characters!' })
+      .regex(/[A-Z]/, {
+        message: 'Password must contain at least one uppercase letter!',
+      })
+      .regex(/[a-z]/, {
+        message: 'Password must contain at least one lowercase letter!',
+      })
+      .regex(/[0-9]/, { message: 'Password must contain at least one number!' })
+      .regex(/[@$!%*?&#]/, {
+        message: 'Password must contain at least one special character!',
+      }),
+
+    // Organization Profile Fields (Required)
+    name: z.string().min(1, 'Organization name is required!'),
+    serviceType: z.string().min(1, 'Service type is required!'),
+    address: z.string().min(1, 'Address is required!'),
+    state: z.string().min(1, 'State is required!'),
+    postalCode: z.string().min(1, 'Postal code is required!'),
+    website: z.string().optional(),
+    phoneNumber: z.string().min(1, 'Phone number is required!').optional(),
+
+    // Registration Details (Required)
+    tfnOrAbnNumber: z.string().min(1, 'TFN or ABN number is required!'),
+    zakatLicenseHolderNumber: z.string().optional().nullable(),
+    registeredCharityName: z.string().optional(),
+
+    // Board Member Details (Required)
+    boardMemberName: z.string().min(1, 'Board member name is required!'),
+    boardMemberEmail: z.string().email('Invalid board member email!'),
+    boardMemberPhoneNumber: z
+      .string()
+      .min(1, 'Board member phone is required!'),
+
+    aboutUs: z.string().optional().nullable(),
+    country: z.string().optional().nullable(),
+    dateOfEstablishment: z.string().optional().nullable(), // Expecting ISO date string
+  }),
+});
+
 // 6. changePasswordSchema
 const changePasswordSchema = z.object({
   body: z.object({
@@ -545,4 +595,5 @@ export const AuthValidation = {
   getNewAccessTokenSchema,
   updateAuthDataSchema,
   businessSignupWithProfileSchema,
+  organizationSignupWithProfileSchema,
 };

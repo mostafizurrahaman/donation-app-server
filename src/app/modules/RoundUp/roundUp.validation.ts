@@ -5,12 +5,17 @@ export const monthlyThresholdSchema = z.union([
   z.number().min(3, 'Threshold amount must be at least $3'),
 ]);
 
+// 1. Save Plaid Consent & Create RoundUp Schema
 export const savePlaidConsentValidation = z.object({
   body: z.object({
     bankConnectionId: z.string().min(1, 'Bank connection ID is required'),
     organizationId: z.string().min(1, 'Organization ID is required'),
     causeId: z.string().min(1, 'Cause ID is required'),
     monthlyThreshold: monthlyThresholdSchema,
+
+    // ✅ NEW: Fee preference (Default false for RoundUp)
+    coverFees: z.boolean().optional().default(false),
+
     specialMessage: z
       .string()
       .max(250, 'Special message must not exceed 250 characters')

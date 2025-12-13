@@ -1,10 +1,12 @@
 export interface ICheckoutSessionRequest {
   amount: number;
-  causeId: string; // Made required
+  causeId: string;
   organizationId: string;
-  connectedAccountId?: string;
+
   specialMessage?: string;
   userId: string;
+  coverFees?: boolean;
+  totalAmount: number; // This is what gets charged
 }
 
 export interface ICheckoutSessionResponse {
@@ -13,13 +15,21 @@ export interface ICheckoutSessionResponse {
 }
 
 export interface IPaymentIntentRequest {
-  amount: number;
+  amount: number; // Base Amount
   currency?: string;
   donorId: string;
   organizationId: string;
-  causeId: string; // Made required
-  connectedAccountId?: string;
+  causeId: string;
   specialMessage?: string;
+
+  // ✅ Financial Breakdown for Metadata
+  coverFees?: boolean;
+  platformFee?: number;
+  gstOnFee?: number;
+  stripeFee?: number; // ✅ NEW: Transaction Fee
+  netToOrg?: number;
+
+  totalAmount: number; // Total Charge
 }
 
 export interface IPaymentIntentResponse {
@@ -37,7 +47,7 @@ export interface IDonationUpdateRequest {
 export interface IStripeWebhookEvent {
   type: string;
   data: {
-    object: Record<string, unknown>; // Stripe.PaymentIntent | Stripe.Charge
+    object: Record<string, unknown>;
   };
 }
 
@@ -58,13 +68,44 @@ export interface IAttachPaymentMethodRequest {
 }
 
 export interface ICreatePaymentIntentWithMethodRequest {
-  amount: number;
+  amount: number; // Base Amount
   currency?: string;
   customerId: string;
   paymentMethodId: string;
   donationId: string;
   organizationId: string;
   causeId: string;
-  connectedAccountId?: string;
   specialMessage?: string;
+
+  // ✅ Financial Breakdown for Metadata
+  coverFees?: boolean;
+  platformFee?: number;
+  gstOnFee?: number;
+  stripeFee?: number; // ✅ NEW: Transaction Fee
+  netToOrg?: number;
+
+  totalAmount: number; // Total Charge
+}
+
+//  Interface for RoundUp payment intent
+export interface ICreateRoundUpPaymentIntentRequest {
+  roundUpId: string;
+  userId: string;
+  charityId: string;
+  causeId?: string;
+  amount: number; // Base Amount
+  month: string;
+  year: number;
+  specialMessage?: string;
+  paymentMethodId?: string;
+  donationId?: string;
+
+  // ✅ Financial Breakdown for Metadata
+  coverFees?: boolean;
+  platformFee?: number;
+  gstOnFee?: number;
+  stripeFee?: number; // ✅ NEW: Transaction Fee
+  netToOrg?: number;
+
+  totalAmount: number; // Total Charge
 }

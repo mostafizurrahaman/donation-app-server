@@ -1,0 +1,214 @@
+{
+  "info": {
+    "_postman_id": "crescent-finance-v1",
+    "name": "Crescent Change – Finance API",
+    "description": "Financial system for Crescent Change managing Organization Balances, Ledger History, and Payouts.\n\nRoles:\n- **Organization** → Authenticated Organization Admin\n- **Admin** → Super Admin / Finance Staff\n- **System** → Internal webhooks/jobs",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Organization Endpoints",
+      "description": "Actions performed by the Organization itself.",
+      "item": [
+        {
+          "name": "[Org] Get My Balance",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{org_token}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/balance/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "balance", "me"]
+            },
+            "description": "View available, pending, and reserved balance."
+          }
+        },
+        {
+          "name": "[Org] Get Transaction History (Ledger)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{org_token}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/balance/history?page=1&limit=20&type=credit",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "balance", "history"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                {
+                  "key": "type",
+                  "value": "credit",
+                  "description": "credit | debit"
+                },
+                { "key": "category", "value": "donation", "disabled": true }
+              ]
+            },
+            "description": "View history of donations in and payouts out."
+          }
+        },
+        {
+          "name": "[Org] Request Payout",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{org_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 500.00,\n  \"destinationType\": \"stripe_connect\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/payouts/request",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "payouts", "request"]
+            },
+            "description": "Request to withdraw funds from Available Balance."
+          }
+        },
+        {
+          "name": "[Org] Get My Payouts",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{org_token}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/payouts/me?status=completed",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "payouts", "me"],
+              "query": [{ "key": "status", "value": "completed" }]
+            },
+            "description": "View status of past withdrawal requests."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin Endpoints",
+      "description": "Actions performed by System Admins for oversight.",
+      "item": [
+        {
+          "name": "[Admin] Get Any Org Balance",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{admin_token}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/balance/{{orgId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "balance", "{{orgId}}"]
+            },
+            "description": "Inspect finances of a specific organization."
+          }
+        },
+        {
+          "name": "[Admin] Manual Balance Adjustment",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{admin_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"organizationId\": \"{{orgId}}\",\n  \"type\": \"credit\",\n  \"amount\": 100,\n  \"reason\": \"Correction for failed webhook\",\n  \"category\": \"adjustment\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/balance/adjust",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "balance", "adjust"]
+            },
+            "description": "Manually add or remove funds in case of errors."
+          }
+        },
+        {
+          "name": "[Admin] List All Payout Requests",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{admin_token}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/payouts?status=pending",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "payouts"],
+              "query": [{ "key": "status", "value": "pending" }]
+            },
+            "description": "See requests waiting for approval."
+          }
+        },
+        {
+          "name": "[Admin] Approve/Reject Payout",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{admin_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"approved\",\n  \"adminNote\": \"Processed manually via bank portal\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/payouts/{{payoutId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "payouts", "{{payoutId}}", "status"]
+            },
+            "description": "Approve a payout to trigger Stripe transfer, or Reject it to refund balance."
+          }
+        }
+      ]
+    },
+    {
+      "name": "System / Internal",
+      "description": "Internal services (Cron Jobs / Webhooks).",
+      "item": [
+        {
+          "name": "[System] Webhook: Donation Success (Credit Org)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{system_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"donationId\": \"don_12345\",\n  \"organizationId\": \"{{orgId}}\",\n  \"amount\": 50.00,\n  \"currency\": \"USD\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/webhooks/donation/success",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "webhooks", "donation", "success"]
+            },
+            "description": "Internal webhook triggered when a donation is confirmed."
+          }
+        },
+        {
+          "name": "[System] Cron: Process Payouts",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{system_token}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/cron/payouts/process",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "cron", "payouts", "process"]
+            },
+            "description": "Trigger scheduled batch processing for approved payouts."
+          }
+        }
+      ]
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  }
+}

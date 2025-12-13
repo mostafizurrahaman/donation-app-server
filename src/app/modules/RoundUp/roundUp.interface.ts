@@ -12,6 +12,10 @@ export interface IRoundUp {
   bankConnection: string;
   paymentMethod?: string;
   monthlyThreshold?: number | 'no-limit';
+
+  // ✅ NEW: Fee Preference
+  coverFees: boolean;
+
   specialMessage?: string;
   status: TRoundUpStatus;
   isActive: boolean;
@@ -63,6 +67,7 @@ export interface IRoundUpSettings {
   organizationId: string;
   causeId: string;
   autoDonate: boolean; // Whether to donate when threshold is met or wait for month end
+  coverFees: boolean;
 }
 
 export interface IUserRoundUpStats {

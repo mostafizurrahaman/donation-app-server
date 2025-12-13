@@ -10,6 +10,7 @@ export interface IClient extends Document {
   address: string;
   state: string;
   postalCode: string;
+  phoneNumber: string;
 
   image: string;
 

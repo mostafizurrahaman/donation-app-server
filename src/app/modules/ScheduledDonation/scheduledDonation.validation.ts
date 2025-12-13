@@ -23,6 +23,16 @@ const createScheduledDonationSchema = z.object({
         .number({ message: 'Amount is required!' })
         .min(0.01, 'Amount must be at least $0.01')
         .positive('Amount must be positive'),
+
+      coverFees: z.boolean().optional().default(true),
+
+      startDate: z
+        .string({ message: 'Start Date and Time is required!' })
+        .datetime({ message: 'Invalid date format. Must be ISO 8601.' })
+        .refine((date) => new Date(date) > new Date(), {
+          message: 'Start Date and Time must be in the future!',
+        }),
+
       frequency: z.enum(
         ['daily', 'weekly', 'monthly', 'quarterly', 'yearly', 'custom'],
         {
@@ -60,7 +70,8 @@ const createScheduledDonationSchema = z.object({
         return true;
       },
       {
-        message: 'Custom interval should only be provided when frequency is "custom"',
+        message:
+          'Custom interval should only be provided when frequency is "custom"',
         path: ['customInterval'],
       }
     ),
@@ -80,6 +91,9 @@ const updateScheduledDonationSchema = z.object({
         .min(0.01, 'Amount must be at least $0.01')
         .positive('Amount must be positive')
         .optional(),
+
+      coverFees: z.boolean().optional(),
+
       frequency: z
         .enum(['daily', 'weekly', 'monthly', 'quarterly', 'yearly', 'custom'])
         .optional(),
@@ -129,23 +143,28 @@ const getUserScheduledDonationsSchema = z.object({
       .max(100, 'Limit cannot exceed 100!')
       .optional()
       .default(10),
-    
+
     // QueryBuilder search
     searchTerm: z.string().optional(),
-    
+
     // QueryBuilder sort
     sort: z.string().optional(),
-    
+
     // QueryBuilder fields selection
     fields: z.string().optional(),
-    
+
     // Filters
-    isActive: z
-      .enum(['true', 'false', 'all'])
-      .optional()
-      .default('all'),
+    isActive: z.enum(['true', 'false', 'all']).optional().default('all'),
     frequency: z
-      .enum(['daily', 'weekly', 'monthly', 'quarterly', 'yearly', 'custom', 'all'])
+      .enum([
+        'daily',
+        'weekly',
+        'monthly',
+        'quarterly',
+        'yearly',
+        'custom',
+        'all',
+      ])
       .optional()
       .default('all'),
   }),

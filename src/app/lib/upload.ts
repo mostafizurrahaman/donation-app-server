@@ -1,6 +1,6 @@
+// src/app/lib/upload.ts
 import multer from 'multer';
 import path from 'path';
-// import { v4 as uuidv4 } from 'uuid';
 import { AppError } from '../utils';
 import httpStatus from 'http-status';
 import fs from 'fs';
@@ -18,21 +18,21 @@ const storage = multer.diskStorage({
     } else if (
       file.mimetype ===
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-      file.mimetype === 'application/vnd.ms-excel'
+      file.mimetype === 'application/vnd.ms-excel' ||
+      file.mimetype === 'text/csv'
     ) {
       folderPath = './public/spreadsheets';
     } else {
       callback(
         new AppError(
           httpStatus.BAD_REQUEST,
-          'Only images, videos, PDFs, and Excel files are allowed'
+          'Only images, videos, PDFs, and Excel/CSV files are allowed'
         ),
         './public'
       );
       return;
     }
 
-    // Check if the folder exists, if not, create it
     if (!fs.existsSync(folderPath)) {
       fs.mkdirSync(folderPath, { recursive: true });
     }
@@ -47,13 +47,11 @@ const storage = multer.diskStorage({
       .toLocaleLowerCase()
       .split(' ')
       .join('-')}-${Date.now()}`;
-    // .join('-')}-${uuidv4()}`;
 
     callback(null, fileName + fileExt);
   },
 });
 
-// File filter to validate file types
 const fileFilter = (
   req: Express.Request,
   file: Express.Multer.File,
@@ -61,6 +59,7 @@ const fileFilter = (
 ) => {
   const allowedImageTypes = [
     'image/jpeg',
+    'image/jpg',
     'image/png',
     'image/gif',
     'image/webp',
@@ -73,8 +72,9 @@ const fileFilter = (
   ];
   const allowedDocTypes = ['application/pdf'];
   const allowedExcelTypes = [
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
-    'application/vnd.ms-excel', // .xls
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-excel',
+    'text/csv',
   ];
 
   const allAllowedTypes = [
@@ -90,7 +90,7 @@ const fileFilter = (
     callback(
       new AppError(
         httpStatus.BAD_REQUEST,
-        'Only images, videos, PDFs, and Excel files are allowed'
+        'Only images, videos, PDFs, and Excel/CSV files are allowed'
       )
     );
   }
@@ -100,9 +100,58 @@ const upload = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB file size limit
-    files: 5, // Maximum 5 files per request
+    fileSize: 10 * 1024 * 1024,
+    files: 10,
   },
 });
 
+// Memory storage for CSV/Excel parsing
+const uploadForParsing = multer({
+  storage: multer.memoryStorage(),
+  fileFilter: (req, file, callback) => {
+    const allowedTypes = [
+      'text/csv',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-excel',
+    ];
+    if (allowedTypes.includes(file.mimetype)) {
+      callback(null, true);
+    } else {
+      callback(
+        new AppError(
+          httpStatus.BAD_REQUEST,
+          'Only CSV and Excel files are allowed'
+        )
+      );
+    }
+  },
+  limits: {
+    fileSize: 5 * 1024 * 1024,
+    files: 10, // Allow multiple code files
+  },
+});
+
+/**
+ * Get the public URL path for an uploaded file
+ */
+const getFileUrl = (file: Express.Multer.File): string => {
+  // Remove 'public' prefix and normalize path separators
+  const relativePath = file.path.replace(/^\.?[\/\\]?public[\/\\]?/, '');
+  return `/${relativePath.replace(/\\/g, '/')}`;
+};
+
+/**
+ * Clean up uploaded file from disk
+ */
+const deleteFile = (filePath: string): void => {
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch (error) {
+    console.error('Error deleting file:', error);
+  }
+};
+
+export { upload, uploadForParsing, getFileUrl, deleteFile };
 export default upload;

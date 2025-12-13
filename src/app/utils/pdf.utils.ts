@@ -1,257 +1,175 @@
 import PDFDocument from 'pdfkit';
-import {
-  RECEIPT_PDF_CONFIG,
-  RECEIPT_MESSAGES,
-} from '../modules/Receipt/receipt.constant';
 import { IReceiptPDFData } from '../modules/Receipt/receipt.interface';
 
 /**
- * Add header to PDF
+ * Generates a PDF Receipt Buffer with Australian Fee Breakdown
  */
-const addHeader = (doc: PDFKit.PDFDocument): void => {
-  doc
-    .fontSize(RECEIPT_PDF_CONFIG.FONT_SIZE.HEADING)
-    .fillColor(RECEIPT_PDF_CONFIG.COLORS.ACCENT)
-    .text('Crescent Change', RECEIPT_PDF_CONFIG.MARGIN, 40, { align: 'left' });
-
-  doc
-    .moveTo(RECEIPT_PDF_CONFIG.MARGIN, 65)
-    .lineTo(doc.page.width - RECEIPT_PDF_CONFIG.MARGIN, 65)
-    .strokeColor(RECEIPT_PDF_CONFIG.COLORS.BORDER)
-    .stroke();
-  doc.moveDown(2);
-};
-
-/**
- * Add section title to PDF
- */
-const addSection = (doc: PDFKit.PDFDocument, title: string): void => {
-  doc
-    .fontSize(RECEIPT_PDF_CONFIG.FONT_SIZE.SUBHEADING)
-    .fillColor(RECEIPT_PDF_CONFIG.COLORS.SECONDARY)
-    .text(title, { underline: true });
-
-  doc.moveDown(0.5);
-};
-
-/**
- * Add field to PDF
- */
-const addField = (
-  doc: PDFKit.PDFDocument,
-  label: string,
-  value: string,
-  highlight: boolean = false
-): void => {
-  const fontSize = highlight
-    ? RECEIPT_PDF_CONFIG.FONT_SIZE.SUBHEADING
-    : RECEIPT_PDF_CONFIG.FONT_SIZE.BODY;
-
-  const color = highlight
-    ? RECEIPT_PDF_CONFIG.COLORS.SUCCESS
-    : RECEIPT_PDF_CONFIG.COLORS.TEXT;
-
-  doc
-    .fontSize(RECEIPT_PDF_CONFIG.FONT_SIZE.BODY)
-    .fillColor(RECEIPT_PDF_CONFIG.COLORS.LIGHT_TEXT)
-    .text(`${label}: `, { continued: true })
-    .fontSize(fontSize)
-    .fillColor(color)
-    .text(value);
-
-  doc.moveDown(0.3);
-};
-
-/**
- * Add badge to PDF
- */
-const addBadge = (
-  doc: PDFKit.PDFDocument,
-  text: string,
-  color: string
-): void => {
-  const x = doc.x;
-  const y = doc.y;
-
-  doc
-    .roundedRect(x, y, 120, 25, 5)
-    .fillAndStroke(color, color)
-    .fillColor('#FFFFFF')
-    .fontSize(RECEIPT_PDF_CONFIG.FONT_SIZE.SMALL)
-    .text(text, x, y + 7, { width: 120, align: 'center' });
-
-  doc.moveDown(1);
-};
-
-/**
- * Add legal disclaimer to PDF
- */
-const addLegalDisclaimer = (doc: PDFKit.PDFDocument): void => {
-  doc
-    .fontSize(RECEIPT_PDF_CONFIG.FONT_SIZE.SMALL)
-    .fillColor(RECEIPT_PDF_CONFIG.COLORS.LIGHT_TEXT)
-    .text(RECEIPT_MESSAGES.LEGAL_DISCLAIMER, { align: 'justify', width: 500 });
-
-  doc.moveDown(1);
-};
-
-/**
- * Add thank you message to PDF
- */
-const addThankYouMessage = (doc: PDFKit.PDFDocument): void => {
-  doc
-    .fontSize(RECEIPT_PDF_CONFIG.FONT_SIZE.BODY)
-    .fillColor(RECEIPT_PDF_CONFIG.COLORS.ACCENT)
-    .text(RECEIPT_MESSAGES.THANK_YOU_MESSAGE, { align: 'center' });
-
-  doc.moveDown(1);
-};
-
-/**
- * Add footer to PDF
- */
-const addFooter = (doc: PDFKit.PDFDocument): void => {
-  const bottomMargin = 50;
-  const pageHeight = doc.page.height;
-
-  doc
-    .moveTo(RECEIPT_PDF_CONFIG.MARGIN, pageHeight - bottomMargin - 20)
-    .lineTo(
-      doc.page.width - RECEIPT_PDF_CONFIG.MARGIN,
-      pageHeight - bottomMargin - 20
-    )
-    .strokeColor(RECEIPT_PDF_CONFIG.COLORS.BORDER)
-    .stroke();
-
-  doc
-    .fontSize(RECEIPT_PDF_CONFIG.FONT_SIZE.SMALL)
-    .fillColor(RECEIPT_PDF_CONFIG.COLORS.LIGHT_TEXT)
-    .text(
-      `Generated on ${new Date().toLocaleDateString(
-        'en-US'
-      )} | Crescent Change © ${new Date().getFullYear()}`,
-      RECEIPT_PDF_CONFIG.MARGIN,
-      pageHeight - bottomMargin,
-      { align: 'center' }
-    );
-};
-
-/**
- * Format donation type
- */
-const formatDonationType = (type: string): string => {
-  const typeMap: Record<string, string> = {
-    'one-time': 'One-Time Donation',
-    recurring: 'Recurring Donation',
-    'round-up': 'Round-Up Donation',
-  };
-  return typeMap[type] || type;
-};
-
-/**
- * Generate Receipt PDF
- */
-export const generateReceiptPDF = async (
-  data: IReceiptPDFData
-): Promise<Buffer> => {
+export const generateReceiptPDF = (data: IReceiptPDFData): Promise<Buffer> => {
   return new Promise((resolve, reject) => {
-    try {
-      const doc = new PDFDocument({
-        size: RECEIPT_PDF_CONFIG.PAGE_SIZE as PDFKit.PDFDocumentOptions['size'],
-        margin: RECEIPT_PDF_CONFIG.MARGIN,
-      });
+    const doc = new PDFDocument({ size: 'A4', margin: 50 });
+    const buffers: Buffer[] = [];
 
-      const chunks: Buffer[] = [];
-      doc.on('data', (chunk: Buffer) => chunks.push(chunk));
-      doc.on('end', () => resolve(Buffer.concat(chunks)));
-      doc.on('error', reject);
+    doc.on('data', (chunk) => buffers.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(buffers)));
+    doc.on('error', (err) => reject(err));
 
-      // Add header
-      addHeader(doc);
+    // --- HEADER ---
+    doc
+      .fillColor('#444444')
+      .fontSize(20)
+      .text('OFFICIAL DONATION RECEIPT', 110, 57)
+      .fontSize(10)
+      .text('Crescent Change Platform', 200, 65, { align: 'right' })
+      .moveDown();
 
-      // Title
-      doc
-        .fontSize(RECEIPT_PDF_CONFIG.FONT_SIZE.TITLE)
-        .fillColor(RECEIPT_PDF_CONFIG.COLORS.PRIMARY)
-        .text('Donation Receipt', { align: 'center' });
+    // --- RECEIPT DETAILS ---
+    doc
+      .fontSize(10)
+      .text(`Receipt Number: ${data.receiptNumber}`, 50, 100)
+      .text(
+        `Date: ${new Date(data.donationDate).toLocaleDateString('en-AU')}`,
+        50,
+        115
+      )
+      .text(`Payment Method: ${data.paymentMethod || 'Card'}`, 50, 130)
+      .moveDown();
 
-      doc.moveDown(0.5);
-      doc
-        .fontSize(RECEIPT_PDF_CONFIG.FONT_SIZE.BODY)
-        .fillColor(RECEIPT_PDF_CONFIG.COLORS.LIGHT_TEXT)
-        .text(`Receipt Number: ${data.receiptNumber}`, { align: 'center' });
+    // --- DONOR & ORGANIZATION ---
+    const startY = 160;
 
-      doc.moveDown(2);
+    // Donor Column
+    doc
+      .text('ISSUED TO:', 50, startY, { underline: true })
+      .font('Helvetica-Bold')
+      .text(data.donorName, 50, startY + 15)
+      .font('Helvetica')
+      .text(data.donorEmail, 50, startY + 30);
 
-      // Organization Details
-      addSection(doc, 'Organization Details');
-      addField(doc, 'Organization Name', data.organizationName);
-      if (data.organizationAddress)
-        addField(doc, 'Address', data.organizationAddress);
-      if (data.organizationEmail)
-        addField(doc, 'Email', data.organizationEmail);
-      if (data.abnNumber) addField(doc, 'ABN', data.abnNumber);
+    // Organization Column
+    doc
+      .text('RECIPIENT ORGANIZATION:', 300, startY, { underline: true })
+      .font('Helvetica-Bold')
+      .text(data.organizationName, 300, startY + 15)
+      .font('Helvetica')
+      .text(data.organizationAddress || '', 300, startY + 30);
 
-      doc.moveDown(1);
+    if (data.abnNumber) {
+      doc.text(`ABN: ${data.abnNumber}`, 300, startY + 45);
+    }
 
-      // Donor Details
-      addSection(doc, 'Donor Details');
-      addField(doc, 'Donor Name', data.donorName);
-      addField(doc, 'Email', data.donorEmail);
+    // --- FINANCIAL TABLE ---
+    let tableTop = 260;
+    const currencySymbol = data.currency.toUpperCase() === 'USD' ? '$' : 'A$';
 
-      doc.moveDown(1);
+    doc.font('Helvetica-Bold');
+    generateTableRow(doc, tableTop, 'Description', 'Amount');
+    generateHr(doc, tableTop + 20);
+    doc.font('Helvetica');
 
-      // Donation Details
-      addSection(doc, 'Donation Details');
-      addField(
-        doc,
-        'Amount',
-        `${data.currency} ${data.amount.toFixed(2)}`,
-        true
-      );
-      addField(doc, 'Donation Type', formatDonationType(data.donationType));
-      addField(
-        doc,
-        'Date',
-        new Date(data.donationDate).toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric',
-        })
-      );
-      if (data.paymentMethod)
-        addField(doc, 'Payment Method', data.paymentMethod);
+    // 1. Base Donation (Tax Deductible)
+    tableTop += 30;
+    generateTableRow(
+      doc,
+      tableTop,
+      'Donation Amount (Tax Deductible)',
+      formatCurrency(data.amount, currencySymbol)
+    );
 
-      doc.moveDown(1);
-
-      // Tax Status
-      addSection(doc, 'Tax Status');
-      if (data.taxDeductible)
-        addBadge(doc, 'Tax Deductible', RECEIPT_PDF_CONFIG.COLORS.SUCCESS);
-      if (data.zakatEligible)
-        addBadge(doc, 'Zakat Eligible', RECEIPT_PDF_CONFIG.COLORS.ACCENT);
-
-      doc.moveDown(1);
-
-      // Special Message
-      if (data.specialMessage) {
-        addSection(doc, 'Your Message');
-        doc
-          .fontSize(RECEIPT_PDF_CONFIG.FONT_SIZE.BODY)
-          .fillColor(RECEIPT_PDF_CONFIG.COLORS.TEXT)
-          .text(data.specialMessage, { width: 500 });
-
-        doc.moveDown(1);
+    // 2. Fees (If Covered by Donor)
+    // We check if (Platform Fee > 0 OR Stripe Fee > 0) to display the section
+    if (data.coverFees && (data.platformFee > 0 || data.stripeFee > 0)) {
+      // Platform Fee
+      if (data.platformFee > 0) {
+        tableTop += 25;
+        generateTableRow(
+          doc,
+          tableTop,
+          'Platform & Service Fee',
+          formatCurrency(data.platformFee, currencySymbol)
+        );
       }
 
-      // Legal & Thank You
-      addLegalDisclaimer(doc);
-      addThankYouMessage(doc);
-      addFooter(doc);
+      // Stripe Fee (Transaction Fee)
+      if (data.stripeFee > 0) {
+        tableTop += 25;
+        generateTableRow(
+          doc,
+          tableTop,
+          'Transaction Fee (Stripe)',
+          formatCurrency(data.stripeFee, currencySymbol)
+        );
+      }
 
-      doc.end();
-    } catch (err) {
-      reject(err);
+      // GST
+      if (data.gstOnFee > 0) {
+        tableTop += 25;
+        generateTableRow(
+          doc,
+          tableTop,
+          'GST (10% on Platform Fees)',
+          formatCurrency(data.gstOnFee, currencySymbol)
+        );
+      }
     }
+
+    // 3. Total Line
+    tableTop += 35;
+    generateHr(doc, tableTop - 10);
+    doc.font('Helvetica-Bold');
+    generateTableRow(
+      doc,
+      tableTop,
+      'TOTAL PAID',
+      formatCurrency(data.totalAmount, currencySymbol)
+    );
+    doc.font('Helvetica');
+
+    // --- FOOTER ---
+    const footerTop = 500;
+
+    if (data.taxDeductible) {
+      doc
+        .fontSize(10)
+        .text(
+          'Donations of $2 or more to this organization are tax-deductible in Australia.',
+          50,
+          footerTop,
+          { align: 'center', width: 500 }
+        );
+    }
+
+    doc
+      .fontSize(8)
+      .fillColor('#888888')
+      .text(
+        'This receipt is generated electronically by Crescent Change. For support, contact support@crescentchange.com',
+        50,
+        footerTop + 30,
+        { align: 'center', width: 500 }
+      );
+
+    doc.end();
   });
 };
+
+// --- HELPER FUNCTIONS FOR PDF LAYOUT ---
+
+function generateTableRow(
+  doc: PDFKit.PDFDocument,
+  y: number,
+  item: string,
+  price: string
+) {
+  doc
+    .fontSize(10)
+    .text(item, 50, y)
+    .text(price, 0, y, { align: 'right', width: 540 }); // 595 is A4 width, 50 margin right approx
+}
+
+function generateHr(doc: PDFKit.PDFDocument, y: number) {
+  doc.strokeColor('#aaaaaa').lineWidth(1).moveTo(50, y).lineTo(550, y).stroke();
+}
+
+function formatCurrency(amount: number, symbol: string) {
+  return `${symbol}${amount.toFixed(2)}`;
+}

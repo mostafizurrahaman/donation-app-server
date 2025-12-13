@@ -27,11 +27,39 @@ const donationSchema = new Schema<IDonationModel>(
       enum: DONATION_TYPE,
       required: true,
     },
+
+    // ✅ Financial Fields (Australian Logic + Stripe Fees)
     amount: {
       type: Number,
-      required: [true, 'Amount is required'],
-      min: [0.01, 'Amount must be at least 0.01'],
+      required: [true, 'Base Amount is required'],
+      min: [0.01, 'Amount must be at least 0.01'], // This is the donation amount
     },
+    coverFees: {
+      type: Boolean,
+      default: true, // Default Checked
+    },
+    platformFee: {
+      type: Number,
+      default: 0, // 5% Fee
+    },
+    gstOnFee: {
+      type: Number,
+      default: 0, // 10% GST on Platform Fee
+    },
+    stripeFee: {
+      type: Number,
+      default: 0, // ✅ NEW: 1.75% + 30c
+    },
+    netAmount: {
+      type: Number,
+      required: true, // The exact amount the Organization receives
+    },
+    totalAmount: {
+      type: Number,
+      required: [true, 'Total amount is required'], // The amount charged to the card
+      min: [0.01, 'Total amount must be at least 0.01'],
+    },
+
     currency: {
       type: String,
       default: DEFAULT_CURRENCY,
@@ -76,9 +104,7 @@ const donationSchema = new Schema<IDonationModel>(
       type: Number,
       default: 0,
     },
-    connectedAccountId: {
-      type: String,
-    },
+
     // Additional fields for recurring and round-up donations
     scheduledDonationId: {
       type: Schema.Types.ObjectId,
@@ -100,6 +126,7 @@ const donationSchema = new Schema<IDonationModel>(
       type: Schema.Types.ObjectId,
       ref: 'Receipt',
     },
+
     // New fields for idempotency and payment tracking
     idempotencyKey: {
       type: String,
@@ -120,6 +147,7 @@ const donationSchema = new Schema<IDonationModel>(
   }
 );
 
+// Indexes
 donationSchema.index({ donor: 1, donationDate: -1 });
 donationSchema.index({ organization: 1, donationDate: -1 });
 donationSchema.index({ status: 1, donationDate: -1 });
@@ -127,6 +155,8 @@ donationSchema.index({ scheduledDonationId: 1 });
 donationSchema.index({ roundUpId: 1 });
 donationSchema.index({ idempotencyKey: 1, donor: 1 }, { unique: true });
 donationSchema.index({ lastPaymentAttempt: 1 });
+donationSchema.index({ totalAmount: 1 });
+donationSchema.index({ netAmount: 1 });
 
 export const Donation = model<IDonationModel>('Donation', donationSchema);
 export default Donation;

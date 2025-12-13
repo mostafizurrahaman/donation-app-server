@@ -1,11 +1,6 @@
 import { Router } from 'express';
 import { AuthRoutes } from '../modules/Auth/auth.route';
 import { AdminRoutes } from '../modules/Admin/admin.route';
-// import { ClientRoutes } from '../modules/Client/client.route';
-// import { OrganizationRoutes } from '../modules/Organization/organization.routes';
-// import { BusinessRoutes } from '../modules/Business/business.routes';
-// import { notificationRoutes } from '../modules/Notification/notification.routes';
-
 import DonationRoutes from '../modules/Donation/donation.route';
 import { CauseRoutes } from '../modules/Causes/causes.route';
 import StripeRoutes from '../modules/Stripe/stripe.route';
@@ -18,6 +13,14 @@ import { SecureRoundUpRoutes } from '../modules/RoundUp/secureRoundUp.route';
 import { roundUpTransactionRoutes } from '../modules/RoundUpTransaction/roundUpTransaction.route';
 import { ReceiptRoutes } from '../modules/Receipt/receipt.router';
 import { PointsRoutes } from '../modules/Points/points.route';
+import { RewardRoutes } from '../modules/Reward/reward.route';
+import { BadgeRoutes } from '../modules/badge/badge.route';
+import { BusinessRoutes } from '../modules/Business/business.routes';
+import { BalanceRoutes } from '../modules/Balance/balance.route';
+import { PayoutRoutes } from '../modules/Payout/payout.route';
+import { clientRoutes } from '../modules/Client/client.route';
+import { boardMemberRoutes } from '../modules/BoardMember/board-member.router';
+import { RewardRedemptionRoutes } from '../modules/RewardRedeemtion/reward-redeemtion.routes';
 
 const router = Router();
 
@@ -30,19 +33,15 @@ const moduleRoutes = [
     path: '/admin',
     route: AdminRoutes,
   },
-  // {
-  //   path: '/client',
-  //   route: ClientRoutes,
-  // },
-  // {
-  //   path: '/organization',
-  //   route: OrganizationRoutes,
-  // },
+  {
+    path: '/client',
+    route: clientRoutes,
+  },
 
-  // {
-  //   path: '/business',
-  //   route: BusinessRoutes,
-  // },
+  {
+    path: '/business',
+    route: BusinessRoutes,
+  },
   // {
   //   path: '/notification',
   //   route: notificationRoutes,
@@ -78,6 +77,10 @@ const moduleRoutes = [
     route: OrganizationRoutes,
   },
   {
+    path: '/board-member',
+    route: boardMemberRoutes,
+  },
+  {
     path: '/bank-connection',
     route: BankConnectionRoutes,
   },
@@ -96,6 +99,26 @@ const moduleRoutes = [
   {
     path: '/points',
     route: PointsRoutes,
+  },
+  {
+    path: '/rewards',
+    route: RewardRoutes,
+  },
+  {
+    path: '/rewards',
+    route: RewardRedemptionRoutes,
+  },
+  {
+    path: '/badges',
+    route: BadgeRoutes,
+  },
+  {
+    path: '/balance',
+    route: BalanceRoutes,
+  },
+  {
+    path: '/payout',
+    route: PayoutRoutes,
   },
 ];
 

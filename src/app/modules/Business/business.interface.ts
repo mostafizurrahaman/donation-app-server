@@ -10,10 +10,12 @@ export interface IBusiness extends Document {
   description: string;
 
   coverImage: string;
-
+  logoImage: string;
   businessPhoneNumber: string;
   businessEmail: string;
   businessWebsite: string;
+  websiteViews: number;
+  views: number;
 
   locations: string[];
 }

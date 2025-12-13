@@ -58,20 +58,6 @@ const organizationSchema = new Schema<IORGANIZATION>(
       required: false,
     },
 
-    // Board Memeber Fields :
-    boardMemberName: {
-      type: String,
-    },
-    boardMemberEmail: {
-      type: String,
-    },
-    boardMemberPhoneNumber: {
-      type: String,
-    },
-    drivingLicenseURL: {
-      type: String,
-    },
-
     //  Extra fields added:
     country: {
       type: String,

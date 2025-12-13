@@ -8,6 +8,13 @@ interface IConfig {
   host: string;
   dbUrl: string;
   clientUrl: string;
+  paymentSetting: {
+    platformFeePercent: number;
+    gstPercentage: number;
+    stripeFeePercent: number; // ✅ NEW: Stripe % (e.g. 0.0175)
+    stripeFixedFee: number; // ✅ NEW: Stripe Fixed (e.g. 0.30)
+    clearingPeriodDays: number;
+  };
   jwt: {
     accessTokenSecret: string;
     refreshTokenSecret: string;
@@ -82,6 +89,14 @@ const config: IConfig = {
   host: process.env.HOST || 'localhost',
   dbUrl: process.env.DB_URL || 'mongodb://localhost:27017/crescent_change',
   clientUrl: process.env.CLIENT_URL || 'http://localhost:3000',
+  paymentSetting: {
+    platformFeePercent: Number(process.env.PLATFORM_FEE_PERCENTAGE) || 0.05, // 5%
+    gstPercentage: Number(process.env.GST_PERCENTAGE) || 0.1, // 10% GST
+    // Standard Stripe AU pricing: 1.75% + 30c
+    stripeFeePercent: Number(process.env.STRIPE_FEE_PERCENTAGE) || 0.0175,
+    stripeFixedFee: Number(process.env.STRIPE_FIXED_FEE) || 0.3,
+    clearingPeriodDays: Number(process.env.CLEARING_PERIOD_DAYS) ?? 7,
+  },
   jwt: {
     accessTokenSecret: process.env.JWT_ACCESS_SECRET || 'default_access_secret',
     refreshTokenSecret:
@@ -89,7 +104,7 @@ const config: IConfig = {
     otpSecret: process.env.JWT_OTP_SECRET || 'default_otp_secret',
     accessTokenExpiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '15m',
     refreshTokenExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
-    otpSecretExpiresIn: process.env.JWT_OTP_SECRET_EXPIRES_IN || '5',
+    otpSecretExpiresIn: process.env.JWT_OTP_SECRET_EXPIRES_IN || '5m',
   },
   bcrypt: {
     saltRounds: parseInt(process.env.BCRYPT_SALT_ROUNDS || '12', 10),

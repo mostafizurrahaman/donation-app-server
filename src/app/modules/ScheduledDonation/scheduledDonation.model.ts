@@ -5,19 +5,6 @@ import {
 } from '../Donation/donation.constant';
 import { IScheduledDonationModel } from '../Donation/donation.interface';
 
-/**
- * ScheduledDonation Schema - Minimal Approach
- *
- * This schema stores ONLY:
- * 1. Scheduling configuration (frequency, dates, status)
- * 2. Execution tracking (lastExecutedDate, totalExecutions)
- * 3. Template data (what to donate: amount, cause, payment method)
- *
- * When a scheduled donation executes, it creates a full Donation record with:
- * - donationType: 'recurring'
- * - scheduledDonationId: reference to this ScheduledDonation
- * - All payment/transaction fields (stripePaymentIntentId, status, etc.)
- */
 const scheduledDonationSchema = new Schema<IScheduledDonationModel>(
   {
     // User & Organization (Template Data)
@@ -37,9 +24,16 @@ const scheduledDonationSchema = new Schema<IScheduledDonationModel>(
     // Donation Template (what to donate)
     amount: {
       type: Number,
-      required: [true, 'Amount is required'],
+      required: [true, 'Base Amount is required'],
       min: [0.01, 'Amount must be at least 0.01'],
     },
+
+    // ✅ NEW: Store fee preference for future executions
+    coverFees: {
+      type: Boolean,
+      default: true,
+    },
+
     currency: {
       type: String,
       default: DEFAULT_CURRENCY,
@@ -133,7 +127,7 @@ const scheduledDonationSchema = new Schema<IScheduledDonationModel>(
 // Compound indexes for efficient queries
 scheduledDonationSchema.index({ user: 1, isActive: 1 });
 scheduledDonationSchema.index({ organization: 1, isActive: 1 });
-scheduledDonationSchema.index({ nextDonationDate: 1, isActive: 1 }); // Critical for cron jobs
+scheduledDonationSchema.index({ nextDonationDate: 1, isActive: 1 });
 scheduledDonationSchema.index({ stripeCustomerId: 1, isActive: 1 });
 
 export const ScheduledDonation = model<IScheduledDonationModel>(

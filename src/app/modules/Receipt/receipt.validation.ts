@@ -10,7 +10,15 @@ export const generateReceiptSchema = z.object({
     donorId: z.string().min(1, 'Donor ID is required'),
     organizationId: z.string().min(1, 'Organization ID is required'),
     causeId: z.string().optional(),
+
+    // Financials
     amount: z.number().min(0.01, 'Amount must be at least 0.01'),
+    coverFees: z.boolean().default(false),
+    platformFee: z.number().default(0),
+    gstOnFee: z.number().default(0),
+    stripeFee: z.number().default(0), 
+    totalAmount: z.number().min(0.01, 'Total amount is required'),
+
     currency: z.string().default('USD'),
     donationType: z.enum(DONATION_TYPE_VALUES as [string, ...string[]]),
     donationDate: z.coerce.date(),

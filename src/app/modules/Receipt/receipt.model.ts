@@ -1,4 +1,3 @@
-// src/app/modules/Receipt/receipt.model.ts
 import { Schema, model } from 'mongoose';
 import { IReceiptModel } from './receipt.interface';
 
@@ -35,10 +34,28 @@ const receiptSchema = new Schema<IReceiptModel>(
       index: true,
     },
 
+    // ✅ Financial Breakdown
     amount: {
       type: Number,
-      required: [true, 'Amount is required'],
+      required: [true, 'Base Amount is required'], // The Tax Deductible Donation Amount
     },
+    platformFee: {
+      type: Number,
+      default: 0,
+    },
+    gstOnFee: {
+      type: Number,
+      default: 0,
+    },
+    stripeFee: {
+      type: Number,
+      default: 0, // ✅ NEW: Store Stripe Fee
+    },
+    totalAmount: {
+      type: Number,
+      required: [true, 'Total amount is required'], // Base + Fees (if covered)
+    },
+
     currency: {
       type: String,
       default: 'USD',
@@ -58,6 +75,7 @@ const receiptSchema = new Schema<IReceiptModel>(
       type: String,
     },
 
+    // Receipt Meta Flags
     taxDeductible: {
       type: Boolean,
       default: false,
@@ -70,6 +88,7 @@ const receiptSchema = new Schema<IReceiptModel>(
       default: false,
     },
 
+    // File Storage
     pdfUrl: {
       type: String,
       required: [true, 'PDF URL is required'],
@@ -79,6 +98,7 @@ const receiptSchema = new Schema<IReceiptModel>(
       required: [true, 'PDF key is required'],
     },
 
+    // Email Tracking
     emailSent: {
       type: Boolean,
       default: false,
@@ -95,6 +115,7 @@ const receiptSchema = new Schema<IReceiptModel>(
       type: String,
     },
 
+    // Snapshot of details at time of generation
     donorName: {
       type: String,
       required: true,

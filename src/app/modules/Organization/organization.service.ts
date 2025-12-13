@@ -17,6 +17,7 @@ import QueryBuilder from '../../builders/QueryBuilder';
 import { is } from 'zod/v4/locales';
 import Cause from '../Causes/causes.model';
 import { DonationService } from '../Donation/donation.service';
+import Donation from '../Donation/donation.model';
 
 /**
  * Start Stripe Connect onboarding for an organization
@@ -446,18 +447,83 @@ const getOrganizationDetailsById = async (organizationId: string) => {
     )
     .populate('auth', 'email role isActive status');
 
-  const recentDonors = await DonationService.getRecentDonors(
-    {},
-    organizationId,
-    5
-  );
-  console.log('Recent Donors:', recentDonors);
-
   if (!organization) {
     throw new AppError(httpStatus.NOT_FOUND, 'Organization not found!');
   }
 
-  return { ...organization.toObject(), recentDonors };
+  const organizationDonationStats = await Donation.aggregate([
+    {
+      $match: {
+        organization: organization._id,
+        status: 'completed',
+      },
+    },
+    {
+      $facet: {
+        totalDonations: [{ $count: 'count' }],
+        totalDonationAmount: [
+          {
+            $group: {
+              _id: null,
+              totalAmount: { $sum: '$amount' },
+            },
+          },
+        ],
+        recentDonors: [
+          { $sort: { donationDate: -1 } },
+          {
+            $group: {
+              _id: '$donor',
+              lastDonationDate: { $first: '$donationDate' },
+              lastDonationAmount: { $first: '$amount' },
+            },
+          },
+          { $limit: 5 },
+          {
+            $lookup: {
+              from: 'clients',
+              localField: '_id',
+              foreignField: '_id',
+              as: 'donorDetails',
+            },
+          },
+          { $unwind: '$donorDetails' },
+          {
+            $project: {
+              donorId: '$_id',
+              lastDonationDate: 1,
+              lastDonationAmount: 1,
+              donorName: '$donorDetails.name',
+              donorImage: '$donorDetails.image',
+              donorAddress: '$donorDetails.address',
+              _id: 0,
+            },
+          },
+        ],
+      },
+    },
+  ]);
+
+  const organizationStats = organizationDonationStats[0];
+  console.log(organizationStats);
+  const totalDonation = organizationStats?.totalDonations?.[0]?.count;
+  const totalDonationAmount =
+    organizationStats?.totalDonationAmount?.[0]?.totalAmount;
+  const recentDonors = organizationStats?.recentDonors;
+  console.log({
+    ...organization.toObject(),
+    totalDonation,
+    totalDonationAmount,
+    recentDonors,
+  });
+
+  return {
+    ...organization.toObject(),
+    totalDonation,
+    totalDonationAmount,
+    recentDonors,
+    // organizationStats,
+  };
 };
 
 export const OrganizationService = {
