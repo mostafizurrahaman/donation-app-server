@@ -18,6 +18,10 @@ router.get('/user-states', auth(ROLE.ADMIN), AdminController.getUsersStatesRepor
 
 router.get('/users', auth(ROLE.ADMIN), AdminController.getUsersReport);
 
+router.patch('/change-user-status/:id', auth(ROLE.ADMIN), AdminController.changeUserStatus);
+
+router.delete('/delete-user/:id', auth(ROLE.ADMIN), AdminController.deleteUser);
+
 router.get('/pending-users', auth(ROLE.ADMIN), AdminController.getPendingUsersReport);
 
 router.get('/user-engagement', auth(ROLE.ADMIN), AdminController.getUsersEngagementReport);
