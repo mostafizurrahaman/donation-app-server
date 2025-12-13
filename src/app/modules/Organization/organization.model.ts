@@ -47,6 +47,9 @@ const organizationSchema = new Schema<IORGANIZATION>(
     tfnOrAbnNumber: {
       type: String,
     },
+    acncNumber: {
+      type: String,
+    },
     zakatLicenseHolderNumber: {
       type: String,
       default: null,

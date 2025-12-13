@@ -379,6 +379,7 @@ const organizationSignupWithProfileSchema = z.object({
     tfnOrAbnNumber: z.string().min(1, 'TFN or ABN number is required!'),
     zakatLicenseHolderNumber: z.string().optional().nullable(),
     registeredCharityName: z.string().optional(),
+    acncNumber: z.string().optional(),
 
     // Board Member Details (Required)
     boardMemberName: z.string().min(1, 'Board member name is required!'),

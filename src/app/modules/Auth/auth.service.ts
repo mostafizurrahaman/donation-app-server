@@ -1500,6 +1500,7 @@ const organizationSignupWithProfile = async (
 ) => {
   // Extract auth and organization data
   const { email, password, ...orgData } = payload;
+  
 
   // Check if user already exists
   const existingUser = await Auth.isUserExistsByEmail(email);
@@ -1584,6 +1585,7 @@ const organizationSignupWithProfile = async (
 
       // Verification details
       tfnOrAbnNumber: orgData.tfnOrAbnNumber,
+      acncNumber: orgData.acncNumber,
       zakatLicenseHolderNumber: orgData.zakatLicenseHolderNumber,
 
       // Images/Docs
@@ -1610,6 +1612,10 @@ const organizationSignupWithProfile = async (
       drivingLicenseURL,
       status: BoardMemberStatus.PENDING,
     };
+
+    console.log({
+      boardMemeberPayload,
+    });
 
     const [boardMember] = await BoardMemeber.create([boardMemeberPayload], {
       session,
@@ -1643,6 +1649,7 @@ const organizationSignupWithProfile = async (
       },
     };
   } catch (error: any) {
+    console.log(error);
     await session.abortTransaction();
     await session.endSession();
 

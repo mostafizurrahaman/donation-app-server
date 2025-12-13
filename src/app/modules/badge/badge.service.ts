@@ -221,7 +221,7 @@ const checkAndUpdateBadgesForDonation = async (
   const updatePromises = relevantBadges.map(async (badge) => {
     let matchesCondition = false;
 
-    // ✅ FIXED: Seasonal Checks - Now uses constants
+    // FIXED: Seasonal Checks - Now uses constants
     if (badge.unlockType === BADGE_UNLOCK_TYPE.SEASONAL) {
       if (
         badge.seasonalPeriod === SEASONAL_PERIOD.RAMADAN &&
@@ -266,7 +266,7 @@ const checkAndUpdateBadgesForDonation = async (
       }
     }
 
-    // ✅ FIXED: Category Specific - Now normalizes comparison
+    // Category Specific - Now normalizes comparison
     else if (badge.unlockType === BADGE_UNLOCK_TYPE.CATEGORY_SPECIFIC) {
       const cause = donation.cause as any;
       if (
@@ -326,7 +326,6 @@ const updateUserBadgeProgress = async (
   // 1. Prepare Atomic Update Operations
   const updateOps: any = {
     $inc: {
-      progressCount: 1,
       progressAmount: donation.amount,
     },
     $set: {
@@ -342,8 +341,14 @@ const updateUserBadgeProgress = async (
       ],
       isCompleted: false,
       consecutiveMonths: 0,
+      progressCount: 0,
     },
   };
+
+  // Only increment progressCount for non-frequency badges
+  if (badge.unlockType !== BADGE_UNLOCK_TYPE.FREQUENCY) {
+    updateOps.$inc.progressCount = 1;
+  }
 
   // 2. Handle Unique Categories (Atomic Array Add)
   if (
@@ -353,7 +358,7 @@ const updateUserBadgeProgress = async (
     updateOps.$addToSet = { uniqueCategoryNames: donation.cause.category };
   }
 
-  // 4. ATOMIC FIND-OR-CREATE-AND-UPDATE
+  // 3. ATOMIC FIND-OR-CREATE-AND-UPDATE
   const userBadge = await UserBadge.findOneAndUpdate(
     { user: userId, badge: badge._id },
     updateOps,
@@ -364,7 +369,7 @@ const updateUserBadgeProgress = async (
     }
   );
 
-  // 5. Special Handling for complex logic corrections
+  // 4. Special Handling for complex logic corrections
   let shouldSave = false;
 
   // Sync array length to progressCount for Unique Categories
@@ -376,19 +381,98 @@ const updateUserBadgeProgress = async (
     }
   }
 
-  // Streak Logic (Frequency)
+  // Complete Frequency Logic (Monthly Streak)
   if (badge.unlockType === BADGE_UNLOCK_TYPE.FREQUENCY) {
-    // This requires reading the previous month, which makes atomicity hard.
-    // For simplicity in this optimization phase, we are incrementing progressCount above.
-    // If logic demands rigorous consecutive checks, implement here.
+    const currentDate = new Date(date);
+    const currentMonth = currentDate.getMonth();
+    const currentYear = currentDate.getFullYear();
+    
+    // Check if we need to fetch donation history
+    let needsHistoryCheck = true;
+    
+    if (userBadge.lastDonationDate) {
+      const lastDate = new Date(userBadge.lastDonationDate);
+      const lastMonth = lastDate.getMonth();
+      const lastYear = lastDate.getFullYear();
+      
+      // Calculate month difference
+      const monthsDiff = (currentYear - lastYear) * 12 + (currentMonth - lastMonth);
+      
+      if (monthsDiff === 0) {
+        // Same month - no change to streak
+        needsHistoryCheck = false;
+      } else if (monthsDiff === 1) {
+        // Consecutive month - increment
+        userBadge.consecutiveMonths = (userBadge.consecutiveMonths || 0) + 1;
+        userBadge.progressCount = userBadge.consecutiveMonths;
+        shouldSave = true;
+        needsHistoryCheck = false;
+      } else if (monthsDiff > 1) {
+        // Gap in months - need to check if this starts a new streak
+        needsHistoryCheck = true;
+      }
+    }
+    
+    // If needed, check donation history to calculate the streak
+    if (needsHistoryCheck) {
+      const monthsWithDonations = await calculateConsecutiveMonths(userId, currentDate);
+      userBadge.consecutiveMonths = monthsWithDonations;
+      userBadge.progressCount = monthsWithDonations;
+      shouldSave = true;
+    }
   }
 
   if (shouldSave) await userBadge.save();
 
-  // 6. Check Tier Upgrade
+  // 5. Check Tier Upgrade
   await checkTierUpgrade(userBadge, badge);
 };
 
+// Helper function to calculate consecutive months
+const calculateConsecutiveMonths = async (
+  userId: Types.ObjectId, 
+  currentDate: Date
+): Promise<number> => {
+  // Get the client
+  const client = await Client.findOne({ auth: userId }).lean();
+  if (!client) return 1;
+
+  // Find all donations for this user, sorted by date descending
+  const donations = await Donation.find({ 
+    client: client._id,
+    status: 'completed' 
+  })
+  .sort({ donationDate: -1 })
+  .select('donationDate')
+  .lean();
+
+  if (donations.length === 0) return 1;
+
+  // Group donations by month/year
+  const monthsSet = new Set<string>();
+  donations.forEach(donation => {
+    const date = new Date(donation.donationDate || donation.createdAt);
+    const key = `${date.getFullYear()}-${date.getMonth()}`;
+    monthsSet.add(key);
+  });
+
+  // Count consecutive months from current month backwards
+  let consecutiveCount = 0;
+  let checkDate = new Date(currentDate);
+  
+  while (true) {
+    const key = `${checkDate.getFullYear()}-${checkDate.getMonth()}`;
+    if (monthsSet.has(key)) {
+      consecutiveCount++;
+      // Move to previous month
+      checkDate.setMonth(checkDate.getMonth() - 1);
+    } else {
+      break;
+    }
+  }
+
+  return consecutiveCount;
+};
 const checkTierUpgrade = async (userBadge: any, badge: any) => {
   if (userBadge.isCompleted) return;
 

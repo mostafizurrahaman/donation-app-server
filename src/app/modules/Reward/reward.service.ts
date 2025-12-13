@@ -842,7 +842,7 @@ const getBusinessRewards = async (
 
   const rewardQuery = new QueryBuilder(Reward.find(filter), { page, limit })
     .sort()
-    .paginate();
+    .paginate()
 
   const result = await rewardQuery.modelQuery;
   const meta = await rewardQuery.countTotal();

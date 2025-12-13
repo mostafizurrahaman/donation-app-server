@@ -23,10 +23,10 @@ export interface IORGANIZATION extends Document {
   drivingLicenseURL: string;
 
   tfnOrAbnNumber: string;
+  acncNumber: string;
   zakatLicenseHolderNumber: string | null;
   stripeConnectAccountId?: string;
   dateOfEstablishment: Date;
   registeredCharityName: string;
   isProfileVisible?: boolean;
 }
-

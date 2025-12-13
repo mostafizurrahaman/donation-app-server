@@ -47,15 +47,33 @@ const fileSchema = z.object({
   path: z.string(),
 });
 
-const badgeTierSchema = z.object({
-  tier: z.enum(BADGE_TIER_VALUES as [string, ...string[]]),
-  name: z.string().min(1, 'Tier name is required'),
-  requiredCount: z.number().min(0, 'Required count must be non-negative'),
-  requiredAmount: z
-    .number()
-    .min(0, 'Required amount must be non-negative')
-    .optional(),
-});
+const badgeTierSchema = z
+  .object({
+    tier: z.enum(BADGE_TIER_VALUES as [string, ...string[]]),
+    name: z.string().min(1, 'Tier name is required'),
+    requiredCount: z
+      .number()
+      .min(0, 'Required count must be non-negative')
+      .optional(),
+    requiredAmount: z
+      .number()
+      .min(0, 'Required amount must be non-negative')
+      .optional(),
+  })
+  .refine(
+    (data) => {
+      if (!data.requiredCount && !data.requiredAmount) {
+        return false;
+      }
+      return true;
+    },
+    {
+      path: [
+        'requiredCount',
+        `Either required count or required amount must be provided`,
+      ],
+    }
+  );
 
 // Comprehensive create badge validation
 export const createBadgeSchema = z.object({
