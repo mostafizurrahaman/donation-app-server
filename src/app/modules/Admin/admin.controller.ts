@@ -278,15 +278,7 @@ const getBusinessesReport = asyncHandler(async (req, res) => {
   });
 });
 
-const updateBusinessStatus = asyncHandler(async (req, res) => {
 
-  const result = await AdminService.updateBusinessStatusInDb(req.params.id, req.body.status );
-    sendResponse(res, {
-      statusCode: httpStatus.OK,
-      message: 'Business status updated successfully!',
-      data: result,
-    });
-});
 
 const updateAdminProfile = asyncHandler(async (req, res) => {
 
@@ -315,6 +307,5 @@ export const AdminController = {
     getOrganizationsReport,
     getCausesReport,
     getBusinessesReport,
-    updateBusinessStatus,
     updateAdminProfile
 };
