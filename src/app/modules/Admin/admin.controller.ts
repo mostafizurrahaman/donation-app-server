@@ -98,6 +98,30 @@ const getUsersReport = asyncHandler(async (req, res) => {
   sendResponse(res, {
     statusCode: httpStatus.OK,
     message: 'Users report fetched successfully!',
+    data: result.users,
+    meta: { 
+      limit: result.meta.limit,
+      page: result.meta.page,
+      total: result.meta.total,
+      totalPage: result.meta.totalPages,
+    }
+  });
+});
+
+const changeUserStatus = asyncHandler(async (req, res) => {
+  const result = await AdminService.changeUserStatusInDb(req.params.id, req.body.status);
+  sendResponse(res, { 
+    statusCode: httpStatus.OK,
+    message: 'User status changed successfully!',
+    data: result,
+  });
+});
+
+const deleteUser = asyncHandler(async (req, res) => {
+  const result =await AdminService.deleteUserFromDb(req.params.id);
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'User deleted successfully!',
     data: result,
   });
 });
@@ -119,7 +143,13 @@ const getPendingUsersReport = asyncHandler(async (req, res) => {
   sendResponse(res, {
     statusCode: httpStatus.OK,
     message: 'Pending users report fetched successfully!',
-    data: result,
+    data: result.pendingUsers,
+    meta: { 
+      limit: result.meta.limit,
+      page: result.meta.page,
+      total: result.meta.total,
+      totalPage: result.meta.totalPages,
+    },
   });
 });
 
@@ -158,7 +188,7 @@ const getClauseWisePercentagesReport = asyncHandler(async (req, res) => {
   sendResponse(res, {
     statusCode: httpStatus.OK,
     message: 'Clause wise percentages report fetched successfully!',
-    data: result,
+    data: result.clauseWisePercentages,
   });
 });
 
@@ -183,10 +213,10 @@ const getOrganizationsReport = asyncHandler(async (req, res) => {
     message: 'Organizations report fetched successfully!',
     data: result.organizations,
     meta: {
-      limit: result.pagination.limit,
-      page: result.pagination.page,
-      total: result.pagination.total,
-      totalPage: result.pagination.totalPages,
+      limit: result.meta.limit,
+      page: result.meta.page,
+      total: result.meta.total,
+      totalPage: result.meta.totalPages,
     },
   });
 });
@@ -211,10 +241,10 @@ const getCausesReport = asyncHandler(async (req, res) => {
     message: 'Causes report fetched successfully!',
     data: result.causes,
     meta: {
-      limit: result.pagination.limit,
-      page: result.pagination.page,
-      total: result.pagination.total,
-      totalPage: result.pagination.totalPages,
+      limit: result.meta.limit,
+      page: result.meta.page,
+      total: result.meta.total,
+      totalPage: result.meta.totalPages,
     },
 
   });
@@ -240,12 +270,22 @@ const getBusinessesReport = asyncHandler(async (req, res) => {
     message: 'Businesses report fetched successfully!',
     data: result.businesses,
     meta: {
-      limit: result.pagination.limit,
-      page: result.pagination.page,
-      total: result.pagination.total,
-      totalPage: result.pagination.totalPages,
+      limit: result.meta.limit,
+      page: result.meta.page,
+      total: result.meta.total,
+      totalPage: result.meta.totalPages,
     },
   });
+});
+
+const updateBusinessStatus = asyncHandler(async (req, res) => {
+
+  const result = await AdminService.updateBusinessStatusInDb(req.params.id, req.body.status );
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      message: 'Business status updated successfully!',
+      data: result,
+    });
 });
 
 const updateAdminProfile = asyncHandler(async (req, res) => {
@@ -266,6 +306,8 @@ export const AdminController = {
     getRewardsReport,
     getUsersStatesReport,
     getUsersReport,
+    changeUserStatus,
+    deleteUser,
     getPendingUsersReport,
     getUsersEngagementReport,
     getDonationsEngagementReport,
@@ -273,5 +315,6 @@ export const AdminController = {
     getOrganizationsReport,
     getCausesReport,
     getBusinessesReport,
+    updateBusinessStatus,
     updateAdminProfile
 };

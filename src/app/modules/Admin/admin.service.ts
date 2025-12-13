@@ -1,4 +1,3 @@
-import { email } from 'zod';
 import Auth from '../Auth/auth.model';
 import Donation from '../Donation/donation.model';
 import Organization from '../Organization/organization.model';
@@ -768,7 +767,7 @@ const getDonationsReportFromDb = async (params?: DonationsReportParams) => {
     totalDonors,
     totalDonorsChangeText,
     donationHistory,
-    pagination: {
+    meta: {
       total: totalRecords,
       page,
       limit,
@@ -922,7 +921,7 @@ const getSubscriptionsReportFromDb = async (
     totalCancelledSubscriptions,
     monthlyRenewalRate,
     subscriptionDonationHistory,
-    pagination: {
+    meta: {
       total: totalRecords,
       page,
       limit,
@@ -1210,7 +1209,7 @@ const getUsersReportFromDb = async (params?: UsersReportParams) => {
 
   return {
     users,
-    pagination: {
+    meta: {
       total: totalRecords,
       page,
       limit,
@@ -1229,6 +1228,33 @@ type PendingUsersReportParams = {
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
 };
+
+const changeUserStatusInDb = async (
+  userId: string,
+  status: 'verified' | 'suspended' | 'pending'
+) => {
+
+  const user = await Auth.findById(userId);
+  if (!user) {
+    throw new Error('User not found');
+  }
+
+  user.status = status;
+  await user.save();
+  return user;
+}
+
+const deleteUserFromDb = async (userId: string) => {
+  // delete the user softly
+  const user = await Auth.findById(userId);
+  if (!user) {
+    throw new Error('User not found');
+  }
+  user.isDeleted = true;
+  await user.save();
+  return user;
+}
+
 
 const getPendingUsersReportFromDb = async (
   params?: PendingUsersReportParams
@@ -1355,7 +1381,7 @@ const getPendingUsersReportFromDb = async (
 
   return {
     pendingUsers,
-    pagination: {
+    meta: {
       total: totalRecords,
       page,
       limit,
@@ -1808,7 +1834,7 @@ const getOrganizationsReportFromDb = async (params?: OrganizationsReportParams) 
 
   return {
     organizations,
-    pagination: {
+    meta: {
       total: totalRecords,
       page,
       limit,
@@ -1947,7 +1973,7 @@ const getCausesReportFromDb = async (params?: CausesReportParams) => {
 
   return {
     causes,
-    pagination: {
+    meta: {
       total: totalRecords,
       page,
       limit,
@@ -2084,7 +2110,7 @@ const getBusinessesReportFromDb = async (params?: BusinessesReportParams) => {
 
   return {
     businesses,
-    pagination: {
+    meta: {
       total: totalRecords,
       page,
       limit,
@@ -2236,6 +2262,8 @@ export const AdminService = {
   getRewardsReportFromDb,
   getUsersStatesReportFromDb,
   getUsersReportFromDb,
+  changeUserStatusInDb,
+  deleteUserFromDb,
   getPendingUsersReportFromDb,
   getUsersEngagementReportFromDb,
   getDonationsEngagementReportFromDb,
