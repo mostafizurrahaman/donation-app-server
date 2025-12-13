@@ -41,7 +41,8 @@ const getBadges = asyncHandler(async (req: Request, res: Response) => {
   sendResponse(res, {
     statusCode: httpStatus.OK,
     message: 'Badges retrieved',
-    data: result,
+    data: result.result,
+    meta: result.meta,
   });
 });
 

@@ -2,7 +2,11 @@ import express from 'express';
 import { ROLE } from '../Auth/auth.constant';
 import { auth, validateRequest } from '../../middlewares';
 import { badgeController } from './badge.controller';
-import { createBadgeSchema, updateBadgeSchema } from './badge.validation';
+import {
+  createBadgeSchema,
+  getBadgesQuerySchema,
+  updateBadgeSchema,
+} from './badge.validation';
 import { upload } from '../../lib';
 import { validateRequestFromFormData } from '../../middlewares/validateRequest';
 
@@ -17,7 +21,12 @@ router.get(
 
 router.get('/:id', auth(ROLE.CLIENT, ROLE.ADMIN), badgeController.getBadgeById);
 
-router.get('/', auth(ROLE.CLIENT, ROLE.ADMIN), badgeController.getBadges);
+router.get(
+  '/',
+  auth(ROLE.CLIENT, ROLE.ADMIN),
+  validateRequest(getBadgesQuerySchema),
+  badgeController.getBadges
+);
 
 // Admin Routes
 router.post(

@@ -51,27 +51,20 @@ const badgeTierSchema = z
   .object({
     tier: z.enum(BADGE_TIER_VALUES as [string, ...string[]]),
     name: z.string().min(1, 'Tier name is required'),
-    requiredCount: z
-      .number()
-      .min(0, 'Required count must be non-negative')
-      .optional(),
-    requiredAmount: z
-      .number()
-      .min(0, 'Required amount must be non-negative')
-      .optional(),
+    requiredCount: z.number().min(0).default(0).optional(),
+    requiredAmount: z.number().min(0).default(0).optional(),
   })
   .refine(
     (data) => {
-      if (!data.requiredCount && !data.requiredAmount) {
-        return false;
-      }
-      return true;
+      const count = data.requiredCount || 0;
+      const amount = data.requiredAmount || 0;
+
+      return count > 0 || amount > 0;
     },
     {
-      path: [
-        'requiredCount',
-        `Either required count or required amount must be provided`,
-      ],
+      path: ['requiredCount'], // Error will appear on this field
+      message:
+        'At least one requirement (Count or Amount) must be greater than 0',
     }
   );
 
@@ -232,83 +225,43 @@ export const createBadgeSchema = z.object({
 // Update badge validation
 export const updateBadgeSchema = z.object({
   params: z.object({
-    id: z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid badge ID format'),
+    id: z.string('Invalid badge ID format'),
   }),
   file: fileSchema.optional(), // File is optional for updates
-  body: z
-    .object({
-      name: z.string().min(1).max(100).optional(),
-      description: z.string().min(1).max(500).optional(),
-      isActive: z.preprocess(
-        (val) => val === 'true' || val === true,
-        z.boolean().optional()
-      ),
-      featured: z.preprocess(
-        (val) => val === 'true' || val === true,
-        z.boolean().optional()
-      ),
-      tiers: z.preprocess(
-        parseJSON,
-        z.array(badgeTierSchema).min(1).max(4).optional()
-      ),
-      specificCategories: z.preprocess(
-        parseJSON,
-        z
-          .array(z.enum(VALID_CATEGORIES as unknown as [string, ...string[]]))
-          .optional()
-      ),
-      unlockType: z
-        .enum(BADGE_UNLOCK_TYPE_VALUES as [string, ...string[]])
-        .optional(),
-      conditionLogic: z
-        .enum(CONDITION_LOGIC_VALUES as [string, ...string[]])
-        .optional(),
-      seasonalPeriod: z
-        .enum(SEASONAL_PERIOD_VALUES as [string, ...string[]])
-        .optional(),
-      timeRange: z.preprocess(
-        parseJSON,
-        z
-          .object({
-            start: z.number().min(0).max(23),
-            end: z.number().min(0).max(23),
-          })
-          .optional()
-      ),
-      minDonationAmount: z.preprocess(
-        (val) => (val ? Number(val) : undefined),
-        z.number().positive().optional()
-      ),
-      maxDonationAmount: z.preprocess(
-        (val) => (val ? Number(val) : undefined),
-        z.number().positive().optional()
-      ),
-    })
-    .superRefine((data, ctx) => {
-      // Similar cross-field validations as create, but all optional
-      if (
-        data.minDonationAmount &&
-        data.maxDonationAmount &&
-        data.minDonationAmount > data.maxDonationAmount
-      ) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'Minimum donation amount cannot be greater than maximum',
-          path: ['minDonationAmount'],
-        });
-      }
-    }),
+  body: z.object({
+    name: z.string().min(1).max(100).optional(),
+    description: z.string().min(1).max(500).optional(),
+    isActive: z.preprocess(
+      (val) => val === 'true' || val === true,
+      z.boolean().optional()
+    ),
+    featured: z.preprocess(
+      (val) => val === 'true' || val === true,
+      z.boolean().optional()
+    ),
+    priority: z.preprocess(
+      (val) => (val ? Number(val) : undefined),
+      z.number().min(0).max(1000).optional()
+    ),
+  }),
 });
 
 // Query validation for getting badges
 export const getBadgesQuerySchema = z.object({
   query: z.object({
-    isActive: z.enum(['true', 'false']).optional(),
-    featured: z.enum(['true', 'false']).optional(),
+    isActive: z
+      .string()
+      .transform((val) => Boolean(val))
+      .optional(),
+    featured: z
+      .string()
+      .transform((val) => Boolean(val))
+      .optional(),
     unlockType: z
       .enum(BADGE_UNLOCK_TYPE_VALUES as [string, ...string[]])
       .optional(),
     page: z.string().regex(/^\d+$/).transform(Number).optional(),
     limit: z.string().regex(/^\d+$/).transform(Number).optional(),
+    serachTerm: z.string().optional(),
   }),
 });

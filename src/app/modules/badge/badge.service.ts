@@ -27,6 +27,7 @@ import {
   IBadgeTierConfig,
 } from './badge.interface';
 import { getFileUrl } from '../../lib/upload';
+import QueryBuilder from '../../builders/QueryBuilder';
 
 const createBadge = async (
   payload: ICreateBadgePayload,
@@ -79,29 +80,39 @@ const updateBadge = async (
     }
   }
 
-  // Handle Single Tier Logic Update
-  if (payload.tiers) {
-    const isSingleTier = payload.tiers.length === 1;
-    // @ts-ignore
-    payload.isSingleTier = isSingleTier;
-  }
-
   return await Badge.findByIdAndUpdate(id, payload, { new: true });
 };
 const getBadgeById = async (id: string) => {
-  return await Badge.findById(id);
+  const badge = await Badge.findById(id);
+  if (!badge) {
+    throw new AppError(httpStatus.NOT_FOUND, "Badge doesn't exist");
+  }
+
+  return badge;
 };
 
 const getAllBadges = async (query: Record<string, unknown>) => {
-  const { isActive } = query;
-  const filter: any = {};
-  if (isActive !== undefined) filter.isActive = isActive === 'true';
+  const badgeQuery = new QueryBuilder(Badge.find(), query)
+    .search(['name', 'description'])
+    .filter()
+    .sort()
+    .paginate()
+    .fields();
 
-  return await Badge.find(filter).sort({ priority: -1, createdAt: -1 });
+  const result = await badgeQuery.modelQuery;
+  const meta = await badgeQuery.countTotal();
+
+  return {
+    meta,
+    result,
+  };
 };
 
 const deleteBadge = async (id: string) => {
-  await Badge.findByIdAndUpdate(id, { isActive: false }); // Soft delete
+  const badge = await Badge.findByIdAndUpdate(id, { isActive: false }); // Soft delete
+  if (!badge) {
+    throw new AppError(httpStatus.NOT_FOUND, "Badge doesn't exist");
+  }
 };
 
 // --- USER PROGRESS ---
@@ -177,10 +188,12 @@ const checkAndUpdateBadgesForDonation = async (
 ) => {
   // 1. Fetch Donation & User (Lean for performance)
   const donation = await Donation.findById(donationId).populate('cause').lean();
+  console.log(`BADGE QUERY`, donation);
   if (!donation) return;
 
-  const client = await Client.findOne({ auth: userId }).select('_id').lean();
+  const client = await Client.findById(userId).select('_id').lean();
   if (!client) return;
+  console.log(`BADGE QUERY`, client);
 
   const donationDate = donation.donationDate || new Date();
 
@@ -215,8 +228,10 @@ const checkAndUpdateBadgesForDonation = async (
     ],
   };
 
-  const relevantBadges = await Badge.find(query).lean();
+  console.log(`BADGE QUERY`, query);
 
+  const relevantBadges = await Badge.find(query).lean();
+  console.log(`BADGE QUERY`, relevantBadges);
   // 3. Process Loops in Parallel
   const updatePromises = relevantBadges.map(async (badge) => {
     let matchesCondition = false;
@@ -313,6 +328,7 @@ const checkAndUpdateBadgesForDonation = async (
       return updateUserBadgeProgress(client._id, badge, donation, donationDate);
     }
   });
+  console.log(`BADGE QUERY`, updatePromises);
 
   await Promise.all(updatePromises);
 };
@@ -341,7 +357,7 @@ const updateUserBadgeProgress = async (
       ],
       isCompleted: false,
       consecutiveMonths: 0,
-      progressCount: 0,
+      // REMOVED: progressCount: 0 to allow $inc to work without conflict
     },
   };
 
@@ -386,18 +402,19 @@ const updateUserBadgeProgress = async (
     const currentDate = new Date(date);
     const currentMonth = currentDate.getMonth();
     const currentYear = currentDate.getFullYear();
-    
+
     // Check if we need to fetch donation history
     let needsHistoryCheck = true;
-    
+
     if (userBadge.lastDonationDate) {
       const lastDate = new Date(userBadge.lastDonationDate);
       const lastMonth = lastDate.getMonth();
       const lastYear = lastDate.getFullYear();
-      
+
       // Calculate month difference
-      const monthsDiff = (currentYear - lastYear) * 12 + (currentMonth - lastMonth);
-      
+      const monthsDiff =
+        (currentYear - lastYear) * 12 + (currentMonth - lastMonth);
+
       if (monthsDiff === 0) {
         // Same month - no change to streak
         needsHistoryCheck = false;
@@ -412,10 +429,13 @@ const updateUserBadgeProgress = async (
         needsHistoryCheck = true;
       }
     }
-    
+
     // If needed, check donation history to calculate the streak
     if (needsHistoryCheck) {
-      const monthsWithDonations = await calculateConsecutiveMonths(userId, currentDate);
+      const monthsWithDonations = await calculateConsecutiveMonths(
+        userId,
+        currentDate
+      );
       userBadge.consecutiveMonths = monthsWithDonations;
       userBadge.progressCount = monthsWithDonations;
       shouldSave = true;
@@ -430,7 +450,7 @@ const updateUserBadgeProgress = async (
 
 // Helper function to calculate consecutive months
 const calculateConsecutiveMonths = async (
-  userId: Types.ObjectId, 
+  userId: Types.ObjectId,
   currentDate: Date
 ): Promise<number> => {
   // Get the client
@@ -438,19 +458,19 @@ const calculateConsecutiveMonths = async (
   if (!client) return 1;
 
   // Find all donations for this user, sorted by date descending
-  const donations = await Donation.find({ 
+  const donations = await Donation.find({
     client: client._id,
-    status: 'completed' 
+    status: 'completed',
   })
-  .sort({ donationDate: -1 })
-  .select('donationDate')
-  .lean();
+    .sort({ donationDate: -1 })
+    .select('donationDate')
+    .lean();
 
   if (donations.length === 0) return 1;
 
   // Group donations by month/year
   const monthsSet = new Set<string>();
-  donations.forEach(donation => {
+  donations.forEach((donation) => {
     const date = new Date(donation.donationDate || donation.createdAt);
     const key = `${date.getFullYear()}-${date.getMonth()}`;
     monthsSet.add(key);
@@ -459,7 +479,7 @@ const calculateConsecutiveMonths = async (
   // Count consecutive months from current month backwards
   let consecutiveCount = 0;
   let checkDate = new Date(currentDate);
-  
+
   while (true) {
     const key = `${checkDate.getFullYear()}-${checkDate.getMonth()}`;
     if (monthsSet.has(key)) {
@@ -473,12 +493,14 @@ const calculateConsecutiveMonths = async (
 
   return consecutiveCount;
 };
+
+
 const checkTierUpgrade = async (userBadge: any, badge: any) => {
   if (userBadge.isCompleted) return;
 
   const currentTier = userBadge.currentTier;
 
-  // Find next tier in progression
+  // Determine next tier
   let nextTierName = '';
   const idx = TIER_ORDER_PROGRESSION.indexOf(currentTier);
   if (idx !== -1 && idx < TIER_ORDER_PROGRESSION.length - 1) {
@@ -492,23 +514,42 @@ const checkTierUpgrade = async (userBadge: any, badge: any) => {
   const targetTierConfig = badge.tiers.find(
     (t: any) => t.tier === nextTierName
   );
+  
   if (!targetTierConfig) return;
 
-  // Check Logic (AND vs OR)
-  let passed = false;
+  // --- LOGIC FIX STARTS HERE ---
+
   const logic = badge.conditionLogic || 'or';
 
-  const countMet = userBadge.progressCount >= targetTierConfig.requiredCount;
-  const amountMet = targetTierConfig.requiredAmount
-    ? userBadge.progressAmount >= targetTierConfig.requiredAmount
-    : false;
+  // 1. Determine which requirements are actually active (non-zero)
+  const countReq = targetTierConfig.requiredCount || 0;
+  const amountReq = targetTierConfig.requiredAmount || 0;
+
+  const hasCountRequirement = countReq > 0;
+  const hasAmountRequirement = amountReq > 0;
+
+  // 2. Check individual progress
+  const countMet = hasCountRequirement && userBadge.progressCount >= countReq;
+  const amountMet =
+    hasAmountRequirement && userBadge.progressAmount >= amountReq;
+
+  let passed = false;
 
   if (logic === 'or') {
-    passed = countMet || (targetTierConfig.requiredAmount > 0 && amountMet);
+    // Pass if (Count is active AND met) OR (Amount is active AND met)
+    // If only one is active, that one decides.
+    // If both active, either decides.
+    passed = countMet || amountMet;
   } else {
-    passed =
-      countMet && (targetTierConfig.requiredAmount > 0 ? amountMet : true);
+    // AND Logic
+    // Pass if (Count is met OR not required) AND (Amount is met OR not required)
+    const isCountSatisfied = !hasCountRequirement || countMet;
+    const isAmountSatisfied = !hasAmountRequirement || amountMet;
+
+    passed = isCountSatisfied && isAmountSatisfied;
   }
+
+  // --- LOGIC FIX ENDS HERE ---
 
   if (passed) {
     // UPGRADE!
@@ -524,7 +565,7 @@ const checkTierUpgrade = async (userBadge: any, badge: any) => {
 
     await userBadge.save();
 
-    // Recursive check
+    // Recursive check for multi-tier jumps
     await checkTierUpgrade(userBadge, badge);
   }
 };

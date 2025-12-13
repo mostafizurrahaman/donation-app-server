@@ -374,11 +374,13 @@ const handlePaymentIntentSucceeded = async (
     }
 
     try {
+      console.log(`Badge Checking Before............`);
       await badgeService.checkAndUpdateBadgesForDonation(
-        donation.donor._id,
-        donation._id?.toString() as string,
+        donation.donor._id?.toString(),
+        donation._id?.toString() as string
       );
     } catch (err) {
+      console.log(`Badge Checking After Error............`);
       console.error(`Badge checking failed:`, err);
     }
 
@@ -523,7 +525,10 @@ const handleChargeRefunded = async (charge: Stripe.Charge) => {
           donation.organization.toString();
 
         // ✅ FIX: Pass explicit number
-        await BalanceService.deductRefund(orgId, donation?._id?.toString() as string);
+        await BalanceService.deductRefund(
+          orgId,
+          donation?._id?.toString() as string
+        );
         console.log(`✅ Refund deducted from ledger for Org: ${orgId}`);
       } catch (err: any) {
         console.error(`❌ Failed to update ledger for refund:`, err.message);
