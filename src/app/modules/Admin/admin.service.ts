@@ -1736,6 +1736,7 @@ const getOrganizationsReportFromDb = async (params?: OrganizationsReportParams) 
     // Transform auth data
     {
       $addFields: {
+        authId: { $arrayElemAt: ['$authData._id', 0] },
         authEmail: { $arrayElemAt: ['$authData.email', 0] },
         authStatus: { $arrayElemAt: ['$authData.status', 0] },
         authIsActive: { $arrayElemAt: ['$authData.isActive', 0] },
@@ -1822,6 +1823,7 @@ const getOrganizationsReportFromDb = async (params?: OrganizationsReportParams) 
       createdAt: 1,
       updatedAt: 1,
       auth: {
+        id: '$authId',
         email: '$authEmail',
         status: '$authStatus',
         isActive: '$authIsActive',
@@ -2038,6 +2040,7 @@ const getBusinessesReportFromDb = async (params?: BusinessesReportParams) => {
     },
     {
       $addFields: {
+        authId: { $arrayElemAt: ['$authDetails._id', 0] },
         authEmail: { $arrayElemAt: ['$authDetails.email', 0] },
         authStatus: { $arrayElemAt: ['$authDetails.status', 0] },
         authIsActive: { $arrayElemAt: ['$authDetails.isActive', 0] },
@@ -2099,6 +2102,7 @@ const getBusinessesReportFromDb = async (params?: BusinessesReportParams) => {
       createdAt: 1,
       updatedAt: 1,
       auth: {
+        id: '$authId',
         email: '$authEmail',
         status: '$authStatus',
         isActive: '$authIsActive',
