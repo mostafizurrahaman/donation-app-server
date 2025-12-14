@@ -56,13 +56,13 @@ const badgeTierSchema = z
   })
   .refine(
     (data) => {
+      // Ensure at least one value is strictly greater than 0
       const count = data.requiredCount || 0;
       const amount = data.requiredAmount || 0;
-
       return count > 0 || amount > 0;
     },
     {
-      path: ['requiredCount'], // Error will appear on this field
+      path: ['requiredCount'],
       message:
         'At least one requirement (Count or Amount) must be greater than 0',
     }
@@ -251,17 +251,17 @@ export const getBadgesQuerySchema = z.object({
   query: z.object({
     isActive: z
       .string()
-      .transform((val) => Boolean(val))
+      .transform((val) => val === 'true') // Allow query params to be strings
       .optional(),
     featured: z
       .string()
-      .transform((val) => Boolean(val))
+      .transform((val) => val === 'true')
       .optional(),
     unlockType: z
       .enum(BADGE_UNLOCK_TYPE_VALUES as [string, ...string[]])
       .optional(),
     page: z.string().regex(/^\d+$/).transform(Number).optional(),
     limit: z.string().regex(/^\d+$/).transform(Number).optional(),
-    serachTerm: z.string().optional(),
+    searchTerm: z.string().optional(),
   }),
 });

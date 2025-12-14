@@ -66,8 +66,22 @@ const getAllBadgesWithProgress = asyncHandler(
     sendResponse(res, {
       statusCode: httpStatus.OK,
       message: 'User badges progress retrieved',
-      meta: result.meta, 
-      data: result.result, 
+      meta: result.meta,
+      data: result.result,
+    });
+  }
+);
+
+const getBadgeHistory = asyncHandler(
+  async (req: ExtendedRequest, res: Response) => {
+    const userId = req.user._id.toString();
+    const { id } = req.params;
+    const result = await badgeService.getBadgeHistory(userId, id);
+
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      message: 'Badge history retrieved',
+      data: result,
     });
   }
 );
@@ -79,4 +93,5 @@ export const badgeController = {
   getBadges,
   deleteBadge,
   getAllBadgesWithProgress,
+  getBadgeHistory,
 };

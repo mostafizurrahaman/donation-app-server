@@ -1,5 +1,10 @@
 import { Schema, model } from 'mongoose';
-import { IBadge, IUserBadge, IBadgeTierConfig } from './badge.interface';
+import {
+  IBadge,
+  IUserBadge,
+  IBadgeTierConfig,
+  IUserBadgeHistory,
+} from './badge.interface';
 import {
   BADGE_TIER_VALUES,
   BADGE_UNLOCK_TYPE_VALUES,
@@ -8,7 +13,7 @@ import {
 } from './badge.constant';
 
 // ==================================================
-// 1. Badge Definition Schema
+// 1. Badge Definition Schema (Admin Config)
 // ==================================================
 
 const BadgeTierSchema = new Schema<IBadgeTierConfig>(
@@ -69,7 +74,7 @@ const BadgeSchema = new Schema<IBadge>(
 export const Badge = model<IBadge>('Badge', BadgeSchema);
 
 // ==================================================
-// 2. User Progress Schema
+// 2. User Progress Schema (Current State)
 // ==================================================
 
 const UserBadgeSchema = new Schema<IUserBadge>(
@@ -90,11 +95,12 @@ const UserBadgeSchema = new Schema<IUserBadge>(
     currentTier: { type: String, enum: BADGE_TIER_VALUES, default: 'colour' },
     isCompleted: { type: Boolean, default: false },
 
+    // Atomic Counters (Aggregated)
     progressCount: { type: Number, default: 0 },
     progressAmount: { type: Number, default: 0 },
 
+    // Complex Logic Tracking
     uniqueCategoryNames: [{ type: String }],
-
     consecutiveMonths: { type: Number, default: 0 },
     lastDonationDate: { type: Date },
 
@@ -111,6 +117,54 @@ const UserBadgeSchema = new Schema<IUserBadge>(
   }
 );
 
+// Ensure a user only has one progress document per badge
 UserBadgeSchema.index({ user: 1, badge: 1 }, { unique: true });
 
 export const UserBadge = model<IUserBadge>('UserBadge', UserBadgeSchema);
+
+// ==================================================
+// 3. User Badge History Schema (Audit Trail)
+// ==================================================
+
+const UserBadgeHistorySchema = new Schema<IUserBadgeHistory>(
+  {
+    user: {
+      type: Schema.Types.ObjectId,
+      ref: 'Client',
+      required: true,
+      index: true,
+    },
+    badge: {
+      type: Schema.Types.ObjectId,
+      ref: 'Badge',
+      required: true,
+      index: true,
+    },
+    userBadge: {
+      type: Schema.Types.ObjectId,
+      ref: 'UserBadge',
+      required: true,
+    },
+    donation: {
+      type: Schema.Types.ObjectId,
+      ref: 'Donation',
+      required: true,
+    },
+
+    // Snapshot data for UI optimization (avoids deep population)
+    contributionAmount: { type: Number, default: 0 },
+    tierAchieved: { type: String }, // Optional: Only set if this donation triggered a new tier
+  },
+  {
+    timestamps: true, // Automatically adds createdAt and updatedAt
+    versionKey: false,
+  }
+);
+
+// Compound index for fast history lookup per badge per user
+UserBadgeHistorySchema.index({ user: 1, badge: 1, createdAt: -1 });
+
+export const UserBadgeHistory = model<IUserBadgeHistory>(
+  'UserBadgeHistory',
+  UserBadgeHistorySchema
+);

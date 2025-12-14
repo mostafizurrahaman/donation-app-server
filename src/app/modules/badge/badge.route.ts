@@ -19,6 +19,12 @@ router.get(
   badgeController.getAllBadgesWithProgress
 );
 
+router.get(
+  '/:id/history',
+  auth(ROLE.CLIENT, ROLE.ADMIN),
+  badgeController.getBadgeHistory
+);
+
 router.get('/:id', auth(ROLE.CLIENT, ROLE.ADMIN), badgeController.getBadgeById);
 
 router.get(

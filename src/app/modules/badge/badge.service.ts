@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Types } from 'mongoose';
-import { Badge, UserBadge } from './badge.model';
+import { Badge, UserBadge, UserBadgeHistory } from './badge.model';
 import { Donation } from '../Donation/donation.model';
 import Client from '../Client/client.model';
 import {
@@ -23,11 +23,11 @@ import {
 import {
   ICreateBadgePayload,
   IUpdateBadgePayload,
-  IUserBadgeProgress,
   IBadgeTierConfig,
 } from './badge.interface';
 import { getFileUrl } from '../../lib/upload';
 import QueryBuilder from '../../builders/QueryBuilder';
+import { getDateHeader, getTimeAgo } from '../../lib/filter-helper';
 
 const createBadge = async (
   payload: ICreateBadgePayload,
@@ -124,8 +124,7 @@ const getAllBadgesWithProgress = async (
   const client = await Client.findOne({ auth: userId });
   if (!client) throw new AppError(httpStatus.NOT_FOUND, 'Client not found');
 
-  // 1. Initialize QueryBuilder for Badges
-  // We filter for active badges by default, but allow QueryBuilder to handle the rest
+  // 1. Optimized Fetching using QueryBuilder for Badges
   const badgeQuery = new QueryBuilder(Badge.find({ isActive: true }), query)
     .search(['name', 'description'])
     .filter()
@@ -136,8 +135,7 @@ const getAllBadgesWithProgress = async (
   const badges = await badgeQuery.modelQuery.lean();
   const meta = await badgeQuery.countTotal();
 
-  // 2. Fetch UserBadges ONLY for the badges retrieved in this pagination
-  // This is much more efficient than fetching all user badges
+  // 2. Fetch UserBadges ONLY for the badges in the current result set
   const badgeIds = badges.map((b: any) => b._id);
   const userBadges = await UserBadge.find({
     user: client._id,
@@ -148,11 +146,10 @@ const getAllBadgesWithProgress = async (
     userBadges.map((ub: any) => [ub.badge.toString(), ub])
   );
 
-  // 3. Map and Calculate Progress
+  // 3. Map Results
   const result = badges.map((badge: any) => {
     const userBadge = userBadgeMap.get(badge._id.toString()) as any;
 
-    // Determine current state
     const currentTierName =
       userBadge?.currentTier ||
       (badge.isSingleTier ? BADGE_TIER.ONE_TIER : BADGE_TIER.COLOUR);
@@ -168,20 +165,19 @@ const getAllBadgesWithProgress = async (
       }
     }
 
-    // Calculate Percentage
+    // Calculate Percentage based on active requirement (ignore 0)
     let progressPercentage = 0;
     const count = userBadge?.progressCount || 0;
-    // Calculate based on which metric is actually required (Amount vs Count)
-    // This prevents division by zero if requiredCount is 0 for an amount-based badge
+    const amount = userBadge?.progressAmount || 0;
+
+    // Determine which requirement is driving the badge (count or amount)
+    // If requirement is 0, it's ignored in percentage calculation
     const requiredTotal =
       (nextTier?.requiredCount || 0) > 0
         ? nextTier!.requiredCount
         : nextTier?.requiredAmount || 0;
 
-    const currentProgress =
-      (nextTier?.requiredCount || 0) > 0
-        ? count
-        : userBadge?.progressAmount || 0;
+    const currentProgress = (nextTier?.requiredCount || 0) > 0 ? count : amount;
 
     if (nextTier && requiredTotal > 0) {
       progressPercentage = Math.min(
@@ -198,31 +194,188 @@ const getAllBadgesWithProgress = async (
       if (nextTier.requiredCount > 0) {
         remainingForNextTier = Math.max(0, nextTier.requiredCount - count);
       } else if (nextTier.requiredAmount && nextTier.requiredAmount > 0) {
-        remainingForNextTier = Math.max(
-          0,
-          nextTier.requiredAmount - (userBadge?.progressAmount || 0)
-        );
+        remainingForNextTier = Math.max(0, nextTier.requiredAmount - amount);
       }
     }
 
     return {
       badge,
-      userBadge,
+      userBadge, // Returning basic object, history separate
       isUnlocked,
       currentTier: currentTierName,
       nextTier,
       progressCount: count,
-      progressAmount: userBadge?.progressAmount || 0,
+      progressAmount: amount,
       progressPercentage,
       remainingForNextTier,
     };
   });
 
+  return { meta, result };
+};
+
+// --- HISTORY FETCHING (Lazy Load) ---
+
+const getBadgeHistory = async (userId: string, badgeId: string) => {
+  const client = await Client.findOne({ auth: userId });
+  if (!client) throw new AppError(httpStatus.NOT_FOUND, 'Client not found');
+
+  const badge = await Badge.findById(badgeId);
+  if (!badge) throw new AppError(httpStatus.NOT_FOUND, 'Badge not found');
+
+  // 1. Fetch User Badge Progress (for Header UI)
+  const userBadge = await UserBadge.findOne({
+    user: client._id,
+    badge: badge._id,
+  }).lean();
+
+  // Calculate Tier Logic for UI ("Only 3 more... to reach Gold")
+  let currentTier = userBadge?.currentTier || 'colour';
+  let nextTierConfig = null;
+  let remainingForNextTier = 0;
+  let nextTierNameDisplay = 'Completed';
+
+  if (badge.tiers && badge.tiers.length > 0) {
+    const tierOrder = ['colour', 'bronze', 'silver', 'gold'];
+    const currentIdx = tierOrder.indexOf(currentTier);
+
+    // Find next tier configuration
+    if (currentIdx !== -1 && currentIdx < tierOrder.length - 1) {
+      const nextTierName = tierOrder[currentIdx + 1];
+      nextTierConfig = badge.tiers.find((t: any) => t.tier === nextTierName);
+
+      if (nextTierConfig) {
+        nextTierNameDisplay = nextTierConfig.name; // e.g. "Gold"
+        // Determine if progress is count-based or amount-based
+        if (nextTierConfig.requiredCount > 0) {
+          remainingForNextTier = Math.max(
+            0,
+            nextTierConfig.requiredCount - (userBadge?.progressCount || 0)
+          );
+        } else {
+          remainingForNextTier = Math.max(
+            0,
+            (nextTierConfig.requiredAmount || 0) -
+              (userBadge?.progressAmount || 0)
+          );
+        }
+      }
+    }
+  }
+
+  // 2. Fetch History using Aggregation (Optimized for UI)
+  const rawHistory = await UserBadgeHistory.aggregate([
+    {
+      $match: {
+        user: client._id,
+        badge: badge._id,
+      },
+    },
+    {
+      $sort: { createdAt: -1 }, // Latest first
+    },
+    {
+      $limit: 50, // Keep response size manageable
+    },
+    // Join Donation details
+    {
+      $lookup: {
+        from: 'donations',
+        localField: 'donation',
+        foreignField: '_id',
+        as: 'donationDetails',
+      },
+    },
+    { $unwind: '$donationDetails' },
+    // Join Organization for Logo/Name
+    {
+      $lookup: {
+        from: 'organizations',
+        localField: 'donationDetails.organization',
+        foreignField: '_id',
+        as: 'orgDetails',
+      },
+    },
+    { $unwind: '$orgDetails' },
+    {
+      $project: {
+        _id: 0,
+        amount: '$contributionAmount',
+        currency: '$donationDetails.currency',
+        createdAt: 1, // Needed for grouping
+        orgName: '$orgDetails.name',
+        orgLogo: '$orgDetails.logoImage',
+        tierUnlocked: '$tierAchieved', // Shows badge icon if this donation unlocked a tier
+      },
+    },
+  ]);
+
+  // 3. Post-Process: Group by Date Headers using helpers
+  const groupedHistory: Record<string, any[]> = {};
+
+  rawHistory.forEach((item) => {
+    const date = new Date(item.createdAt);
+
+    const dateHeader = getDateHeader(date);
+
+    const timeAgo = getTimeAgo(date);
+
+    const uiItem = {
+      orgName: item.orgName,
+      orgLogo: item.orgLogo,
+      timeAgo: timeAgo,
+      amount: `+${item.currency === 'USD' ? '$' : ''}${item.amount}`,
+      tierUnlocked: item.tierUnlocked,
+    };
+
+    if (!groupedHistory[dateHeader]) {
+      groupedHistory[dateHeader] = [];
+    }
+    groupedHistory[dateHeader].push(uiItem);
+  });
+
+  // Convert map to array for easy frontend iteration
+  const historyList = Object.keys(groupedHistory).map((key) => ({
+    title: key,
+    data: groupedHistory[key],
+  }));
+
+  // 4. Calculate Percentage
+  let percentage = 0;
+  if (userBadge?.isCompleted) {
+    percentage = 100;
+  } else if (nextTierConfig) {
+    const totalReq =
+      nextTierConfig.requiredCount > 0
+        ? nextTierConfig.requiredCount
+        : nextTierConfig.requiredAmount;
+    const currentProg =
+      nextTierConfig.requiredCount > 0
+        ? userBadge?.progressCount || 0
+        : userBadge?.progressAmount || 0;
+
+    percentage = Math.min(100, Math.round((currentProg / totalReq) * 100));
+  }
+
+  // 5. Final Response
   return {
-    meta,
-    result,
+    badge: {
+      name: badge.name,
+      icon: badge.icon,
+      description: badge.description,
+    },
+    progress: {
+      currentTier: currentTier,
+      nextTier: nextTierNameDisplay,
+      remaining: remainingForNextTier,
+      // Helps UI decide whether to say "3 more donations" or "$50 more dollars"
+      unit: (nextTierConfig?.requiredCount || 0) > 0 ? 'donations' : 'amount',
+      percentage,
+    },
+    recentDonations: historyList,
   };
 };
+
 // --- CORE ENGINE: CHECK & UPDATE (OPTIMIZED) ---
 
 const checkAndUpdateBadgesForDonation = async (
@@ -428,7 +581,16 @@ const updateUserBadgeProgress = async (
     }
   );
 
-  // 4. Special Handling for complex logic corrections
+  // 4. NEW: Create History Record for UI Optimization
+  await UserBadgeHistory.create({
+    user: userId,
+    badge: badge._id,
+    userBadge: userBadge._id,
+    donation: donation._id,
+    contributionAmount: donation.amount,
+  });
+
+  // 5. Special Handling for complex logic corrections
   let shouldSave = false;
 
   // Sync array length to progressCount for Unique Categories
@@ -487,7 +649,7 @@ const updateUserBadgeProgress = async (
 
   if (shouldSave) await userBadge.save();
 
-  // 5. Check Tier Upgrade
+  // 6. Check Tier Upgrade
   await checkTierUpgrade(userBadge, badge);
 };
 
@@ -536,13 +698,12 @@ const calculateConsecutiveMonths = async (
 
   return consecutiveCount;
 };
-
 const checkTierUpgrade = async (userBadge: any, badge: any) => {
   if (userBadge.isCompleted) return;
 
   const currentTier = userBadge.currentTier;
 
-  // Determine next tier
+  // Find next tier in progression
   let nextTierName = '';
   const idx = TIER_ORDER_PROGRESSION.indexOf(currentTier);
   if (idx !== -1 && idx < TIER_ORDER_PROGRESSION.length - 1) {
@@ -556,42 +717,34 @@ const checkTierUpgrade = async (userBadge: any, badge: any) => {
   const targetTierConfig = badge.tiers.find(
     (t: any) => t.tier === nextTierName
   );
-
   if (!targetTierConfig) return;
 
-  // --- LOGIC FIX STARTS HERE ---
-
+  // Check Logic (AND vs OR)
+  let passed = false;
   const logic = badge.conditionLogic || 'or';
 
-  // 1. Determine which requirements are actually active (non-zero)
+  // LOGIC FIX: Ignore requirements that are 0 (not set)
   const countReq = targetTierConfig.requiredCount || 0;
   const amountReq = targetTierConfig.requiredAmount || 0;
 
   const hasCountRequirement = countReq > 0;
   const hasAmountRequirement = amountReq > 0;
 
-  // 2. Check individual progress
+  // Check actual progress against config
   const countMet = hasCountRequirement && userBadge.progressCount >= countReq;
   const amountMet =
     hasAmountRequirement && userBadge.progressAmount >= amountReq;
 
-  let passed = false;
-
   if (logic === 'or') {
-    // Pass if (Count is active AND met) OR (Amount is active AND met)
-    // If only one is active, that one decides.
-    // If both active, either decides.
+    // If OR: At least one requirement must be Active AND Met
+    // If both active, either can unlock.
     passed = countMet || amountMet;
   } else {
-    // AND Logic
-    // Pass if (Count is met OR not required) AND (Amount is met OR not required)
+    // If AND: All Active requirements must be Met
     const isCountSatisfied = !hasCountRequirement || countMet;
     const isAmountSatisfied = !hasAmountRequirement || amountMet;
-
     passed = isCountSatisfied && isAmountSatisfied;
   }
-
-  // --- LOGIC FIX ENDS HERE ---
 
   if (passed) {
     // UPGRADE!
@@ -601,13 +754,23 @@ const checkTierUpgrade = async (userBadge: any, badge: any) => {
       unlockedAt: new Date(),
     });
 
+    // Update the history record if needed (Optional optimization)
+    // Find latest history for this badge and mark tier achieved
+    const latestHistory = await UserBadgeHistory.findOne({
+      userBadge: userBadge._id,
+    }).sort({ createdAt: -1 });
+    if (latestHistory) {
+      latestHistory.tierAchieved = nextTierName;
+      await latestHistory.save();
+    }
+
     if (nextTierName === BADGE_TIER.GOLD || badge.isSingleTier) {
       userBadge.isCompleted = true;
     }
 
     await userBadge.save();
 
-    // Recursive check for multi-tier jumps
+    // Recursive check
     await checkTierUpgrade(userBadge, badge);
   }
 };
@@ -620,4 +783,5 @@ export const badgeService = {
   deleteBadge,
   getAllBadgesWithProgress,
   checkAndUpdateBadgesForDonation,
+  getBadgeHistory,
 };

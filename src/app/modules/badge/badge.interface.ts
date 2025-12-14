@@ -26,17 +26,17 @@ export interface IBadge extends Document {
   // Targeting
   specificCategories?: string[];
 
-  // Constraints / Filters - ✅ FIXED: Now matches SEASONAL_PERIOD constant
+  // Constraints / Filters
   seasonalPeriod?: (typeof SEASONAL_PERIOD)[keyof typeof SEASONAL_PERIOD];
   timeRange?: { start: number; end: number }; // 0-23
 
   // Amount Constraints
   minDonationAmount?: number;
-  maxDonationAmount?: number; // e.g. 5 for Coffee Champ
+  maxDonationAmount?: number;
 
   // Structure
   tiers: IBadgeTierConfig[];
-  isSingleTier: boolean; // e.g. Laylat al-Qadr Giver
+  isSingleTier: boolean;
 
   isActive: boolean;
   priority: number;
@@ -51,6 +51,7 @@ export interface ITierUnlockHistory {
 }
 
 export interface IUserBadge extends Document {
+  _id: Types.ObjectId;
   user: Types.ObjectId;
   badge: Types.ObjectId;
 
@@ -70,6 +71,20 @@ export interface IUserBadge extends Document {
 
   createdAt: Date;
   updatedAt: Date;
+}
+
+// --- History / Audit Trail (Optimized) ---
+export interface IUserBadgeHistory extends Document {
+  user: Types.ObjectId;
+  badge: Types.ObjectId;
+  userBadge: Types.ObjectId;
+  donation: Types.ObjectId;
+
+  // Snapshots for UI optimization (avoids joining Donation table for basic list)
+  contributionAmount: number;
+  tierAchieved?: string;
+
+  createdAt: Date;
 }
 
 // Payloads

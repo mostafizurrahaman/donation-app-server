@@ -135,9 +135,7 @@ const uploadForParsing = multer({
  * Get the public URL path for an uploaded file
  */
 const getFileUrl = (file: Express.Multer.File): string => {
-  // Remove 'public' prefix and normalize path separators
-  const relativePath = file.path.replace(/^\.?[\/\\]?public[\/\\]?/, '');
-  return `/${relativePath.replace(/\\/g, '/')}`;
+  return `/${file.path.replace(/\\/g, '/')}`;
 };
 
 /**
