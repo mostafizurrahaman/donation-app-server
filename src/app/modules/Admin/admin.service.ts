@@ -1095,7 +1095,7 @@ const getUsersReportFromDb = async (params?: UsersReportParams) => {
   } = params || {};
 
   // Build filter for users
-  const userFilter: Record<string, unknown> = { roles: { $ne: 'ADMIN' } };
+  const userFilter: Record<string, unknown> = { roles: { $ne: 'ADMIN' }, status: { $ne: 'pending' } };
 
   if (role) {
     userFilter.roles = role.toUpperCase();
