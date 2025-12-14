@@ -36,6 +36,10 @@ import QueryBuilder from '../../builders/QueryBuilder';
 import Client from '../Client/client.model';
 import Auth from '../Auth/auth.model';
 import { ROLE } from '../Auth/auth.constant';
+import {
+  calculatePercentageChange,
+  getDateRanges,
+} from '../../lib/filter-helper';
 
 // ==========================================
 // HELPER FUNCTIONS
@@ -842,7 +846,7 @@ const getBusinessRewards = async (
 
   const rewardQuery = new QueryBuilder(Reward.find(filter), { page, limit })
     .sort()
-    .paginate()
+    .paginate();
 
   const result = await rewardQuery.modelQuery;
   const meta = await rewardQuery.countTotal();
@@ -919,42 +923,247 @@ const getUserExploreRewards = async (
  * API 4: For Super Admin - Get All Rewards
  */
 const getAdminRewards = async (query: Record<string, unknown>) => {
-  const {
-    fromDate,
-    toDate,
-    status,
-    search,
-    businessId,
-    page = 1,
-    limit = 20,
-  } = query;
-  const filter: any = {};
+  const serachableFields = ['title', 'description'];
+  const { fromDate, toDate, ...apiQuery } = query;
 
-  if (status) filter.status = status;
-  if (businessId) filter.business = new Types.ObjectId(businessId as string);
-
-  // Date Filtering (Created At range)
   if (fromDate || toDate) {
-    filter.createdAt = {};
-    if (fromDate) filter.createdAt.$gte = new Date(fromDate as string);
-    if (toDate) filter.createdAt.$lte = new Date(toDate as string);
-  }
-
-  if (search) {
-    filter.title = { $regex: search, $options: 'i' };
+    if (fromDate) {
+      apiQuery.createdAt = { $gte: new Date(fromDate as string) };
+    }
+    if (toDate) {
+      apiQuery.createdAt = { ...apiQuery.createdAt, $lte: new Date(toDate) };
+    }
   }
 
   const rewardQuery = new QueryBuilder(
-    Reward.find(filter).populate('business', 'name email'),
-    { page, limit }
+    Reward.find({}).populate('business', 'name email').select('-codes'),
+    apiQuery
   )
+    .search(serachableFields)
     .sort()
-    .paginate();
+    .paginate()
+    .filter();
 
   const result = await rewardQuery.modelQuery;
   const meta = await rewardQuery.countTotal();
 
   return { result, meta };
+};
+
+// Reward Analytics For Admin
+const getAdminRewardAnalytics = async () => {
+  const { current, previous } = getDateRanges('this_month');
+
+  const [activeRewards, rewardRedeemed] = await Promise.all([
+    await Reward.aggregate([
+      {
+        $match: {
+          isActive: true,
+          status: 'active',
+        },
+      },
+      {
+        $facet: {
+          currentMonth: [
+            {
+              $match: {
+                createdAt: {
+                  $gte: current.startDate,
+                  $lte: current.endDate,
+                },
+              },
+            },
+            {
+              $count: 'count',
+            },
+          ],
+          previousMonth: [
+            {
+              $match: {
+                createdAt: {
+                  $gte: previous.startDate,
+                  $lte: previous.endDate,
+                },
+              },
+            },
+            {
+              $count: 'count',
+            },
+          ],
+        },
+      },
+    ]),
+    await RewardRedemption.aggregate([
+      {
+        $match: {
+          status: 'redeemed',
+        },
+      },
+      {
+        $facet: {
+          currentMonth: [
+            {
+              $match: {
+                createdAt: {
+                  $gte: current.startDate,
+                  $lte: current.endDate,
+                },
+              },
+            },
+            {
+              $count: 'count',
+            },
+          ],
+          previousMonth: [
+            {
+              $match: {
+                createdAt: {
+                  $gte: previous.startDate,
+                  $lte: previous.endDate,
+                },
+              },
+            },
+            {
+              $count: 'count',
+            },
+          ],
+          topRewards: [
+            {
+              $group: {
+                _id: '$reward',
+                count: {
+                  $sum: 1,
+                },
+              },
+            },
+            {
+              $sort: {
+                count: 1,
+              },
+            },
+            {
+              $limit: 1,
+            },
+            {
+              $project: {
+                _id: 0,
+                reward: '$_id',
+              },
+            },
+            {
+              $lookup: {
+                from: 'rewards',
+                localField: 'reward',
+                foreignField: '_id',
+                as: 'rewardDetails',
+              },
+            },
+            {
+              $unwind: '$rewardDetails',
+            },
+            {
+              $project: {
+                _id: '$rewardDetails._id',
+                business: '$rewardDetails.business',
+                title: '$rewardDetails.title',
+                description: '$rewardDetails.description',
+                type: '$rewardDetails.type',
+                category: '$rewardDetails.category',
+                image: '$reweardDetails.image',
+              },
+            },
+          ],
+        },
+      },
+    ]),
+  ]);
+
+  console.log(rewardRedeemed, { depth: Infinity });
+
+  const currentMonthActiveRewards =
+    activeRewards?.[0]?.currentMonth?.[0]?.count || 0;
+
+  const previousMonthActiveRewards =
+    activeRewards?.[0]?.previousMonth?.[0]?.count || 0;
+  const {
+    isIncrease: rewardPercentageIncrease,
+    percentageChange: rewardPercentageChange,
+  } = calculatePercentageChange(
+    currentMonthActiveRewards,
+    previousMonthActiveRewards
+  );
+
+  // Redeemtion :
+  const currentMonthRedeemedRewards =
+    rewardRedeemed?.[0]?.currentMonth?.[0]?.count || 0;
+
+  const previousMonthRedeemedRewards =
+    rewardRedeemed?.[0]?.previousMonth?.[0]?.count || 0;
+
+  const {
+    isIncrease: redeemedRewardPercentageIncrease,
+    percentageChange: redeemedRewardPercentageChange,
+  } = calculatePercentageChange(
+    currentMonthRedeemedRewards,
+    previousMonthRedeemedRewards
+  );
+
+  // top rewards:
+  const topRewards = rewardRedeemed?.[0]?.topRewards?.[0];
+
+  return {
+    reward: {
+      currentMonthActiveRewards,
+      previousMonthActiveRewards,
+      rewardPercentageChange,
+      rewardPercentageIncrease,
+    },
+    // redeemtion :
+    redeem: {
+      currentMonthRedeemedRewards,
+      previousMonthRedeemedRewards,
+      redeemedRewardPercentageIncrease,
+      redeemedRewardPercentageChange,
+    },
+    topRewards,
+  };
+};
+
+// Get Single Reward Details with Redeemtion and claimed:
+const getRewardDetailsForAdmin = async (rewardId: string) => {
+  console.log({ rewardId });
+  const reward = await Reward.findById(rewardId).select(
+    'name description inStoreRedemptionMethods  onlineRedemptionMethods image isActive status'
+  );
+
+  if (!reward) {
+    throw new AppError(httpStatus.NOT_FOUND, 'Reward not found!');
+  }
+
+  const redeemtions = new QueryBuilder(
+    RewardRedemption.find({ reward: reward?._id }).populate({
+      path: 'user',
+      select: 'name image address phoneNumber auth',
+      populate: {
+        path: 'auth',
+        select: 'email status',
+      },
+    }),
+    {}
+  )
+    .sort()
+    .paginate();
+
+  const data = await redeemtions.modelQuery;
+  const meta = await redeemtions.countTotal();
+
+  return {
+    data: {
+      redeemtionList: data,
+      reward,
+    },
+    meta,
+  };
 };
 
 export const rewardService = {
@@ -974,4 +1183,6 @@ export const rewardService = {
   getUserExploreRewards,
   getAdminRewards,
   toggleRewardStatus,
+  getAdminRewardAnalytics,
+  getRewardDetailsForAdmin,
 };

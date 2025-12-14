@@ -93,8 +93,6 @@ const updateBusinessProfile = async (
     await session.commitTransaction();
     await session.endSession();
 
-    
-
     return updatedBusiness;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
@@ -676,11 +674,6 @@ const getSingleRewardAnalytics = async (userId: string, rewardId: string) => {
     ]),
   ]);
 
-  console.log({
-    redemptionsData,
-    claimsData,
-    viewsData,
-  });
 
   const viewsMap = new Map(viewsData.map((d) => [d._id, d.count]));
   const claimsMap = new Map(claimsData.map((d) => [d._id, d.count]));

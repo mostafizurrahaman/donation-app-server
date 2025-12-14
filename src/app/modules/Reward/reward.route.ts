@@ -41,6 +41,18 @@ router.get(
   validateRequest(rewardValidation.getAdminRewardsSchema),
   RewardController.getAdminRewards
 );
+// Admin: Get All Rewards
+router.get(
+  '/admin/analytics',
+  auth(ROLE.ADMIN),
+  RewardController.getAdminRewardsAnalytics
+);
+
+router.get(
+  '/admin/:rewardId/details',
+  auth(ROLE.ADMIN),
+  RewardController.getRewardDetailsForAdmin
+);
 
 // ==================================================
 // 2. DYNAMIC ROUTES (Parameters come after static)

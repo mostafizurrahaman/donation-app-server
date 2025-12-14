@@ -45,7 +45,11 @@ const getPreviousPeriodRange = (filter?: 'today' | 'week' | 'month') => {
   switch (filter) {
     case 'today': {
       // Yesterday
-      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+      startDate = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() - 1
+      );
       endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       endDate.setMilliseconds(-1); // End of yesterday
       break;
@@ -135,7 +139,8 @@ const getAdminStatesFromDb = async (params?: AdminStatesParams) => {
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
     const previousMonth = currentMonth === 0 ? 11 : currentMonth - 1;
-    const previousMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+    const previousMonthYear =
+      currentMonth === 0 ? currentYear - 1 : currentYear;
 
     currentPeriodStart = new Date(currentYear, currentMonth, 1);
     currentPeriodEnd = new Date(currentYear, currentMonth + 1, 1);
@@ -153,12 +158,19 @@ const getAdminStatesFromDb = async (params?: AdminStatesParams) => {
   const previousPeriodActiveOrgs = await Organization.countDocuments({
     createdAt: { $gte: previousPeriodStart, $lt: previousPeriodEnd },
   });
-  const orgChangePct = calcPct(previousPeriodActiveOrgs, currentPeriodActiveOrgs);
+  const orgChangePct = calcPct(
+    previousPeriodActiveOrgs,
+    currentPeriodActiveOrgs
+  );
   const orgChangeText = formatPct(orgChangePct);
 
   // donation amounts for current vs previous period
   const currentPeriodAmountAgg = await Donation.aggregate([
-    { $match: { createdAt: { $gte: currentPeriodStart, $lt: currentPeriodEnd } } },
+    {
+      $match: {
+        createdAt: { $gte: currentPeriodStart, $lt: currentPeriodEnd },
+      },
+    },
     { $group: { _id: null, totalAmount: { $sum: '$amount' } } },
   ]);
   const previousPeriodAmountAgg = await Donation.aggregate([
@@ -274,7 +286,11 @@ const getAdminStatesFromDb = async (params?: AdminStatesParams) => {
   ]);
 
   const currentByCauseAgg = await Donation.aggregate([
-    { $match: { createdAt: { $gte: currentPeriodStart, $lt: currentPeriodEnd } } },
+    {
+      $match: {
+        createdAt: { $gte: currentPeriodStart, $lt: currentPeriodEnd },
+      },
+    },
     { $group: { _id: '$cause', totalAmount: { $sum: '$amount' } } },
     {
       $lookup: {
@@ -358,7 +374,11 @@ const getAdminStatesFromDb = async (params?: AdminStatesParams) => {
   ]);
 
   const currentDonorAgg = await Donation.aggregate([
-    { $match: { createdAt: { $gte: currentPeriodStart, $lt: currentPeriodEnd } } },
+    {
+      $match: {
+        createdAt: { $gte: currentPeriodStart, $lt: currentPeriodEnd },
+      },
+    },
     { $group: { _id: '$donor', totalAmount: { $sum: '$amount' } } },
     {
       $lookup: {
@@ -546,8 +566,8 @@ const getDonationsReportFromDb = async (params?: DonationsReportParams) => {
     ? timeFilter === 'today'
       ? 'vs yesterday'
       : timeFilter === 'week'
-        ? 'vs last week'
-        : 'vs last month'
+      ? 'vs last week'
+      : 'vs last month'
     : 'vs last month';
 
   const formatPct = (pct: number | null) =>
@@ -1101,6 +1121,10 @@ const getUsersReportFromDb = async (params?: UsersReportParams) => {
     userFilter.roles = role.toUpperCase();
   }
 
+  userFilter.status = {
+    $ne: 'pending',
+  };
+
   if (status) {
     userFilter.status = status;
   }
@@ -1233,7 +1257,6 @@ const changeUserStatusInDb = async (
   userId: string,
   status: 'verified' | 'suspended' | 'pending'
 ) => {
-
   const user = await Auth.findById(userId);
   if (!user) {
     throw new Error('User not found');
@@ -1242,7 +1265,7 @@ const changeUserStatusInDb = async (
   user.status = status;
   await user.save();
   return user;
-}
+};
 
 const deleteUserFromDb = async (userId: string) => {
   // delete the user softly
@@ -1253,8 +1276,7 @@ const deleteUserFromDb = async (userId: string) => {
   user.isDeleted = true;
   await user.save();
   return user;
-}
-
+};
 
 const getPendingUsersReportFromDb = async (
   params?: PendingUsersReportParams
@@ -1395,13 +1417,15 @@ type UsersEngagementReportParams = {
   role?: 'CLIENT' | 'BUSINESS' | 'ORGANIZATION';
 };
 
-const getUsersEngagementReportFromDb = async (params?: UsersEngagementReportParams) => {
+const getUsersEngagementReportFromDb = async (
+  params?: UsersEngagementReportParams
+) => {
   const { timeFilter, role } = params || {};
 
   // Get date range based on filter
   const dateRange = getDateRange(timeFilter);
   const previousDateRange = getPreviousPeriodRange(timeFilter);
-  
+
   // Build base filter for the selected period
   const baseFilter: Record<string, unknown> = {
     status: 'verified',
@@ -1409,14 +1433,20 @@ const getUsersEngagementReportFromDb = async (params?: UsersEngagementReportPara
   };
 
   if (dateRange) {
-    baseFilter.createdAt = { $gte: dateRange.startDate, $lte: dateRange.endDate };
+    baseFilter.createdAt = {
+      $gte: dateRange.startDate,
+      $lte: dateRange.endDate,
+    };
   }
 
   // Build previous period filter
   const previousFilter: Record<string, unknown> = {
     status: 'verified',
     role: role ? role : { $ne: 'ADMIN' },
-    createdAt: { $gte: previousDateRange.startDate, $lte: previousDateRange.endDate },
+    createdAt: {
+      $gte: previousDateRange.startDate,
+      $lte: previousDateRange.endDate,
+    },
   };
 
   // Determine comparison label based on filter
@@ -1449,9 +1479,12 @@ const getUsersEngagementReportFromDb = async (params?: UsersEngagementReportPara
   const activeUsersChangePct = previousActiveUsers
     ? ((totalActiveUsers - previousActiveUsers) / previousActiveUsers) * 100
     : null;
-  const activeUsersChangeText = activeUsersChangePct !== null
-    ? `${activeUsersChangePct >= 0 ? '+' : ''}${activeUsersChangePct.toFixed(1)}% ${comparisonLabel}`
-    : null;
+  const activeUsersChangeText =
+    activeUsersChangePct !== null
+      ? `${activeUsersChangePct >= 0 ? '+' : ''}${activeUsersChangePct.toFixed(
+          1
+        )}% ${comparisonLabel}`
+      : null;
 
   // new users (current period)
   const totalNewUsers = await Auth.countDocuments(baseFilter);
@@ -1462,9 +1495,12 @@ const getUsersEngagementReportFromDb = async (params?: UsersEngagementReportPara
   const newUsersChangePct = previousNewUsers
     ? ((totalNewUsers - previousNewUsers) / previousNewUsers) * 100
     : null;
-  const newUsersChangeText = newUsersChangePct !== null
-    ? `${newUsersChangePct >= 0 ? '+' : ''}${newUsersChangePct.toFixed(1)}% ${comparisonLabel}`
-    : null;
+  const newUsersChangeText =
+    newUsersChangePct !== null
+      ? `${newUsersChangePct >= 0 ? '+' : ''}${newUsersChangePct.toFixed(
+          1
+        )}% ${comparisonLabel}`
+      : null;
 
   // total returning users (current period)
   const totalReturningUsers = await Auth.countDocuments({
@@ -1479,11 +1515,16 @@ const getUsersEngagementReportFromDb = async (params?: UsersEngagementReportPara
   });
 
   const returningUsersChangePct = previousReturningUsers
-    ? ((totalReturningUsers - previousReturningUsers) / previousReturningUsers) * 100
+    ? ((totalReturningUsers - previousReturningUsers) /
+        previousReturningUsers) *
+      100
     : null;
-  const returningUsersChangeText = returningUsersChangePct !== null
-    ? `${returningUsersChangePct >= 0 ? '+' : ''}${returningUsersChangePct.toFixed(1)}% ${comparisonLabel}`
-    : null;
+  const returningUsersChangeText =
+    returningUsersChangePct !== null
+      ? `${
+          returningUsersChangePct >= 0 ? '+' : ''
+        }${returningUsersChangePct.toFixed(1)}% ${comparisonLabel}`
+      : null;
 
   return {
     timeFilter: timeFilter || 'all',
@@ -1502,7 +1543,9 @@ type DonationsEngagementReportParams = {
   year?: number;
 };
 
-const getDonationsEngagementReportFromDb = async (params?: DonationsEngagementReportParams) => {
+const getDonationsEngagementReportFromDb = async (
+  params?: DonationsEngagementReportParams
+) => {
   const { donationType, year } = params || {};
 
   // total donations for a full calendar year (always 12 months Jan-Dec).
@@ -1543,11 +1586,16 @@ const getDonationsEngagementReportFromDb = async (params?: DonationsEngagementRe
   };
 
   // Build a map: donationType -> (month -> {totalAmount, count})
-  const typeMonthMap = new Map<string, Map<number, { totalAmount: number; count: number }>>();
+  const typeMonthMap = new Map<
+    string,
+    Map<number, { totalAmount: number; count: number }>
+  >();
   (agg as AggItem[]).forEach((d) => {
     const type = d._id.donationType ?? 'unknown';
     const month = d._id.month ?? 1; // 1-12
-    const inner = typeMonthMap.get(type) ?? new Map<number, { totalAmount: number; count: number }>();
+    const inner =
+      typeMonthMap.get(type) ??
+      new Map<number, { totalAmount: number; count: number }>();
     inner.set(month, {
       totalAmount: d.totalAmount ?? 0,
       count: d.count ?? 0,
@@ -1665,7 +1713,9 @@ type OrganizationsReportParams = {
   sortOrder?: 'asc' | 'desc';
 };
 
-const getOrganizationsReportFromDb = async (params?: OrganizationsReportParams) => {
+const getOrganizationsReportFromDb = async (
+  params?: OrganizationsReportParams
+) => {
   const {
     page = 1,
     limit = 10,
@@ -2121,7 +2171,7 @@ const getBusinessesReportFromDb = async (params?: BusinessesReportParams) => {
       totalPages: Math.ceil(totalRecords / limit),
     },
   };
-}
+};
 
 type AdminUpdate = {
   name?: string;

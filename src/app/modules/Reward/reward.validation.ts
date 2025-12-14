@@ -227,7 +227,11 @@ const getAdminRewardsSchema = z.object({
     businessId: z.string().optional(),
     fromDate: z.string().optional(), // Date string validation handled in service/querybuilder if needed
     toDate: z.string().optional(),
-    search: z.string().optional(),
+    isActive: z
+      .string()
+      .transform((val) => Boolean(val))
+      .optional(),
+    searchTerm: z.string().optional(),
     page: z.coerce.number().min(1).default(1),
     limit: z.coerce.number().min(1).max(100).default(20),
   }),

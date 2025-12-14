@@ -334,6 +334,31 @@ const getAdminRewards = asyncHandler(async (req: Request, res: Response) => {
   });
 });
 
+const getAdminRewardsAnalytics = asyncHandler(
+  async (req: Request, res: Response) => {
+    const result = await rewardService.getAdminRewardAnalytics();
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      message: 'Admin rewards analytics retrieved successfully',
+      data: result,
+    });
+  }
+);
+
+const getRewardDetailsForAdmin = asyncHandler(
+  async (req: Request, res: Response) => {
+    const rewardId = req.params.rewardId;
+
+    const result = await rewardService.getRewardDetailsForAdmin(rewardId);
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      message: 'Reward details retrieved successfully',
+      data: result.data,
+      meta: result.meta,
+    });
+  }
+);
+
 export const RewardController = {
   // CRUD
   createReward,
@@ -355,4 +380,6 @@ export const RewardController = {
   // Admin/Dev Tools
   triggerRewardMaintenance,
   toggleRewardStatus,
+  getAdminRewardsAnalytics,
+  getRewardDetailsForAdmin,
 };
