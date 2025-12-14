@@ -118,21 +118,38 @@ const deleteBadge = async (id: string) => {
 // --- USER PROGRESS ---
 
 const getAllBadgesWithProgress = async (
-  userId: string
-): Promise<IUserBadgeProgress[]> => {
+  userId: string,
+  query: Record<string, unknown>
+) => {
   const client = await Client.findOne({ auth: userId });
   if (!client) throw new AppError(httpStatus.NOT_FOUND, 'Client not found');
 
-  const badges = await Badge.find({ isActive: true })
-    .sort({ priority: -1 })
-    .lean();
-  const userBadges = await UserBadge.find({ user: client._id }).lean();
+  // 1. Initialize QueryBuilder for Badges
+  // We filter for active badges by default, but allow QueryBuilder to handle the rest
+  const badgeQuery = new QueryBuilder(Badge.find({ isActive: true }), query)
+    .search(['name', 'description'])
+    .filter()
+    .sort()
+    .paginate()
+    .fields();
+
+  const badges = await badgeQuery.modelQuery.lean();
+  const meta = await badgeQuery.countTotal();
+
+  // 2. Fetch UserBadges ONLY for the badges retrieved in this pagination
+  // This is much more efficient than fetching all user badges
+  const badgeIds = badges.map((b: any) => b._id);
+  const userBadges = await UserBadge.find({
+    user: client._id,
+    badge: { $in: badgeIds },
+  }).lean();
 
   const userBadgeMap = new Map(
     userBadges.map((ub: any) => [ub.badge.toString(), ub])
   );
 
-  return badges.map((badge: any) => {
+  // 3. Map and Calculate Progress
+  const result = badges.map((badge: any) => {
     const userBadge = userBadgeMap.get(badge._id.toString()) as any;
 
     // Determine current state
@@ -154,14 +171,38 @@ const getAllBadgesWithProgress = async (
     // Calculate Percentage
     let progressPercentage = 0;
     const count = userBadge?.progressCount || 0;
+    // Calculate based on which metric is actually required (Amount vs Count)
+    // This prevents division by zero if requiredCount is 0 for an amount-based badge
+    const requiredTotal =
+      (nextTier?.requiredCount || 0) > 0
+        ? nextTier!.requiredCount
+        : nextTier?.requiredAmount || 0;
 
-    if (nextTier) {
+    const currentProgress =
+      (nextTier?.requiredCount || 0) > 0
+        ? count
+        : userBadge?.progressAmount || 0;
+
+    if (nextTier && requiredTotal > 0) {
       progressPercentage = Math.min(
         100,
-        Math.round((count / nextTier.requiredCount) * 100)
+        Math.round((currentProgress / requiredTotal) * 100)
       );
     } else if (userBadge?.isCompleted) {
       progressPercentage = 100;
+    }
+
+    // Calculate Remaining
+    let remainingForNextTier = 0;
+    if (nextTier) {
+      if (nextTier.requiredCount > 0) {
+        remainingForNextTier = Math.max(0, nextTier.requiredCount - count);
+      } else if (nextTier.requiredAmount && nextTier.requiredAmount > 0) {
+        remainingForNextTier = Math.max(
+          0,
+          nextTier.requiredAmount - (userBadge?.progressAmount || 0)
+        );
+      }
     }
 
     return {
@@ -173,13 +214,15 @@ const getAllBadgesWithProgress = async (
       progressCount: count,
       progressAmount: userBadge?.progressAmount || 0,
       progressPercentage,
-      remainingForNextTier: nextTier
-        ? Math.max(0, nextTier.requiredCount - count)
-        : 0,
+      remainingForNextTier,
     };
   });
-};
 
+  return {
+    meta,
+    result,
+  };
+};
 // --- CORE ENGINE: CHECK & UPDATE (OPTIMIZED) ---
 
 const checkAndUpdateBadgesForDonation = async (
@@ -494,7 +537,6 @@ const calculateConsecutiveMonths = async (
   return consecutiveCount;
 };
 
-
 const checkTierUpgrade = async (userBadge: any, badge: any) => {
   if (userBadge.isCompleted) return;
 
@@ -514,7 +556,7 @@ const checkTierUpgrade = async (userBadge: any, badge: any) => {
   const targetTierConfig = badge.tiers.find(
     (t: any) => t.tier === nextTierName
   );
-  
+
   if (!targetTierConfig) return;
 
   // --- LOGIC FIX STARTS HERE ---

@@ -58,12 +58,16 @@ const deleteBadge = asyncHandler(async (req: Request, res: Response) => {
 const getAllBadgesWithProgress = asyncHandler(
   async (req: ExtendedRequest, res: Response) => {
     const userId = req.user._id.toString();
-    const result = await badgeService.getAllBadgesWithProgress(userId);
+    const result = await badgeService.getAllBadgesWithProgress(
+      userId,
+      req.query
+    );
 
     sendResponse(res, {
       statusCode: httpStatus.OK,
       message: 'User badges progress retrieved',
-      data: result,
+      meta: result.meta, 
+      data: result.result, 
     });
   }
 );
