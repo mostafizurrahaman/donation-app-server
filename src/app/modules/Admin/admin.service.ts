@@ -1,9 +1,12 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import Auth from '../Auth/auth.model';
 import Donation from '../Donation/donation.model';
 import Organization from '../Organization/organization.model';
 import { Connection, Model } from 'mongoose';
 import Cause from '../Causes/causes.model';
 import Business from '../Business/business.model';
+import Client from '../Client/client.model';
+
 
 // Utility function to get date ranges based on filter type
 const getDateRange = (filter?: 'today' | 'week' | 'month') => {
@@ -947,17 +950,6 @@ const getSubscriptionsReportFromDb = async (
       limit,
       totalPages: Math.ceil(totalRecords / limit),
     },
-  };
-};
-
-const getRewardsReportFromDb = async () => {
-  // Placeholder implementation for rewards report
-  // You can replace this with actual logic to fetch rewards data from the database
-  const totalRewardsIssued = 5000; // Example static data
-  const totalActiveRewardUsers = 150; // Example static data
-  return {
-    totalRewardsIssued,
-    totalActiveRewardUsers,
   };
 };
 
@@ -2309,11 +2301,212 @@ const updateAdminProfileInDb = async (
   return result;
 };
 
+interface IBadgeTier {
+  tier: string;
+  name: string;
+  requiredCount?: number;
+  requiredAmount?: number;
+}
+
+interface UserBadge {
+  _id: string;
+  badge: string;
+  currentTier: string;
+  isCompleted: boolean;
+  tiersUnlocked: IBadgeTier[];
+}
+
+interface Badge {
+  _id: string;
+  name: string;
+  icon: string;
+  unlockType: string;
+  tiers: IBadgeTier[];
+  isSingleTier: boolean;
+}
+
+export const getDonorsFromDB = async (query: Record<string, unknown>) => {
+  const page = Number(query.page) || 1;
+  const limit = Number(query.limit) || 10;
+  const skip = (page - 1) * limit;
+  const searchFields = ['name', 'email'];
+
+  // Aggregation pipeline
+  const pipeline: any[] = [
+    // Lookup auth details
+    {
+      $lookup: {
+        from: 'auths',
+        localField: 'auth',
+        foreignField: '_id',
+        as: 'authDetails',
+      },
+    },
+    { $unwind: '$authDetails' },
+    {
+      $project: {
+        _id: 1,
+        name: 1,
+        image: 1,
+        address: 1,
+        postalCode: 1,
+        state: 1,
+        phoneNumber: 1,
+        createdAt: 1,
+        updatedAt: 1,
+        authId: '$authDetails._id',
+        email: '$authDetails.email',
+        isActive: '$authDetails.isActive',
+        status: '$authDetails.status',
+      },
+    },
+  ];
+
+  // Search filter
+  if (query.searchTerm) {
+    pipeline.push({
+      $match: {
+        $or: searchFields.map((field) => ({
+          [field]: { $regex: query.searchTerm as string, $options: 'i' },
+        })),
+      },
+    });
+  }
+
+  // Status filter
+  if (query.status) {
+    pipeline.push({ $match: { status: query.status } });
+  }
+
+  // Date filter
+  if (query.fromDate || query.toDate) {
+    const dateFilter: any = {};
+    if (query.fromDate) dateFilter.$gte = new Date(query.fromDate as string);
+    if (query.toDate) dateFilter.$lte = new Date(query.toDate as string);
+    pipeline.push({ $match: { createdAt: dateFilter } });
+  }
+
+  // Lookup user badges
+  pipeline.push({
+    $lookup: {
+      from: 'userbadges',
+      localField: '_id',
+      foreignField: 'user',
+      as: 'userBadges',
+      pipeline: [
+        {
+          $project: {
+            badge: 1,
+            currentTier: 1,
+            isCompleted: 1,
+            tiersUnlocked: 1,
+          },
+        },
+      ],
+    },
+  });
+
+  // Lookup badge details
+  pipeline.push({
+    $lookup: {
+      from: 'badges',
+      let: { badgeIds: '$userBadges.badge' },
+      pipeline: [
+        { $match: { $expr: { $in: ['$_id', '$$badgeIds'] } } },
+        {
+          $project: {
+            name: 1,
+            icon: 1,
+            isSingleTier: 1,
+            tiers: 1,
+            unlockType: 1,
+          },
+        },
+      ],
+      as: 'badge',
+    },
+  });
+
+  // Calculate total donation
+  pipeline.push({
+    $lookup: {
+      from: 'donations',
+      localField: '_id',
+      foreignField: 'donor',
+      as: 'totalDonationAmount',
+      pipeline: [
+        { $match: { status: 'completed' } },
+        { $group: { _id: null, total: { $sum: '$amount' } } },
+      ],
+    },
+  });
+
+  pipeline.push({
+    $addFields: {
+      totalDonationAmount: {
+        $ifNull: [{ $arrayElemAt: ['$totalDonationAmount.total', 0] }, 0],
+      },
+    },
+  });
+
+  // Pagination
+  pipeline.push({ $skip: skip }, { $limit: limit });
+
+  // Count pipeline
+  const countPipeline = [...pipeline];
+  countPipeline.push({ $count: 'total' });
+
+  // Execute aggregation
+  const [donors, countResult] = await Promise.all([
+    Client.aggregate(pipeline),
+    Client.aggregate(countPipeline),
+  ]);
+
+  const total = countResult[0]?.total || 0;
+
+  // Merge badges
+  const mergedDonors = donors.map((donor: any) => {
+    const badgesMap = new Map<string, Badge>();
+    (donor.badge || []).forEach((b: Badge) =>
+      badgesMap.set(b._id.toString(), b)
+    );
+
+    const combinedBadges = (donor.userBadges || [])
+      .map((ub: UserBadge) => {
+        const badge = badgesMap.get(ub.badge.toString());
+        if (!badge) return null;
+        const currentTier = badge.tiers.find((t) => t.tier === ub.currentTier);
+        return {
+          userBadgeId: ub._id,
+          badge: ub.badge,
+          badge_actual_name: badge.name,
+          currentTier: ub.currentTier,
+          badgeName: currentTier?.name,
+        };
+      })
+      .filter(Boolean);
+
+    delete donor.badge;
+    delete donor.userBadges;
+
+    return { ...donor, badges: combinedBadges };
+  });
+
+  // Pagination meta
+  const meta = {
+    page,
+    limit,
+    total,
+    totalPage: Math.ceil(total / limit),
+  };
+
+  return { meta, data: mergedDonors };
+};
+
 export const AdminService = {
   getAdminStatesFromDb,
   getDonationsReportFromDb,
   getSubscriptionsReportFromDb,
-  getRewardsReportFromDb,
   getUsersStatesReportFromDb,
   getUsersReportFromDb,
   changeUserStatusInDb,
@@ -2326,4 +2519,5 @@ export const AdminService = {
   getCausesReportFromDb,
   getBusinessesReportFromDb,
   updateAdminProfileInDb,
+  getDonorsFromDB,
 };

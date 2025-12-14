@@ -4,11 +4,11 @@ import { AdminService } from './admin.service';
 
 const getAdminStates = asyncHandler(async (req, res) => {
   const { timeFilter } = req.query;
-  
+
   const result = await AdminService.getAdminStatesFromDb({
     timeFilter: timeFilter as 'today' | 'week' | 'month' | undefined,
   });
-  
+
   sendResponse(res, {
     statusCode: httpStatus.OK,
     message: 'Admin states fetched successfully!',
@@ -17,8 +17,18 @@ const getAdminStates = asyncHandler(async (req, res) => {
 });
 
 const getDonationsReport = asyncHandler(async (req, res) => {
-  const { page, limit, searchTerm, donationType, startDate, endDate, sortBy, sortOrder, timeFilter } = req.query;
-  
+  const {
+    page,
+    limit,
+    searchTerm,
+    donationType,
+    startDate,
+    endDate,
+    sortBy,
+    sortOrder,
+    timeFilter,
+  } = req.query;
+
   const result = await AdminService.getDonationsReportFromDb({
     page: page ? Number(page) : undefined,
     limit: limit ? Number(limit) : undefined,
@@ -30,7 +40,7 @@ const getDonationsReport = asyncHandler(async (req, res) => {
     sortOrder: sortOrder as 'asc' | 'desc',
     timeFilter: timeFilter as 'today' | 'week' | 'month' | undefined,
   });
-  
+
   sendResponse(res, {
     statusCode: httpStatus.OK,
     message: 'Donations report fetched successfully!',
@@ -39,8 +49,17 @@ const getDonationsReport = asyncHandler(async (req, res) => {
 });
 
 const getSubscriptionsReport = asyncHandler(async (req, res) => {
-  const { page, limit, searchTerm, status, startDate, endDate, sortBy, sortOrder } = req.query;
-  
+  const {
+    page,
+    limit,
+    searchTerm,
+    status,
+    startDate,
+    endDate,
+    sortBy,
+    sortOrder,
+  } = req.query;
+
   const result = await AdminService.getSubscriptionsReportFromDb({
     page: page ? Number(page) : undefined,
     limit: limit ? Number(limit) : undefined,
@@ -51,20 +70,10 @@ const getSubscriptionsReport = asyncHandler(async (req, res) => {
     sortBy: sortBy as string,
     sortOrder: sortOrder as 'asc' | 'desc',
   });
-  
-  sendResponse(res, { 
-    statusCode: httpStatus.OK,
-    message: 'Subscriptions report fetched successfully!',
-    data: result,
-  });
-});
 
-const getRewardsReport = asyncHandler(async (req, res) => {
-  const result = await AdminService.getRewardsReportFromDb();
-  
   sendResponse(res, {
     statusCode: httpStatus.OK,
-    message: 'Rewards report fetched successfully!',
+    message: 'Subscriptions report fetched successfully!',
     data: result,
   });
 });
@@ -80,37 +89,52 @@ const getUsersStatesReport = asyncHandler(async (req, res) => {
 });
 
 const getUsersReport = asyncHandler(async (req, res) => {
-  const { page, limit, searchTerm, role, status, isActive, startDate, endDate, sortBy, sortOrder } = req.query;
-  
+  const {
+    page,
+    limit,
+    searchTerm,
+    role,
+    status,
+    isActive,
+    startDate,
+    endDate,
+    sortBy,
+    sortOrder,
+  } = req.query;
+
   const result = await AdminService.getUsersReportFromDb({
     page: page ? Number(page) : undefined,
     limit: limit ? Number(limit) : undefined,
     search: searchTerm as string,
     role: role as string,
     status: status as string,
-    isActive: isActive === 'true' ? true : isActive === 'false' ? false : undefined,
+    isActive:
+      isActive === 'true' ? true : isActive === 'false' ? false : undefined,
     startDate: startDate as string,
     endDate: endDate as string,
     sortBy: sortBy as string,
     sortOrder: sortOrder as 'asc' | 'desc',
   });
-  
+
   sendResponse(res, {
     statusCode: httpStatus.OK,
     message: 'Users report fetched successfully!',
     data: result.users,
-    meta: { 
+    meta: {
       limit: result.meta.limit,
       page: result.meta.page,
       total: result.meta.total,
       totalPage: result.meta.totalPages,
-    }
+    },
   });
 });
 
 const changeUserStatus = asyncHandler(async (req, res) => {
-  const result = await AdminService.changeUserStatusInDb(req.params.id, req.body.status);
-  sendResponse(res, { 
+  const result = await AdminService.changeUserStatusInDb(
+    req.params.id,
+    req.body.status
+  );
+  sendResponse(res, {
     statusCode: httpStatus.OK,
     message: 'User status changed successfully!',
     data: result,
@@ -118,7 +142,7 @@ const changeUserStatus = asyncHandler(async (req, res) => {
 });
 
 const deleteUser = asyncHandler(async (req, res) => {
-  const result =await AdminService.deleteUserFromDb(req.params.id);
+  const result = await AdminService.deleteUserFromDb(req.params.id);
   sendResponse(res, {
     statusCode: httpStatus.OK,
     message: 'User deleted successfully!',
@@ -127,8 +151,17 @@ const deleteUser = asyncHandler(async (req, res) => {
 });
 
 const getPendingUsersReport = asyncHandler(async (req, res) => {
-  const { page, limit, searchTerm, role, startDate, endDate, sortBy, sortOrder } = req.query;
-  
+  const {
+    page,
+    limit,
+    searchTerm,
+    role,
+    startDate,
+    endDate,
+    sortBy,
+    sortOrder,
+  } = req.query;
+
   const result = await AdminService.getPendingUsersReportFromDb({
     page: page ? Number(page) : undefined,
     limit: limit ? Number(limit) : undefined,
@@ -139,12 +172,12 @@ const getPendingUsersReport = asyncHandler(async (req, res) => {
     sortBy: sortBy as string,
     sortOrder: sortOrder as 'asc' | 'desc',
   });
-  
+
   sendResponse(res, {
     statusCode: httpStatus.OK,
     message: 'Pending users report fetched successfully!',
     data: result.pendingUsers,
-    meta: { 
+    meta: {
       limit: result.meta.limit,
       page: result.meta.page,
       total: result.meta.total,
@@ -155,12 +188,12 @@ const getPendingUsersReport = asyncHandler(async (req, res) => {
 
 const getUsersEngagementReport = asyncHandler(async (req, res) => {
   const { timeFilter, role } = req.query;
-  
+
   const result = await AdminService.getUsersEngagementReportFromDb({
     timeFilter: timeFilter as 'today' | 'week' | 'month' | undefined,
     role: role as 'CLIENT' | 'BUSINESS' | 'ORGANIZATION' | undefined,
   });
-  
+
   sendResponse(res, {
     statusCode: httpStatus.OK,
     message: 'Users engagement report fetched successfully!',
@@ -170,12 +203,12 @@ const getUsersEngagementReport = asyncHandler(async (req, res) => {
 
 const getDonationsEngagementReport = asyncHandler(async (req, res) => {
   const { donationType, year } = req.query;
-  
+
   const result = await AdminService.getDonationsEngagementReportFromDb({
     donationType: donationType as 'one-time' | 'recurring' | undefined,
     year: year ? Number(year) : undefined,
   });
-  
+
   sendResponse(res, {
     statusCode: httpStatus.OK,
     message: 'Donations engagement report fetched successfully!',
@@ -193,22 +226,34 @@ const getClauseWisePercentagesReport = asyncHandler(async (req, res) => {
 });
 
 const getOrganizationsReport = asyncHandler(async (req, res) => {
-  const { page, limit, searchTerm, status, isActive, serviceType, startDate, endDate, sortBy, sortOrder } = req.query;
-  
+  const {
+    page,
+    limit,
+    searchTerm,
+    status,
+    isActive,
+    serviceType,
+    startDate,
+    endDate,
+    sortBy,
+    sortOrder,
+  } = req.query;
+
   const result = await AdminService.getOrganizationsReportFromDb({
     page: page ? Number(page) : undefined,
     limit: limit ? Number(limit) : undefined,
     search: searchTerm as string,
     status: status as string,
-    isActive: isActive === 'true' ? true : isActive === 'false' ? false : undefined,
+    isActive:
+      isActive === 'true' ? true : isActive === 'false' ? false : undefined,
     serviceType: serviceType as string,
     startDate: startDate as string,
     endDate: endDate as string,
     sortBy: sortBy as string,
     sortOrder: sortOrder as 'asc' | 'desc',
   });
-  
-  sendResponse(res, { 
+
+  sendResponse(res, {
     statusCode: httpStatus.OK,
     message: 'Organizations report fetched successfully!',
     data: result.organizations,
@@ -222,8 +267,18 @@ const getOrganizationsReport = asyncHandler(async (req, res) => {
 });
 
 const getCausesReport = asyncHandler(async (req, res) => {
-  const { page, limit, searchTerm, status, category, startDate, endDate, sortBy, sortOrder } = req.query;
-  
+  const {
+    page,
+    limit,
+    searchTerm,
+    status,
+    category,
+    startDate,
+    endDate,
+    sortBy,
+    sortOrder,
+  } = req.query;
+
   const result = await AdminService.getCausesReportFromDb({
     page: page ? Number(page) : undefined,
     limit: limit ? Number(limit) : undefined,
@@ -235,7 +290,7 @@ const getCausesReport = asyncHandler(async (req, res) => {
     sortBy: sortBy as string,
     sortOrder: sortOrder as 'asc' | 'desc',
   });
-  
+
   sendResponse(res, {
     statusCode: httpStatus.OK,
     message: 'Causes report fetched successfully!',
@@ -246,25 +301,35 @@ const getCausesReport = asyncHandler(async (req, res) => {
       total: result.meta.total,
       totalPage: result.meta.totalPages,
     },
-
   });
 });
 
 const getBusinessesReport = asyncHandler(async (req, res) => {
-  const { page, limit, searchTerm, status, isActive, startDate, endDate, sortBy, sortOrder } = req.query;
-  
+  const {
+    page,
+    limit,
+    searchTerm,
+    status,
+    isActive,
+    startDate,
+    endDate,
+    sortBy,
+    sortOrder,
+  } = req.query;
+
   const result = await AdminService.getBusinessesReportFromDb({
     page: page ? Number(page) : undefined,
     limit: limit ? Number(limit) : undefined,
     search: searchTerm as string,
     status: status as string,
-    isActive: isActive === 'true' ? true : isActive === 'false' ? false : undefined,
+    isActive:
+      isActive === 'true' ? true : isActive === 'false' ? false : undefined,
     startDate: startDate as string,
     endDate: endDate as string,
     sortBy: sortBy as string,
     sortOrder: sortOrder as 'asc' | 'desc',
   });
-  
+
   sendResponse(res, {
     statusCode: httpStatus.OK,
     message: 'Businesses report fetched successfully!',
@@ -278,34 +343,43 @@ const getBusinessesReport = asyncHandler(async (req, res) => {
   });
 });
 
-
-
 const updateAdminProfile = asyncHandler(async (req, res) => {
-
-  const result = await AdminService.updateAdminProfileInDb(req.params.id, req.body );
-    sendResponse(res, {
-      statusCode: httpStatus.OK,
-      message: 'Admin profile updated successfully!',
-      data: result,
-    });
+  const result = await AdminService.updateAdminProfileInDb(
+    req.params.id,
+    req.body
+  );
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Admin profile updated successfully!',
+    data: result,
+  });
 });
 
+const getDonors = asyncHandler(async (req, res) => {
+  const result = await AdminService.getDonorsFromDB(req.query);
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Donors retrived successfully!',
+    data: result.data,
+    meta: result.meta,
+  });
+});
 
 export const AdminController = {
-    getAdminStates,
-    getDonationsReport,
-    getSubscriptionsReport,
-    getRewardsReport,
-    getUsersStatesReport,
-    getUsersReport,
-    changeUserStatus,
-    deleteUser,
-    getPendingUsersReport,
-    getUsersEngagementReport,
-    getDonationsEngagementReport,
-    getClauseWisePercentagesReport,
-    getOrganizationsReport,
-    getCausesReport,
-    getBusinessesReport,
-    updateAdminProfile
+  getAdminStates,
+  getDonationsReport,
+  getSubscriptionsReport,
+  getUsersStatesReport,
+  getUsersReport,
+  changeUserStatus,
+  deleteUser,
+  getPendingUsersReport,
+  getUsersEngagementReport,
+  getDonationsEngagementReport,
+  getClauseWisePercentagesReport,
+  getOrganizationsReport,
+  getCausesReport,
+  getBusinessesReport,
+  updateAdminProfile,
+  getDonors,
 };

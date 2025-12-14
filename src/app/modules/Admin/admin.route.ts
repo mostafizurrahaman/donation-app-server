@@ -1,7 +1,8 @@
 import { Router } from 'express';
-import { auth } from '../../middlewares';
+import { auth, validateRequest } from '../../middlewares';
 import { ROLE } from '../Auth/auth.constant';
 import { AdminController } from './admin.controller';
+import { AdminValidation } from './admin.validation';
 
 const router = Router();
 
@@ -10,11 +11,17 @@ router.get('/states', auth(ROLE.ADMIN), AdminController.getAdminStates);
 
 router.get('/donations', auth(ROLE.ADMIN), AdminController.getDonationsReport);
 
-router.get('/subscriptions', auth(ROLE.ADMIN), AdminController.getSubscriptionsReport);
+router.get(
+  '/subscriptions',
+  auth(ROLE.ADMIN),
+  AdminController.getSubscriptionsReport
+);
 
-router.get('/rewards', auth(ROLE.ADMIN), AdminController.getRewardsReport);
-
-router.get('/user-states', auth(ROLE.ADMIN), AdminController.getUsersStatesReport);
+router.get(
+  '/user-states',
+  auth(ROLE.ADMIN),
+  AdminController.getUsersStatesReport
+);
 
 router.get('/users', auth(ROLE.ADMIN), AdminController.getUsersReport);
 
@@ -24,17 +31,44 @@ router.delete('/delete-user/:id', auth(ROLE.ADMIN), AdminController.deleteUser);
 
 router.get('/pending-users', auth(ROLE.ADMIN), AdminController.getPendingUsersReport);
 
-router.get('/user-engagement', auth(ROLE.ADMIN), AdminController.getUsersEngagementReport);
+router.get(
+  '/user-engagement',
+  auth(ROLE.ADMIN),
+  AdminController.getUsersEngagementReport
+);
 
-router.get('/donation-engagement', auth(ROLE.ADMIN), AdminController.getDonationsEngagementReport);
+router.get(
+  '/donation-engagement',
+  auth(ROLE.ADMIN),
+  AdminController.getDonationsEngagementReport
+);
 
-router.get('/clause-wise-percentages', auth(ROLE.ADMIN), AdminController.getClauseWisePercentagesReport);
+router.get(
+  '/clause-wise-percentages',
+  auth(ROLE.ADMIN),
+  AdminController.getClauseWisePercentagesReport
+);
 
-router.get('/organizations', auth(ROLE.ADMIN), AdminController.getOrganizationsReport);
+router.get(
+  '/organizations',
+  auth(ROLE.ADMIN),
+  AdminController.getOrganizationsReport
+);
 
 router.get('/causes', auth(ROLE.ADMIN), AdminController.getCausesReport);
 
-router.get('/businesses', auth(ROLE.ADMIN), AdminController.getBusinessesReport);
+router.get(
+  '/businesses',
+  auth(ROLE.ADMIN),
+  AdminController.getBusinessesReport
+);
+
+router.get(
+  '/donors',
+  validateRequest(AdminValidation.getDonorsSchema),
+  auth(ROLE.ADMIN),
+  AdminController.getDonors
+);
 
 router.patch('/:id', auth(ROLE.ADMIN), AdminController.updateAdminProfile);
 
