@@ -122,7 +122,7 @@ export interface IScheduledDonation {
   };
   startDate: Date;
   nextDonationDate: Date;
-  endDate?: Date;
+  status?: 'active' | 'processing' | 'paused';
 
   // Status & Execution Tracking
   isActive: boolean;
