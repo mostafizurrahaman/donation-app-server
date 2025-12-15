@@ -25,11 +25,19 @@ router.get(
 
 router.get('/users', auth(ROLE.ADMIN), AdminController.getUsersReport);
 
-router.patch('/change-user-status/:id', auth(ROLE.ADMIN), AdminController.changeUserStatus);
+router.patch(
+  '/change-user-status/:id',
+  auth(ROLE.ADMIN),
+  AdminController.changeUserStatus
+);
 
 router.delete('/delete-user/:id', auth(ROLE.ADMIN), AdminController.deleteUser);
 
-router.get('/pending-users', auth(ROLE.ADMIN), AdminController.getPendingUsersReport);
+router.get(
+  '/pending-users',
+  auth(ROLE.ADMIN),
+  AdminController.getPendingUsersReport
+);
 
 router.get(
   '/user-engagement',
@@ -68,6 +76,13 @@ router.get(
   validateRequest(AdminValidation.getDonorsSchema),
   auth(ROLE.ADMIN),
   AdminController.getDonors
+);
+
+router.get(
+  '/business-reward-overview',
+  validateRequest(AdminValidation.getBusinessRewardOverview),
+  auth(ROLE.ADMIN),
+  AdminController.getBusinessRewardOverview
 );
 
 router.patch('/:id', auth(ROLE.ADMIN), AdminController.updateAdminProfile);

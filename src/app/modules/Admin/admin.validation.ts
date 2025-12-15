@@ -16,6 +16,25 @@ const getDonorsSchema = z.object({
   }),
 });
 
+const getBusinessRewardOverview = z.object({
+  query: z.object({
+    page: z.string().optional(),
+    limit: z.string().optional(),
+    searchTerm: z.string().optional(),
+    toDate: z.string().optional(),
+    fromDate: z.string().optional(),
+    businessId: z.string().optional(),
+    sortBy: z.string().optional(),
+    sortOrder: z.string().optional(),
+  }),
+});
+
 export const AdminValidation = {
   getDonorsSchema,
+  getBusinessRewardOverview,
 };
+
+
+export type GetBusinessRewardOverviewQuery = z.infer<
+  typeof getBusinessRewardOverview
+>['query'];

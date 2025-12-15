@@ -2,11 +2,10 @@
 import Auth from '../Auth/auth.model';
 import Donation from '../Donation/donation.model';
 import Organization from '../Organization/organization.model';
-import { Connection, Model } from 'mongoose';
+import { Connection, Model, PipelineStage, Types } from 'mongoose';
 import Cause from '../Causes/causes.model';
 import Business from '../Business/business.model';
 import Client from '../Client/client.model';
-
 
 // Utility function to get date ranges based on filter type
 const getDateRange = (filter?: 'today' | 'week' | 'month') => {
@@ -2503,6 +2502,180 @@ export const getDonorsFromDB = async (query: Record<string, unknown>) => {
   return { meta, data: mergedDonors };
 };
 
+export const getBusinessRewardOverview = async (query: {
+  businessId?: string;
+  limit?: number;
+  page?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+  searchTerm?: string;
+  fromDate?: string;
+  toDate?: string;
+}) => {
+  const {
+    businessId,
+    limit = 10,
+    page = 1,
+    sortBy = 'createdAt',
+    sortOrder = 'desc',
+    searchTerm,
+    fromDate,
+    toDate,
+  } = query;
+
+  // ----------------------
+  // Helper: build date filter
+  // ----------------------
+  const buildDateFilter = (fromDate?: string, toDate?: string) => {
+    const filter: any = {};
+    if (fromDate) filter.$gte = new Date(fromDate);
+    if (toDate) {
+      const endOfDay = new Date(toDate);
+      endOfDay.setHours(23, 59, 59, 999);
+      filter.$lte = endOfDay;
+    }
+    return Object.keys(filter).length ? filter : undefined;
+  };
+
+  const dateFilter = buildDateFilter(fromDate, toDate);
+
+  const pipeline: PipelineStage[] = [];
+
+  const match: any = {};
+  if (businessId) match._id = new Types.ObjectId(businessId);
+  if (dateFilter) match.createdAt = dateFilter;
+
+  pipeline.push({ $match: match });
+
+  if (searchTerm) {
+    pipeline.push({
+      $match: {
+        $or: [
+          { name: { $regex: searchTerm, $options: 'i' } },
+          { tagLine: { $regex: searchTerm, $options: 'i' } },
+          { description: { $regex: searchTerm, $options: 'i' } },
+        ],
+      },
+    });
+  }
+
+  pipeline.push(
+    {
+      $lookup: {
+        from: 'auths',
+        localField: 'auth',
+        foreignField: '_id',
+        as: 'auth',
+        pipeline: [{ $project: { email: 1 } }],
+      },
+    },
+    { $unwind: '$auth' }
+  );
+
+  pipeline.push({
+    $lookup: {
+      from: 'rewards',
+      let: { businessId: '$_id' },
+      pipeline: [
+        { $match: { $expr: { $eq: ['$business', '$$businessId'] } } },
+        {
+          $facet: {
+            total: [{ $count: 'count' }],
+            topReward: [
+              { $sort: { redeemedCount: -1 } },
+              { $limit: 1 },
+              { $project: { title: 1, redeemedCount: 1 } },
+            ],
+          },
+        },
+      ],
+      as: 'rewardStats',
+    },
+  });
+
+  pipeline.push({
+    $lookup: {
+      from: 'rewardredemptions',
+      let: { businessId: '$_id' },
+      pipeline: [
+        { $match: { $expr: { $eq: ['$business', '$$businessId'] } } },
+        { $count: 'total' },
+      ],
+      as: 'redemptionStats',
+    },
+  });
+
+  pipeline.push({
+    $addFields: {
+      rewardTotal: {
+        $ifNull: [
+          {
+            $arrayElemAt: [
+              { $arrayElemAt: ['$rewardStats.total.count', 0] },
+              0,
+            ],
+          },
+          0,
+        ],
+      },
+      totalRedemption: {
+        $ifNull: [{ $arrayElemAt: ['$redemptionStats.total', 0] }, 0],
+      },
+      topReward: {
+        $ifNull: [
+          {
+            $arrayElemAt: [{ $arrayElemAt: ['$rewardStats.topReward', 0] }, 0],
+          },
+          null,
+        ],
+      },
+    },
+  });
+
+  pipeline.push({
+    $sort: { [sortBy]: sortOrder === 'asc' ? 1 : -1 },
+  });
+
+  pipeline.push({
+    $facet: {
+      data: [
+        { $skip: (page - 1) * limit },
+        { $limit: limit },
+        {
+          $project: {
+            name: 1,
+            email: '$auth.email',
+            coverImage: 1,
+            tagLine: 1,
+            description: 1,
+            rewardTotal: 1,
+            totalRedemption: 1,
+            topReward: 1,
+            createdAt: 1,
+          },
+        },
+      ],
+      totalCount: [{ $count: 'count' }],
+    },
+  });
+
+  const result = await Business.aggregate(pipeline);
+
+  const data = result[0]?.data || [];
+  const total = result[0]?.totalCount[0]?.count || 0;
+  const totalPage = Math.ceil(total / limit);
+
+  return {
+    data,
+    meta: {
+      total,
+      page,
+      limit,
+      totalPage,
+    },
+  };
+};
+
 export const AdminService = {
   getAdminStatesFromDb,
   getDonationsReportFromDb,
@@ -2520,4 +2693,5 @@ export const AdminService = {
   getBusinessesReportFromDb,
   updateAdminProfileInDb,
   getDonorsFromDB,
+  getBusinessRewardOverview,
 };

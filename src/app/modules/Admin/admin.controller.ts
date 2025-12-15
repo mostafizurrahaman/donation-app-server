@@ -365,6 +365,16 @@ const getDonors = asyncHandler(async (req, res) => {
   });
 });
 
+const getBusinessRewardOverview = asyncHandler(async (req, res) => {
+  const result = await AdminService.getBusinessRewardOverview(req.query);
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Business reward retrived successfully!',
+    data: result.data,
+    meta: result.meta,
+  });
+});
+
 export const AdminController = {
   getAdminStates,
   getDonationsReport,
@@ -382,4 +392,5 @@ export const AdminController = {
   getBusinessesReport,
   updateAdminProfile,
   getDonors,
+  getBusinessRewardOverview,
 };
