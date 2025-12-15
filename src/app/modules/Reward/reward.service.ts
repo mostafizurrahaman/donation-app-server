@@ -614,8 +614,8 @@ const toggleRewardStatus = async (
   const business = await Business.findOne({ auth: userId });
 
   if (
-    (user.role === ROLE.BUSINESS && !business) ||
-    reward.business.toString() !== business?._id.toString()
+    user.role === ROLE.BUSINESS &&
+    (!business || reward.business.toString() !== business!._id.toString())
   ) {
     throw new AppError(
       httpStatus.FORBIDDEN,

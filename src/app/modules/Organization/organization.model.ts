@@ -1,5 +1,6 @@
 import { model, now, Schema } from 'mongoose';
 import { IORGANIZATION } from './organization.interface';
+import { organizationServiceTypeValues } from './organization.constants';
 
 const organizationSchema = new Schema<IORGANIZATION>(
   {
@@ -16,6 +17,7 @@ const organizationSchema = new Schema<IORGANIZATION>(
     },
     serviceType: {
       type: String,
+      enum: organizationServiceTypeValues
     },
     address: {
       type: String,

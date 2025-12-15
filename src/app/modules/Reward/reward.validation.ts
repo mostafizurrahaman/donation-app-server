@@ -242,9 +242,11 @@ const toggleRewardStatusSchema = z.object({
     id: z.string().min(1, 'Reward ID is required'),
   }),
   body: z.object({
-    isActive: z.boolean({
-      error: 'isActive is required',
-    }),
+    isActive: z
+      .boolean({
+        message: 'Is Active should be boolean',
+      })
+      .transform((val) => Boolean(val)),
   }),
 });
 // Export validation object

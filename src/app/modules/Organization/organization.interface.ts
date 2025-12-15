@@ -6,7 +6,7 @@ export interface IORGANIZATION extends Document {
 
   name: string;
   aboutUs?: string;
-  serviceType: string;
+  serviceType: 'non-profit' | 'charity' | 'mosque';
   address: string;
   country?: string;
   state: string;

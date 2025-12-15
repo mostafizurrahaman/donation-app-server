@@ -67,7 +67,7 @@ router.get('/causes', auth(ROLE.ADMIN), AdminController.getCausesReport);
 
 router.get(
   '/businesses',
-  auth(ROLE.ADMIN),
+  auth(ROLE.ADMIN, ROLE.CLIENT),
   AdminController.getBusinessesReport
 );
 

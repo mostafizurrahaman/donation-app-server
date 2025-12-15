@@ -384,12 +384,11 @@ const checkAndUpdateBadgesForDonation = async (
 ) => {
   // 1. Fetch Donation & User (Lean for performance)
   const donation = await Donation.findById(donationId).populate('cause').lean();
-  console.log(`BADGE QUERY`, donation);
+
   if (!donation) return;
 
   const client = await Client.findById(userId).select('_id').lean();
   if (!client) return;
-  console.log(`BADGE QUERY`, client);
 
   const donationDate = donation.donationDate || new Date();
 
@@ -424,10 +423,8 @@ const checkAndUpdateBadgesForDonation = async (
     ],
   };
 
-  console.log(`BADGE QUERY`, query);
-
   const relevantBadges = await Badge.find(query).lean();
-  console.log(`BADGE QUERY`, relevantBadges);
+
   // 3. Process Loops in Parallel
   const updatePromises = relevantBadges.map(async (badge) => {
     let matchesCondition = false;
@@ -524,7 +521,6 @@ const checkAndUpdateBadgesForDonation = async (
       return updateUserBadgeProgress(client._id, badge, donation, donationDate);
     }
   });
-  console.log(`BADGE QUERY`, updatePromises);
 
   await Promise.all(updatePromises);
 };

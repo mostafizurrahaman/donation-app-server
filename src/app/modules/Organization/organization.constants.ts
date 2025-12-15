@@ -4,6 +4,12 @@ export const ORGANIZATION_STATUS = {
   SUSPENDED: 'suspended',
 };
 
+export const ORGANIZATION_SERVICE_TYPES = {
+  NON_PROFIT: 'non-profit',
+  CHARITY: 'charity',
+  MOSQUE: 'mosque',
+};
+
 export const searchableFields = [
   'name',
   'aboutUs',
@@ -20,3 +26,6 @@ export const searchableFields = [
   'phoneNumber',
 ];
 export const organizationStatusValues = Object.values(ORGANIZATION_STATUS);
+export const organizationServiceTypeValues = Object.values(
+  ORGANIZATION_SERVICE_TYPES
+);

@@ -774,7 +774,7 @@ const getTotalDonatedAmount = async (
           donationDate: { $gte: current.startDate, $lte: current.endDate },
         },
       },
-      { $group: { _id: null, total: { $sum: '$amount' } } },
+      { $group: { _id: null, total: { $sum: '$netAmount' } } },
     ]),
     Donation.aggregate([
       {
@@ -783,7 +783,7 @@ const getTotalDonatedAmount = async (
           donationDate: { $gte: previous.startDate, $lte: previous.endDate },
         },
       },
-      { $group: { _id: null, total: { $sum: '$amount' } } },
+      { $group: { _id: null, total: { $sum: '$netAmount' } } },
     ]),
   ]);
 
@@ -816,7 +816,7 @@ const getAverageDonationPerUser = async (
       {
         $group: {
           _id: null,
-          totalAmount: { $sum: '$amount' },
+          totalAmount: { $sum: '$netAmount' },
           uniqueDonors: { $addToSet: '$donor' },
         },
       },
@@ -842,7 +842,7 @@ const getAverageDonationPerUser = async (
       {
         $group: {
           _id: null,
-          totalAmount: { $sum: '$amount' },
+          totalAmount: { $sum: '$netAmount' },
           uniqueDonors: { $addToSet: '$donor' },
         },
       },
@@ -928,7 +928,7 @@ const getTopCause = async (
     {
       $group: {
         _id: '$cause',
-        totalAmount: { $sum: '$amount' },
+        totalAmount: { $sum: '$netAmount' },
       },
     },
     { $sort: { totalAmount: -1 } },
@@ -972,7 +972,7 @@ const getDonationTypeBreakdown = async (
       {
         $group: {
           _id: '$donationType',
-          total: { $sum: '$amount' },
+          total: { $sum: '$netAmount' },
         },
       },
     ]),
@@ -986,7 +986,7 @@ const getDonationTypeBreakdown = async (
       {
         $group: {
           _id: '$donationType',
-          total: { $sum: '$amount' },
+          total: { $sum: '$netAmount' },
         },
       },
     ]),
@@ -1036,7 +1036,7 @@ const getTopDonors = async (
       {
         $group: {
           _id: '$donor',
-          totalAmount: { $sum: '$amount' },
+          totalAmount: { $sum: '$netAmount' },
           donationCount: { $sum: 1 },
         },
       },
@@ -1053,7 +1053,7 @@ const getTopDonors = async (
       {
         $group: {
           _id: '$donor',
-          totalAmount: { $sum: '$amount' },
+          totalAmount: { $sum: '$netAmount' },
         },
       },
     ]),
@@ -1122,7 +1122,7 @@ const getRecentDonors = async (
       $group: {
         _id: '$donor',
         lastDonationDate: { $first: '$donationDate' },
-        lastDonationAmount: { $first: '$amount' },
+        lastDonationAmount: { $first: '$netAmount' },
       },
     },
     { $sort: { lastDonationDate: -1 } },
@@ -1173,7 +1173,7 @@ const getOrganizationCauseStats = async (
     {
       $group: {
         _id: '$cause',
-        totalAmount: { $sum: '$amount' },
+        totalAmount: { $sum: '$netAmount' },
       },
     },
     {
@@ -1298,7 +1298,7 @@ const getOrganizationCauseMonthlyStats = async (
     {
       $group: {
         _id: { month: { $month: '$donationDate' } },
-        totalAmount: { $sum: '$amount' },
+        totalAmount: { $sum: '$netAmount' },
       },
     },
   ])) as CauseMonthlyAggregateResult[];
@@ -1418,7 +1418,7 @@ const getOrganizationYearlyTrends = async (
         },
         oneTimeTotal: {
           $sum: {
-            $cond: [{ $eq: ['$donationType', 'one-time'] }, '$amount', 0],
+            $cond: [{ $eq: ['$donationType', 'one-time'] }, '$netAmount', 0],
           },
         },
         recurringCount: {
@@ -1426,7 +1426,7 @@ const getOrganizationYearlyTrends = async (
         },
         recurringTotal: {
           $sum: {
-            $cond: [{ $eq: ['$donationType', 'recurring'] }, '$amount', 0],
+            $cond: [{ $eq: ['$donationType', 'recurring'] }, '$netAmount', 0],
           },
         },
         roundupCount: {
@@ -1434,7 +1434,7 @@ const getOrganizationYearlyTrends = async (
         },
         roundUpTotal: {
           $sum: {
-            $cond: [{ $eq: ['$donationType', 'round-up'] }, '$amount', 0],
+            $cond: [{ $eq: ['$donationType', 'round-up'] }, '$netAmount', 0],
           },
         },
       },
