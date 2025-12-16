@@ -141,7 +141,7 @@ const processEndOfMonthDonations = async () => {
         netAmount: financials.netToOrg,
         totalAmount: financials.totalCharge,
 
-        currency: 'AUD', // Australian Context
+        currency: 'USD', // Australian Context
         status: 'pending',
         donationDate: new Date(),
         specialMessage:

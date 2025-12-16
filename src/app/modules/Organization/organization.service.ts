@@ -12,7 +12,10 @@ import { ROLE, AUTH_STATUS } from '../Auth/auth.constant';
 import { IAuth } from '../Auth/auth.interface';
 import fs from 'fs';
 import { createAccessToken } from '../../lib';
-import { searchableFields } from './organization.constants';
+import {
+  searchableFields,
+  STRIPE_ACCOUNT_STATUS,
+} from './organization.constants';
 import QueryBuilder from '../../builders/QueryBuilder';
 import Cause from '../Causes/causes.model';
 import Donation from '../Donation/donation.model';
@@ -55,9 +58,6 @@ const startStripeConnectOnboarding = async (
   }
 
   // Create new Stripe Connect account
-  // ✅ Refactored: Pass 'AU' as country code for Australian Platform
-  // The StripeService must be updated to set `settings.payouts.schedule.interval = 'manual'`
-  // based on this creation call to ensure funds are held for manual payout.
   const { accountId, onboardingUrl } = await StripeService.createConnectAccount(
     user.email,
     organization.name || 'Organization',
@@ -66,6 +66,7 @@ const startStripeConnectOnboarding = async (
 
   // Save account ID to organization
   organization.stripeConnectAccountId = accountId;
+  organization.stripeAccountStatus = STRIPE_ACCOUNT_STATUS.PENDING;
   await organization.save();
 
   return {

@@ -1582,6 +1582,7 @@ const organizationSignupWithProfile = async (
       aboutUs: orgData.aboutUs,
       registeredCharityName: orgData.registeredCharityName,
       dateOfEstablishment: orgData.dateOfEstablishment,
+      
 
       // Verification details
       tfnOrAbnNumber: orgData.tfnOrAbnNumber,

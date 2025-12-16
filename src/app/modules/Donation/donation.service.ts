@@ -65,7 +65,7 @@ const createOneTimeDonation = async (
 }> => {
   const {
     amount,
-    coverFees = false, 
+    coverFees = false,
     causeId,
     organizationId,
     userId,
@@ -162,7 +162,7 @@ const createOneTimeDonation = async (
       netAmount: financials.netToOrg,
       totalAmount: financials.totalCharge,
 
-      currency: 'AUD', // Australian Context
+      currency: 'USD', // Australian Context
       status: 'pending',
       specialMessage,
       pointsEarned: Math.floor(financials.baseAmount * 100),
@@ -191,7 +191,7 @@ const createOneTimeDonation = async (
       stripeFee: financials.stripeFee,
       netToOrg: financials.netToOrg,
 
-      currency: 'aud',
+      currency: 'USD',
       customerId: paymentMethod.stripeCustomerId,
       paymentMethodId: paymentMethod.stripePaymentMethodId,
       donationId: donationUniqueId.toString(),
@@ -594,7 +594,7 @@ const retryFailedPayment = async (
     stripeFee: financials.stripeFee,
     netToOrg: financials.netToOrg,
 
-    currency: 'aud',
+    currency: 'usd',
     customerId: donation.stripeCustomerId,
     paymentMethodId: donation.stripePaymentMethodId,
     donationId: String(donation._id),
@@ -755,7 +755,7 @@ const refundDonation = async (
   }
 
   try {
-    // Process Refund in Stripe 
+    // Process Refund in Stripe
     await StripeService.createRefund(donation.stripePaymentIntentId);
 
     // Update Status

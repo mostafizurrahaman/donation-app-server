@@ -309,7 +309,7 @@ const createPaymentIntentWithMethod = async (
   const {
     amount, // Base amount
     totalAmount, // Total to charge the donor
-    currency = 'aud', // Default to AUD
+    currency = 'usd', // Default to AUD
     customerId,
     paymentMethodId,
     donationId,
@@ -619,7 +619,7 @@ const createRoundUpPaymentIntent = async (
     // Create Stripe Payment Intent for off-session round-up donation
     const paymentIntentParams: Stripe.PaymentIntentCreateParams = {
       amount: Math.round(totalAmount * 100),
-      currency: 'aud', // Default to AUD for AU context
+      currency: 'usd', // Default to AUD for AU context
 
       // Off-session settings
       confirm: true,

@@ -2,7 +2,7 @@ import Stripe from 'stripe';
 import config from '../config';
 
 export const stripe = new Stripe(config.stripe?.secretKey, {
-  apiVersion: '2025-10-29.clover',
+  apiVersion: '2025-11-17.clover',
 });
 
 export const STRIPE_EVENTS = {

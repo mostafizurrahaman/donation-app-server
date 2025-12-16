@@ -22,6 +22,9 @@ import {
   BalanceTransaction,
   OrganizationBalance,
 } from '../Balance/balance.model';
+import { STRIPE_ACCOUNT_STATUS } from '../Organization/organization.constants';
+import { TOrganizationAccountStatusType } from '../Organization/organization.interface';
+import Organization from '../Organization/organization.model';
 
 // ========================================
 // HELPER: Calculate Next Donation Date
@@ -841,6 +844,47 @@ const handlePayoutFailed = async (payoutEvent: Stripe.Payout) => {
     session.endSession();
   }
 };
+
+// ========================================
+// ACCOUNT: Updated Handler (KYC & Bank Status)
+// ========================================
+const handleAccountUpdated = async (account: Stripe.Account) => {
+  console.log(`\n👤 WEBHOOK: account.updated - ID: ${account.id}`);
+
+  try {
+    // 1. Determine Status based on Stripe Flags
+    let status: TOrganizationAccountStatusType = STRIPE_ACCOUNT_STATUS.PENDING;
+    const requirements = account.requirements?.currently_due || [];
+
+    if (account.charges_enabled && account.payouts_enabled) {
+      status = STRIPE_ACCOUNT_STATUS.ACTIVE;
+    } else if (account.requirements?.disabled_reason) {
+      status = STRIPE_ACCOUNT_STATUS.RESTRICTED;
+    } else if (account.details_submitted) {
+      // Submitted but waiting for verification or bank
+      status = STRIPE_ACCOUNT_STATUS.PENDING;
+    }
+
+    console.log(`   New Status: ${status}`);
+    console.log(`   Missing Requirements: ${requirements.join(', ')}`);
+
+    // 2. Update Database
+    await Organization.findOneAndUpdate(
+      { stripeConnectAccountId: account.id },
+      {
+        $set: {
+          stripeAccountStatus: status,
+          stripeAccountRequirements: requirements,
+        },
+      }
+    );
+
+    console.log(`✅ Organization ${account.id} status updated to ${status}`);
+  } catch (error) {
+    console.error(`❌ Error handling account.updated:`, error);
+  }
+};
+
 // ========================================
 // MAIN WEBHOOK HANDLER
 // ========================================
@@ -894,6 +938,9 @@ const handleStripeWebhook = async (
 
       case 'payout.failed':
         await handlePayoutFailed(event.data.object as Stripe.Payout);
+        break;
+      case 'account.updated':
+        await handleAccountUpdated(event.data.object as Stripe.Account);
         break;
 
       default:

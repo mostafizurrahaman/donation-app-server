@@ -1,6 +1,10 @@
 import { model, now, Schema } from 'mongoose';
 import { IORGANIZATION } from './organization.interface';
-import { organizationServiceTypeValues } from './organization.constants';
+import {
+  organizationServiceTypeValues,
+  STRIPE_ACCOUNT_STATUS,
+  STRIPE_ACCOUNT_STATUS_VALUES,
+} from './organization.constants';
 
 const organizationSchema = new Schema<IORGANIZATION>(
   {
@@ -17,7 +21,7 @@ const organizationSchema = new Schema<IORGANIZATION>(
     },
     serviceType: {
       type: String,
-      enum: organizationServiceTypeValues
+      enum: organizationServiceTypeValues,
     },
     address: {
       type: String,
@@ -85,6 +89,18 @@ const organizationSchema = new Schema<IORGANIZATION>(
     isProfileVisible: {
       type: Boolean,
       default: true,
+    },
+
+    stripeAccountStatus: {
+      type: String,
+      enum: STRIPE_ACCOUNT_STATUS_VALUES,
+      default: STRIPE_ACCOUNT_STATUS.NOT_CONNECTED,
+    },
+
+    // Optional: Store why it's pending (e.g., "bank_account_missing")
+    stripeAccountRequirements: {
+      type: [String],
+      default: [],
     },
   },
   { timestamps: true, versionKey: false }

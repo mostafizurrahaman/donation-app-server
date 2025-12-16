@@ -31,7 +31,7 @@ export const sendReceiptEmail = async (
 
     const formattedAmount = new Intl.NumberFormat('en-AU', {
       style: 'currency',
-      currency: 'AUD',
+      currency: 'usd',
     }).format(data.donationAmount);
 
     const formattedDate = data.donationDate.toLocaleDateString('en-AU', {

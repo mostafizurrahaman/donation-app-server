@@ -125,7 +125,7 @@ const triggerDonation = async (
       netAmount: financials.netToOrg,
       totalAmount: financials.totalCharge,
 
-      currency: 'AUD',
+      currency: 'USD',
       status: 'pending',
       donationDate: new Date(),
       specialMessage:
@@ -762,7 +762,7 @@ const processMonthlyDonation = async (
       netAmount: financials.netToOrg,
       totalAmount: financials.totalCharge,
 
-      currency: 'AUD',
+      currency: 'USD',
       status: 'pending',
       specialMessage:
         specialMessage || `Manual round-up donation - ${currentMonth}`,

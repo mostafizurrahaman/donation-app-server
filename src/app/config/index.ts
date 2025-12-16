@@ -90,11 +90,11 @@ const config: IConfig = {
   dbUrl: process.env.DB_URL || 'mongodb://localhost:27017/crescent_change',
   clientUrl: process.env.CLIENT_URL || 'http://localhost:3000',
   paymentSetting: {
-    platformFeePercent: Number(process.env.PLATFORM_FEE_PERCENTAGE) || 0.05, // 5%
-    gstPercentage: Number(process.env.GST_PERCENTAGE) || 0.1, // 10% GST in Australia
-    stripeFeePercent: Number(process.env.STRIPE_FEE_PERCENTAGE) || 0.0175, // 1.75% Domestic
-    stripeFixedFee: Number(process.env.STRIPE_FIXED_FEE) || 0.3, // $0.30
-    clearingPeriodDays: Number(process.env.CLEARING_PERIOD_DAYS) || 7,
+    platformFeePercent: Number(process.env.PLATFORM_FEE_PERCENTAGE), // 5%
+    gstPercentage: Number(process.env.GST_PERCENTAGE), // 10% GST in Australia
+    stripeFeePercent: Number(process.env.STRIPE_FEE_PERCENTAGE), // 1.75% Domestic
+    stripeFixedFee: Number(process.env.STRIPE_FIXED_FEE), // $0.30
+    clearingPeriodDays: Number(process.env.CLEARING_PERIOD_DAYS),
   },
   jwt: {
     accessTokenSecret: process.env.JWT_ACCESS_SECRET || 'default_access_secret',
@@ -166,4 +166,5 @@ const config: IConfig = {
   },
 };
 
+console.log(config.paymentSetting);
 export default config;
