@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import httpStatus from 'http-status';
 import { AppError } from '../../utils';
 import Organization from './organization.model';
@@ -7,21 +8,20 @@ import {
   TEditOrgTaxDetails,
   TEditProfileOrgDetails,
 } from './organization.validation';
-import { ROLE } from '../Auth/auth.constant';
+import { ROLE, AUTH_STATUS } from '../Auth/auth.constant';
 import { IAuth } from '../Auth/auth.interface';
 import fs from 'fs';
 import { createAccessToken } from '../../lib';
 import { searchableFields } from './organization.constants';
-import { AUTH_STATUS } from '../Auth/auth.constant';
 import QueryBuilder from '../../builders/QueryBuilder';
-import { is } from 'zod/v4/locales';
 import Cause from '../Causes/causes.model';
-import { DonationService } from '../Donation/donation.service';
 import Donation from '../Donation/donation.model';
 
 /**
  * Start Stripe Connect onboarding for an organization
  * Creates a Stripe Connect account and returns onboarding URL
+ *
+ * Refactored for Australia (AU) & Manual Payouts
  */
 const startStripeConnectOnboarding = async (
   userId: string
@@ -43,7 +43,7 @@ const startStripeConnectOnboarding = async (
 
   // Check if already has Stripe Connect account
   if (organization.stripeConnectAccountId) {
-    // Account exists, create new onboarding link
+    // Account exists, create new onboarding link (in case they didn't finish)
     const { onboardingUrl } = await StripeService.createAccountLink(
       organization.stripeConnectAccountId
     );
@@ -55,10 +55,13 @@ const startStripeConnectOnboarding = async (
   }
 
   // Create new Stripe Connect account
+  // ✅ Refactored: Pass 'AU' as country code for Australian Platform
+  // The StripeService must be updated to set `settings.payouts.schedule.interval = 'manual'`
+  // based on this creation call to ensure funds are held for manual payout.
   const { accountId, onboardingUrl } = await StripeService.createConnectAccount(
     user.email,
     organization.name || 'Organization',
-    'US' // You can make this configurable
+    'AU' // Australian Company
   );
 
   // Save account ID to organization
@@ -157,6 +160,7 @@ const deleteOldImage = async (imagePath: string | undefined) => {
     try {
       await fs.promises.unlink(imagePath);
     } catch (error: unknown) {
+      // eslint-disable-next-line no-console
       console.error('Error deleting old file:', error);
     }
   }
@@ -285,6 +289,7 @@ const updateLogoImageIntoDB = async (
 
   return updateOrganizationImage(user, file, 'logoImage');
 };
+
 /**
  * Edit Organization Tax Details (Tab 2)
  * PATCH /api/v1/organization/tax-details
@@ -335,7 +340,7 @@ const editOrgTaxDetailsIntoDB = async (
 };
 
 /**
- * Get verified Carities/ Organizations list
+ * Get verified Charities/ Organizations list
  */
 const getAllOrganizations = async (query: Record<string, unknown>) => {
   // Extract special filters
@@ -350,6 +355,7 @@ const getAllOrganizations = async (query: Record<string, unknown>) => {
   } = query;
 
   // Build base conditions
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const conditions: any = {};
 
   if (dateOfEstablishment) {
@@ -372,12 +378,15 @@ const getAllOrganizations = async (query: Record<string, unknown>) => {
   }
 
   // Handle status filter
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let authIdArray: any[] = [];
   if (status) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const authQuery: any = { role: ROLE.ORGANIZATION };
 
     if (status) {
       authQuery.status = status;
+      // Map active status to isActive flag for legacy support if needed
       authQuery.isActive = status === AUTH_STATUS.VERIFIED;
     }
 
@@ -385,8 +394,6 @@ const getAllOrganizations = async (query: Record<string, unknown>) => {
     authIdArray = authIds.map((auth) => auth._id);
     conditions.auth = { $in: authIdArray };
   }
-
-  console.log('Conditions:', conditions);
 
   // Create base query with conditions
   const organizationQuery = Organization.find(conditions).populate({
@@ -408,6 +415,7 @@ const getAllOrganizations = async (query: Record<string, unknown>) => {
 
   // Populate causes after QueryBuilder execution (if requested)
   if (populateCauses === 'true' || populateCauses === true) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const organizationIds = result.map((org: any) => org._id);
 
     // Get causes for all organizations in one query
@@ -416,8 +424,10 @@ const getAllOrganizations = async (query: Record<string, unknown>) => {
     });
 
     // Map causes to their organizations
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const resultWithCauses = result.map((org: any) => {
       const orgObject = org.toObject();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       orgObject.causes = causes.filter(
         (cause: any) => cause.organization.toString() === org._id.toString()
       );
@@ -505,24 +515,17 @@ const getOrganizationDetailsById = async (organizationId: string) => {
   ]);
 
   const organizationStats = organizationDonationStats[0];
-  console.log(organizationStats);
-  const totalDonation = organizationStats?.totalDonations?.[0]?.count;
+
+  const totalDonation = organizationStats?.totalDonations?.[0]?.count || 0;
   const totalDonationAmount =
-    organizationStats?.totalDonationAmount?.[0]?.totalAmount;
-  const recentDonors = organizationStats?.recentDonors;
-  console.log({
-    ...organization.toObject(),
-    totalDonation,
-    totalDonationAmount,
-    recentDonors,
-  });
+    organizationStats?.totalDonationAmount?.[0]?.totalAmount || 0;
+  const recentDonors = organizationStats?.recentDonors || [];
 
   return {
     ...organization.toObject(),
     totalDonation,
     totalDonationAmount,
     recentDonors,
-    // organizationStats,
   };
 };
 

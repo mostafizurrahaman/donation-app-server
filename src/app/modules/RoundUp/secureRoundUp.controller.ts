@@ -49,21 +49,6 @@ const syncTransactions = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
-const processMonthlyDonation = catchAsync(
-  async (req: Request, res: Response) => {
-    const userId = req.user.id;
-    const payload = req.body;
-
-    const result = await roundUpService.processMonthlyDonation(userId, payload);
-
-    return sendResponse(res, result.statusCode, {
-      success: result.success,
-      message: result.message,
-      data: result.data,
-    });
-  }
-);
-
 // Manual cron test endpoint for testing RoundUp processing
 const testRoundUpProcessingCron = catchAsync(
   async (req: Request, res: Response) => {
@@ -129,7 +114,6 @@ export const roundUpController = {
   savePlaidConsent,
   revokeConsent,
   syncTransactions,
-  processMonthlyDonation,
   testRoundUpProcessingCron,
   resumeRoundUp,
   switchCharity,

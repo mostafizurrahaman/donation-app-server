@@ -91,11 +91,10 @@ const config: IConfig = {
   clientUrl: process.env.CLIENT_URL || 'http://localhost:3000',
   paymentSetting: {
     platformFeePercent: Number(process.env.PLATFORM_FEE_PERCENTAGE) || 0.05, // 5%
-    gstPercentage: Number(process.env.GST_PERCENTAGE) || 0.1, // 10% GST
-    // Standard Stripe AU pricing: 1.75% + 30c
-    stripeFeePercent: Number(process.env.STRIPE_FEE_PERCENTAGE) || 0.0175,
-    stripeFixedFee: Number(process.env.STRIPE_FIXED_FEE) || 0.3,
-    clearingPeriodDays: Number(process.env.CLEARING_PERIOD_DAYS) ?? 7,
+    gstPercentage: Number(process.env.GST_PERCENTAGE) || 0.1, // 10% GST in Australia
+    stripeFeePercent: Number(process.env.STRIPE_FEE_PERCENTAGE) || 0.0175, // 1.75% Domestic
+    stripeFixedFee: Number(process.env.STRIPE_FIXED_FEE) || 0.3, // $0.30
+    clearingPeriodDays: Number(process.env.CLEARING_PERIOD_DAYS) || 7,
   },
   jwt: {
     accessTokenSecret: process.env.JWT_ACCESS_SECRET || 'default_access_secret',

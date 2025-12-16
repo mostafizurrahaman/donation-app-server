@@ -4,14 +4,7 @@ import config from '../../config';
 import { AppError } from '../../utils';
 import httpStatus from 'http-status';
 import { OrganizationModel } from '../Organization/organization.model';
-import { Donation } from '../Donation/donation.model';
-import Cause from '../Causes/causes.model';
-import { CAUSE_STATUS_TYPE } from '../Causes/causes.constant';
-import Client from '../Client/client.model';
-import { RoundUpModel } from '../RoundUp/roundUp.model';
 import {
-  ICheckoutSessionRequest,
-  ICheckoutSessionResponse,
   IPaymentIntentRequest,
   IPaymentIntentResponse,
   ISetupIntentRequest,
@@ -308,12 +301,15 @@ const detachPaymentMethod = async (
 
 // 10. Create payment intent with saved payment method (for direct charges)
 const createPaymentIntentWithMethod = async (
-  payload: ICreatePaymentIntentWithMethodRequest
+  payload: ICreatePaymentIntentWithMethodRequest & {
+    applicationFee: number; // Platform Revenue + GST
+    orgStripeAccountId: string; // The Org's Connect ID
+  }
 ): Promise<IPaymentIntentResponse> => {
   const {
-    amount, // Base
-    totalAmount, // Total to charge
-    currency = 'usd',
+    amount, // Base amount
+    totalAmount, // Total to charge the donor
+    currency = 'aud', // Default to AUD
     customerId,
     paymentMethodId,
     donationId,
@@ -321,11 +317,15 @@ const createPaymentIntentWithMethod = async (
     causeId,
     specialMessage,
 
-    // ✅ Fee Breakdown
+    // Fee Logic inputs
+    applicationFee,
+    orgStripeAccountId,
+
+    // Metadata Breakdown
     coverFees = false,
     platformFee = 0,
     gstOnFee = 0,
-    stripeFee = 0, // ✅ NEW
+    stripeFee = 0,
     netToOrg = 0,
   } = payload;
 
@@ -337,19 +337,38 @@ const createPaymentIntentWithMethod = async (
     );
   }
 
-  console.log(`💳 Creating Payment Intent with Saved Method:`);
+  if (!orgStripeAccountId) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'Organization is not connected to Stripe. Cannot process payment.'
+    );
+  }
+
+  console.log(`💳 Creating Payment Intent (Destination Charge):`);
   console.log(`   Base: $${amount.toFixed(2)}`);
-  console.log(`   Total: $${totalAmount.toFixed(2)}`);
+  console.log(`   Total Charge: $${totalAmount.toFixed(2)}`);
+  console.log(`   App Fee (Platform + GST): $${applicationFee.toFixed(2)}`);
+  console.log(`   Destination Account: ${orgStripeAccountId}`);
 
   try {
-    // Create payment intent with saved payment method
+    // Create payment intent with Destination Charge
     const paymentIntentParams: Stripe.PaymentIntentCreateParams = {
       amount: Math.round(totalAmount * 100),
-      currency,
+      currency: currency.toLowerCase(),
       customer: customerId,
       payment_method: paymentMethodId,
       confirm: true, // Automatically confirm the payment
       return_url: config.stripe.stripeSuccessUrl,
+
+      // ✅ Destination Charge Logic:
+      // 1. Charge the Total Amount.
+      // 2. Keep 'application_fee_amount' in Platform.
+      // 3. Send the rest to the Organization immediately.
+      application_fee_amount: Math.round(applicationFee * 100),
+      transfer_data: {
+        destination: orgStripeAccountId,
+      },
+
       metadata: {
         donationId,
         organizationId,
@@ -361,9 +380,10 @@ const createPaymentIntentWithMethod = async (
         // ✅ Fee Breakdown
         platformFee: platformFee.toString(),
         gstOnFee: gstOnFee.toString(),
-        stripeFee: stripeFee.toString(), // ✅ NEW
+        stripeFee: stripeFee.toString(),
         netToOrg: netToOrg.toString(),
         coverFees: coverFees.toString(),
+        destinationAccount: orgStripeAccountId,
       },
     };
 
@@ -527,7 +547,8 @@ const createAccountLink = async (
   }
 };
 
-// 16. Create payment intent for round-up donation (webhook-based approach)
+// 16. Create payment intent for round-up donation (Destination Charge)
+// Refactored to support Split Payments for automated round-ups
 const createRoundUpPaymentIntent = async (
   payload: ICreateRoundUpPaymentIntentRequest
 ): Promise<{ client_secret: string; payment_intent_id: string }> => {
@@ -544,16 +565,16 @@ const createRoundUpPaymentIntent = async (
       specialMessage,
       paymentMethodId,
       donationId,
-
-      // ✅ Fee Breakdown
+      applicationFee,
+      // Fee Breakdown
       coverFees = false,
       platformFee = 0,
       gstOnFee = 0,
-      stripeFee = 0, // ✅ NEW
+      stripeFee = 0,
       netToOrg = 0,
     } = payload;
 
-    console.log(`🔄 Creating RoundUp Payment Intent:`);
+    console.log(`🔄 Creating RoundUp Payment Intent (Destination Charge):`);
     console.log(`   Base: $${amount.toFixed(2)}`);
     console.log(`   Total: $${totalAmount.toFixed(2)}`);
 
@@ -561,6 +582,13 @@ const createRoundUpPaymentIntent = async (
     const charity = await OrganizationModel.findById(charityId);
     if (!charity) {
       throw new AppError(httpStatus.BAD_REQUEST, 'Charity not found!');
+    }
+
+    if (!charity.stripeConnectAccountId) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        'Charity is not connected to Stripe!'
+      );
     }
 
     // Check if payment method exists for user
@@ -591,7 +619,7 @@ const createRoundUpPaymentIntent = async (
     // Create Stripe Payment Intent for off-session round-up donation
     const paymentIntentParams: Stripe.PaymentIntentCreateParams = {
       amount: Math.round(totalAmount * 100),
-      currency: 'usd',
+      currency: 'aud', // Default to AUD for AU context
 
       // Off-session settings
       confirm: true,
@@ -600,6 +628,12 @@ const createRoundUpPaymentIntent = async (
       // Must specify customer + saved PM for off-session
       customer: paymentMethod.stripeCustomerId,
       payment_method: paymentMethod.stripePaymentMethodId,
+
+      //  Destination Charge
+      application_fee_amount: Math.round(applicationFee * 100),
+      transfer_data: {
+        destination: charity.stripeConnectAccountId,
+      },
 
       metadata: {
         donationId: String(donationId || ''),
@@ -616,12 +650,13 @@ const createRoundUpPaymentIntent = async (
         baseAmount: amount.toString(),
         totalAmount: totalAmount.toString(),
 
-        // ✅ Audit Trail
+        //  Audit Trail
         platformFee: platformFee.toString(),
         gstOnFee: gstOnFee.toString(),
-        stripeFee: stripeFee.toString(), // ✅ NEW
+        stripeFee: stripeFee.toString(),
         netToOrg: netToOrg.toString(),
         coverFees: coverFees.toString(),
+        destinationAccount: charity.stripeConnectAccountId,
       },
     };
 
@@ -695,6 +730,44 @@ const transferFundsToConnectedAccount = async (
   }
 };
 
+// 20. Create Payout (Manual Payout from Connected Account to Bank)
+// Moves funds from Connected Account Balance to their External Bank
+const createPayout = async (
+  accountId: string,
+  amount: number,
+  currency: string = 'aud'
+): Promise<Stripe.Payout> => {
+  if (!accountId) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'Stripe Connected Account ID is required for payout.'
+    );
+  }
+
+  try {
+    console.log(`💸 Triggering Stripe Payout for Account: ${accountId}`);
+    console.log(`   Amount: ${amount} ${currency.toUpperCase()}`);
+
+    // Perform payout ON BEHALF OF the connected account
+    const payout = await stripe.payouts.create(
+      {
+        amount: Math.round(amount * 100), // Convert to cents
+        currency: currency.toLowerCase(),
+      },
+      {
+        stripeAccount: accountId, // This executes the payout on the Org's account
+      }
+    );
+
+    return payout;
+  } catch (error) {
+    throw new AppError(
+      httpStatus.INTERNAL_SERVER_ERROR,
+      `Failed to create payout: ${(error as Error).message}`
+    );
+  }
+};
+
 export const StripeService = {
   // Payment intent methods
   createPaymentIntent,
@@ -727,4 +800,5 @@ export const StripeService = {
 
   // Transfer methods
   transferFundsToConnectedAccount,
+  createPayout,
 };

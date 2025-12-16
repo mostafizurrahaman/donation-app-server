@@ -14,7 +14,7 @@ import { cronJobTracker } from './cronJobTracker';
 const JOB_NAME = 'payout-processing';
 
 export const startPayoutProcessingCron = () => {
-  // Run every day at 9:00 AM
+  // Run every day at 9:00 AM (Australia Time ideally, but server time here)
   const schedule = '0 9 * * *';
 
   cronJobTracker.registerJob(JOB_NAME, schedule);
@@ -34,12 +34,10 @@ export const startPayoutProcessingCron = () => {
       const today = new Date();
 
       // Find payouts scheduled for today (or past) that are still PENDING
-      // In a real scenario, you might filter by 'approved' if you have an approval workflow
       const duePayouts = await Payout.find({
         status: PAYOUT_STATUS.PENDING,
         scheduledDate: { $lte: today },
       });
-      console.log(duePayouts);
 
       console.log(`Found ${duePayouts.length} payouts due for processing.`);
 
@@ -50,44 +48,53 @@ export const startPayoutProcessingCron = () => {
           const org = await OrganizationModel.findById(
             payout.organization
           ).session(session);
+
           if (!org || !org.stripeConnectAccountId) {
             throw new Error(
-              'Organization not found or no Stripe Connect account'
+              'Organization not found or no Stripe Connect account linked'
             );
           }
 
-          // 2. Mark as PROCESSING
+          // 2. Mark as PROCESSING in DB
           payout.status = PAYOUT_STATUS.PROCESSING;
           payout.processedAt = new Date();
           await payout.save({ session });
 
-          // 3. Execute Stripe Transfer
-          // Note: We use the netAmount (minus fees)
-          // We assume StripeService has been updated to handle transfers from Platform -> Connect
-          const transfer = await StripeService.transferFundsToConnectedAccount(
-            org.stripeConnectAccountId,
-            payout.netAmount,
-            payout.currency,
-            { payoutId: payout?._id?.toString() as string }
+          // 3. Execute Stripe Payout (Balance -> Bank)
+          // Note: Since we use Destination Charges, funds are ALREADY in the Connect Account.
+          // We just need to release them from the Stripe Balance to the Bank Account.
+          const stripePayout = await StripeService.createPayout(
+            org.stripeConnectAccountId, // Perform action ON BEHALF OF this account
+            payout.netAmount, // Amount to send to bank
+            payout.currency
           );
 
-          // 4. Mark as COMPLETED
+          // 4. Mark as COMPLETED in DB
           payout.status = PAYOUT_STATUS.COMPLETED;
           payout.completedAt = new Date();
-          payout.stripeTransferId = transfer.id;
+          payout.stripePayoutId = stripePayout.id; // Store Payout ID
           await payout.save({ session });
 
-          // 5. Update Balance (Reserved -> Paid Out)
+          // 5. Update Internal Ledger (Reserved -> Paid Out)
           const balance = await OrganizationBalance.findOne({
             organization: payout.organization,
           }).session(session);
 
           if (balance) {
-            balance.reservedBalance -= payout.requestedAmount; // Gross amount removed
-            balance.lifetimePaidOut += payout.netAmount;
-            balance.lifetimePlatformFees += payout.platformFeeAmount;
-            balance.lifetimeTaxDeducted += payout.taxAmount;
+            // Gross amount removed from reserved (it was moved from available to reserved on request)
+            balance.reservedBalance = Number(
+              (balance.reservedBalance - payout.requestedAmount).toFixed(2)
+            );
+            balance.lifetimePaidOut = Number(
+              (balance.lifetimePaidOut + payout.netAmount).toFixed(2)
+            );
+
+            // Note: Fees were already deducted during donation processing,
+            // so we don't deduct them again here.
             balance.lastPayoutAt = new Date();
+
+            // Safety check
+            if (balance.reservedBalance < 0) balance.reservedBalance = 0;
 
             await balance.save({ session });
 
@@ -98,20 +105,23 @@ export const startPayoutProcessingCron = () => {
                   organization: payout.organization,
                   type: 'debit',
                   category: 'payout_completed',
-                  amount: payout.requestedAmount, // Gross amount leaves the system
+                  amount: payout.requestedAmount, // Amount leaving the system
                   balanceAfter_pending: balance.pendingBalance,
                   balanceAfter_available: balance.availableBalance,
                   balanceAfter_reserved: balance.reservedBalance,
-                  balanceAfter_total:
-                    balance.pendingBalance +
-                    balance.availableBalance +
-                    balance.reservedBalance,
+                  balanceAfter_total: Number(
+                    (
+                      balance.pendingBalance +
+                      balance.availableBalance +
+                      balance.reservedBalance
+                    ).toFixed(2)
+                  ),
                   payout: payout._id,
                   description: `Payout completed: ${payout.payoutNumber}`,
                   metadata: {
-                    stripeTransferId: transfer.id,
-                    netAmount: payout.netAmount,
-                    fee: payout.platformFeeAmount,
+                    stripePayoutId: stripePayout.id,
+                    netAmountSent: payout.netAmount,
+                    destinationBank: stripePayout.destination, // Bank ID usually
                   },
                   idempotencyKey: `pay_complete_${payout._id}`,
                 },
@@ -132,15 +142,16 @@ export const startPayoutProcessingCron = () => {
             error.message
           );
 
-          // Mark as Failed
+          // Mark as Failed in DB so we don't retry immediately without review
+          // In a production system, you might want to auto-retry X times or alert admins
           await Payout.findByIdAndUpdate(payout._id, {
             status: PAYOUT_STATUS.FAILED,
             failureReason: error.message,
             $inc: { retryCount: 1 },
           });
 
-          // OPTIONAL: If max retries reached, return funds to 'available' automatically?
-          // For now, we leave it as failed. Admin can cancel it to return funds.
+          // Logic to return funds to 'Available' could go here if the failure is permanent,
+          // but usually, we keep it in 'Reserved' until an Admin investigates.
 
           failureCount++;
         }
