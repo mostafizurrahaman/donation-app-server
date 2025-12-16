@@ -7,7 +7,7 @@ import httpStatus from 'http-status';
 import { Donation } from './donation.model';
 import { StripeService } from '../Stripe/stripe.service';
 import { ExtendedRequest } from '../../types';
-import { Types } from 'mongoose';
+import mongoose, { Types } from 'mongoose';
 import { ScheduledDonation } from '../ScheduledDonation/scheduledDonation.model';
 import { RoundUpModel } from '../RoundUp/roundUp.model';
 import { RoundUpTransactionModel } from '../RoundUpTransaction/roundUpTransaction.model';
@@ -16,6 +16,12 @@ import { Receipt } from '../Receipt/receipt.model';
 import { pointsServices } from '../Points/points.service';
 import { badgeService } from '../badge/badge.service';
 import { BalanceService } from '../Balance/balance.service';
+import { PAYOUT_STATUS } from '../Payout/payout.constant';
+import { Payout } from '../Payout/payout.model';
+import {
+  BalanceTransaction,
+  OrganizationBalance,
+} from '../Balance/balance.model';
 
 // ========================================
 // HELPER: Calculate Next Donation Date
@@ -78,14 +84,14 @@ const updateScheduledDonationAfterSuccess = async (
     const scheduledDonation = await ScheduledDonation.findOneAndUpdate(
       {
         _id: scheduledDonationId,
-        status: 'processing', 
+        status: 'processing',
       },
       {
         $set: {
           lastExecutedDate: new Date(),
         },
         $inc: {
-          totalExecutions: 1, 
+          totalExecutions: 1,
         },
       },
       {
@@ -112,7 +118,7 @@ const updateScheduledDonationAfterSuccess = async (
     await ScheduledDonation.findByIdAndUpdate(scheduledDonationId, {
       $set: {
         nextDonationDate: nextDate,
-        status: 'active', 
+        status: 'active',
       },
     });
 
@@ -155,7 +161,6 @@ const updateScheduledDonationAfterFailure = async (
       `❌ Updating scheduled donation after failure: ${scheduledDonationId}`
     );
 
-    
     await ScheduledDonation.findOneAndUpdate(
       {
         _id: scheduledDonationId,
@@ -163,7 +168,7 @@ const updateScheduledDonationAfterFailure = async (
       },
       {
         $set: {
-          status: 'active', 
+          status: 'active',
         },
       }
     );
@@ -350,7 +355,6 @@ const handleRoundUpDonationFailure = async (
     );
   }
 };
-
 
 // ========================================
 // PAYMENT INTENT: Succeeded Handler
@@ -663,15 +667,12 @@ const handlePaymentIntentCanceled = async (
 const handleChargeRefunded = async (charge: Stripe.Charge) => {
   const paymentIntentId = charge.payment_intent as string;
 
-  console.log(`\n💸 ========================================`);
-  console.log(`   WEBHOOK: charge.refunded`);
-  console.log(`   Payment Intent ID: ${paymentIntentId}`);
-  console.log(`   Refund Amount: ${charge.amount_refunded / 100}`);
-  console.log(`========================================\n`);
+  console.log(`\n💸 WEBHOOK: charge.refunded - ID: ${paymentIntentId}`);
 
   if (!paymentIntentId) return;
 
   try {
+    // 1. Find and update Donation
     const donation = await Donation.findOneAndUpdate(
       {
         stripePaymentIntentId: paymentIntentId,
@@ -687,22 +688,159 @@ const handleChargeRefunded = async (charge: Stripe.Charge) => {
           (donation.organization as any)._id?.toString() ||
           donation.organization.toString();
 
-        await BalanceService.deductRefund(
-          orgId,
-          donation?._id?.toString() as string
-        );
+        // 2. Call Balance Service to deduct from Ledger
+        // This handles the math of reducing (Pending or Available) balance
+        await BalanceService.deductRefund(orgId, donation._id!.toString());
         console.log(`✅ Refund deducted from ledger for Org: ${orgId}`);
       } catch (err: any) {
         console.error(`❌ Failed to update ledger for refund:`, err.message);
       }
+    } else {
+      console.warn(
+        `⚠️ Donation not found or not eligible for refund via webhook (PI: ${paymentIntentId})`
+      );
     }
 
-    console.log(`✅ Refund processed successfully`);
+    console.log(`✅ Donation status updated to REFUNDED.`);
   } catch (error) {
     console.error(`❌ Failed to update donation status to refunded:`, error);
   }
 };
 
+// ========================================
+// PAYOUT: Paid Handler (Success Confirmation)
+// ========================================
+const handlePayoutPaid = async (payoutEvent: Stripe.Payout) => {
+  console.log(`\n💸 WEBHOOK: payout.paid - ID: ${payoutEvent.id}`);
+
+  try {
+    // 1. Find Payout by the ID stored during the Cron Job execution
+    const payout = await Payout.findOne({ stripePayoutId: payoutEvent.id });
+
+    if (!payout) {
+      console.warn(`⚠️ Payout not found for Stripe ID: ${payoutEvent.id}`);
+      return;
+    }
+
+    // 2. Ensure status is COMPLETED
+    if (payout.status !== PAYOUT_STATUS.COMPLETED) {
+      payout.status = PAYOUT_STATUS.COMPLETED;
+      payout.completedAt = new Date(); // Update with actual webhook time
+      await payout.save();
+      console.log(
+        `✅ Payout ${payout.payoutNumber} confirmed as COMPLETED via Webhook.`
+      );
+    } else {
+      console.log(
+        `ℹ️ Payout ${payout.payoutNumber} was already marked COMPLETED.`
+      );
+    }
+  } catch (error) {
+    console.error(`❌ Error handling payout.paid:`, error);
+  }
+};
+
+// ========================================
+// PAYOUT: Failed Handler (Reversal Logic)
+// ========================================
+const handlePayoutFailed = async (payoutEvent: Stripe.Payout) => {
+  console.log(`\n❌ WEBHOOK: payout.failed - ID: ${payoutEvent.id}`);
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const payout = await Payout.findOne({
+      stripePayoutId: payoutEvent.id,
+    }).session(session);
+
+    if (!payout) {
+      console.warn(`⚠️ Payout not found for Stripe ID: ${payoutEvent.id}`);
+      await session.abortTransaction();
+      return;
+    }
+
+    // 1. Mark Payout as FAILED
+    payout.status = PAYOUT_STATUS.FAILED;
+    payout.failureReason =
+      payoutEvent.failure_code ||
+      payoutEvent.failure_message ||
+      'Bank transfer failed';
+    await payout.save({ session });
+
+    // 2. Reverse Ledger: Money returns to 'Available'
+    const balance = await OrganizationBalance.findOne({
+      organization: payout.organization,
+    }).session(session);
+
+    if (balance) {
+      // Revert calculations done in payoutProcessing.job.ts
+
+      // A. Add net amount back to Available (funds returned to Stripe Balance)
+      balance.availableBalance = Number(
+        (balance.availableBalance + payout.netAmount).toFixed(2)
+      );
+
+      // B. Reduce lifetime paid out (since it failed)
+      balance.lifetimePaidOut = Number(
+        (balance.lifetimePaidOut - payout.netAmount).toFixed(2)
+      );
+
+      // Note: We typically dump the returned amount into 'One-Time' or 'Other' breakdown
+      // because tracking exactly which pennies came from 'Recurring' vs 'RoundUp'
+      // after a bulk payout failure is complex.
+      balance.availableByType_oneTime = Number(
+        (balance.availableByType_oneTime + payout.netAmount).toFixed(2)
+      );
+
+      await balance.save({ session });
+
+      // 3. Create Ledger Entry for Reversal
+      await BalanceTransaction.create(
+        [
+          {
+            organization: payout.organization,
+            type: 'credit', // Credit back to available
+            category: 'payout_failed',
+            amount: payout.netAmount,
+
+            // Snapshots
+            balanceAfter_pending: balance.pendingBalance,
+            balanceAfter_available: balance.availableBalance,
+            balanceAfter_reserved: balance.reservedBalance,
+            balanceAfter_total: Number(
+              (
+                balance.pendingBalance +
+                balance.availableBalance +
+                balance.reservedBalance
+              ).toFixed(2)
+            ),
+
+            payout: payout._id,
+            description: `Payout Failed: ${payout.payoutNumber} - Funds Returned`,
+            metadata: {
+              stripePayoutId: payoutEvent.id,
+              reason: payout.failureReason,
+              originalAmount: payout.requestedAmount,
+            },
+            idempotencyKey: `pay_fail_${payout._id}_${Date.now()}`,
+          },
+        ],
+        { session }
+      );
+    }
+
+    await session.commitTransaction();
+    console.log(
+      `✅ Payout ${payout.payoutNumber} marked FAILED. Funds returned to Available Balance.`
+    );
+  } catch (error) {
+    await session.abortTransaction();
+    console.error(`❌ Error handling payout.failed:`, error);
+  } finally {
+    session.endSession();
+  }
+};
 // ========================================
 // MAIN WEBHOOK HANDLER
 // ========================================
@@ -725,13 +863,9 @@ const handleStripeWebhook = async (
       signature
     );
 
-    console.log(`\n📨 ========================================`);
-    console.log(`   Incoming Webhook Event: ${event.type}`);
-    console.log(`   Event ID: ${event.id}`);
-    console.log(`========================================\n`);
+    console.log(`\n📨 Webhook Received: ${event.type}`);
 
     switch (event.type) {
-     
       case 'payment_intent.succeeded':
         await handlePaymentIntentSucceeded(
           event.data.object as Stripe.PaymentIntent
@@ -754,8 +888,16 @@ const handleStripeWebhook = async (
         await handleChargeRefunded(event.data.object as Stripe.Charge);
         break;
 
+      case 'payout.paid':
+        await handlePayoutPaid(event.data.object as Stripe.Payout);
+        break;
+
+      case 'payout.failed':
+        await handlePayoutFailed(event.data.object as Stripe.Payout);
+        break;
+
       default:
-        console.log(`⚠️ Unhandled webhook event type: ${event.type}`);
+        console.log(`ℹ️ Unhandled event type: ${event.type}`);
     }
 
     sendResponse(res, {
@@ -764,12 +906,7 @@ const handleStripeWebhook = async (
       data: { received: true },
     });
   } catch (error) {
-    console.error('\n❌ ========================================');
-    console.error('   Webhook Processing Error');
-    console.error('========================================');
-    console.error(error);
-    console.error('========================================\n');
-
+    console.error('\n❌ Webhook Error:', error);
     sendResponse(res, {
       statusCode: httpStatus.INTERNAL_SERVER_ERROR,
       message: 'Webhook processing failed',

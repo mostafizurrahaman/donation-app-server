@@ -15,7 +15,7 @@ const router = Router();
 
 // Stripe webhook endpoint - uses raw body from custom middleware
 router.post(
-  '/donation/stripe',
+  '/donation/stripe1',
   asyncHandler(async (req, res) => {
     // Use raw body from our custom middleware
     const rawBody = req.rawBody;
