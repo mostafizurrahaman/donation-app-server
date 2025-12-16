@@ -45,10 +45,10 @@ const addDonationFunds = async (
     throw new Error('Donation not found during balance update');
   }
 
-  // ✅ CRITICAL: Credit only the NET amount to the organization
+  // This matches the Destination Charge amount sent to their Stripe Connect account
   const amountToCredit = donation.netAmount;
 
-  // ✅ FIX: Rounding Logic for Totals
+  // Update Total Balances
   balance.pendingBalance = Number(
     (balance.pendingBalance + amountToCredit).toFixed(2)
   );
@@ -57,7 +57,8 @@ const addDonationFunds = async (
   );
   balance.lastTransactionAt = new Date();
 
-  // ✅ FIX: Rounding Logic for Breakdowns
+  // Update Breakdown by
+
   if (donationType === 'one-time') {
     balance.pendingByType_oneTime = Number(
       (balance.pendingByType_oneTime + amountToCredit).toFixed(2)
@@ -80,10 +81,11 @@ const addDonationFunds = async (
     type: 'credit',
     category: 'donation_received',
     amount: amountToCredit,
+
+    // Balance Snapshots
     balanceAfter_pending: balance.pendingBalance,
     balanceAfter_available: balance.availableBalance,
     balanceAfter_reserved: balance.reservedBalance,
-    // ✅ FIX: Ensure total matches sum of parts
     balanceAfter_total: Number(
       (
         balance.pendingBalance +
@@ -91,16 +93,18 @@ const addDonationFunds = async (
         balance.reservedBalance
       ).toFixed(2)
     ),
+
     donation: new Types.ObjectId(donationId),
     donationType,
     description: `Donation received (${donationType}) - Net`,
 
+    //  UPDATED METADATA: Stores the full financial picture
     metadata: {
-      gross: donation.totalAmount,
+      grossAmount: donation.totalAmount,
       baseDonation: donation.amount,
       platformFee: donation.platformFee,
       gstOnFee: donation.gstOnFee,
-      stripeFee: donation.stripeFee || 0,
+      stripeFee: donation.stripeFee,
       netCredited: amountToCredit,
       coverFees: donation.coverFees,
     },
@@ -110,7 +114,6 @@ const addDonationFunds = async (
 
   await BalanceTransaction.create([transaction], { session });
 };
-
 /**
  * Get Balance Summary for Dashboard
  */
@@ -178,17 +181,20 @@ const deductRefund = async (
     throw new Error('Donation not found for refund deduction');
   }
 
-  // Determine if funds are likely in Pending or Available
+  // Determine if funds are likely in Pending or Available based on clearing period
   const clearingDays = balance.clearingPeriodDays || 7;
   const clearingMs = clearingDays * 24 * 60 * 60 * 1000;
   const timeSinceDonation = Date.now() - (donation?.createdAt?.getTime() || 0);
 
   const isPending = timeSinceDonation < clearingMs;
+
+  // When refunding a Destination Charge, Stripe reverses the transfer.
+  // We must deduct the exact NET amount that was originally credited.
   const amountToDeduct = donation.netAmount;
   const type = donation.donationType;
 
   if (isPending) {
-    // ✅ FIX: Rounding & Breakdown Deduction for Pending
+    // Deduct from Pending
     balance.pendingBalance = Number(
       (balance.pendingBalance - amountToDeduct).toFixed(2)
     );
@@ -206,7 +212,7 @@ const deductRefund = async (
         (balance.pendingByType_roundUp - amountToDeduct).toFixed(2)
       );
   } else {
-    // ✅ FIX: Rounding & Breakdown Deduction for Available
+    // Deduct from Available
     balance.availableBalance = Number(
       (balance.availableBalance - amountToDeduct).toFixed(2)
     );
@@ -225,7 +231,7 @@ const deductRefund = async (
       );
   }
 
-  // Safety checks against negative values (just in case)
+  // Safety checks to prevent negative balances
   if (balance.pendingBalance < 0) balance.pendingBalance = 0;
   if (balance.availableBalance < 0) balance.availableBalance = 0;
 
@@ -233,6 +239,7 @@ const deductRefund = async (
   balance.lifetimeRefunds = Number(
     (balance.lifetimeRefunds + amountToDeduct).toFixed(2)
   );
+  // Reduce lifetime earnings to reflect the refund
   balance.lifetimeEarnings = Number(
     (balance.lifetimeEarnings - amountToDeduct).toFixed(2)
   );
@@ -245,6 +252,7 @@ const deductRefund = async (
     type: 'debit',
     category: 'refund_issued',
     amount: amountToDeduct,
+
     balanceAfter_pending: balance.pendingBalance,
     balanceAfter_available: balance.availableBalance,
     balanceAfter_reserved: balance.reservedBalance,
@@ -255,11 +263,13 @@ const deductRefund = async (
         balance.reservedBalance
       ).toFixed(2)
     ),
+
     donation: new Types.ObjectId(donationId),
     description: `Refund issued for donation ${donationId} (Net Reversal)`,
     metadata: {
       originalNet: donation.netAmount,
       refundedNet: amountToDeduct,
+      stripeFeeWas: donation.stripeFee, // Note: Stripe fees are usually not refunded
     },
     idempotencyKey: `ref_${donationId}_${Date.now()}`,
   };
@@ -267,7 +277,7 @@ const deductRefund = async (
   await BalanceTransaction.create([transaction], { session });
 };
 
-// ... existing imports
+
 
 interface IGetDataDashboardQuery {
   organization?: Types.ObjectId;

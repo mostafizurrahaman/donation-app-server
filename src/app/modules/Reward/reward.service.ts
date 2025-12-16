@@ -927,12 +927,17 @@ const getAdminRewards = async (query: Record<string, unknown>) => {
   const { fromDate, toDate, ...apiQuery } = query;
 
   if (fromDate || toDate) {
+    const createdAtFilter: Record<string, unknown> = {};
+
     if (fromDate) {
-      apiQuery.createdAt = { $gte: new Date(fromDate as string) };
+      createdAtFilter.$gte = new Date(fromDate as string);
     }
+
     if (toDate) {
-      apiQuery.createdAt = { ...apiQuery.createdAt, $lte: new Date(toDate) };
+      createdAtFilter.$lte = new Date(toDate as string);
     }
+
+    apiQuery.createdAt = createdAtFilter;
   }
 
   const rewardQuery = new QueryBuilder(

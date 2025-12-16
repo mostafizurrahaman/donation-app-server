@@ -348,7 +348,7 @@ const getBadgeHistory = async (userId: string, badgeId: string) => {
     const totalReq =
       nextTierConfig.requiredCount > 0
         ? nextTierConfig.requiredCount
-        : nextTierConfig.requiredAmount;
+        : nextTierConfig.requiredAmount as number
     const currentProg =
       nextTierConfig.requiredCount > 0
         ? userBadge?.progressCount || 0

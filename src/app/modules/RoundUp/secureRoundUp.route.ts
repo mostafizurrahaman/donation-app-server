@@ -41,14 +41,6 @@ router.post(
   roundUpController.syncTransactions
 );
 
-// Manual donation trigger (before threshold reached - webhook-based)
-router.post(
-  '/process-monthly-donation',
-  auth(ROLE.CLIENT),
-  validateRequest(processMonthlyDonationValidation),
-  roundUpController.processMonthlyDonation
-);
-
 // Resume/unpause round-up
 router.post(
   '/resume',

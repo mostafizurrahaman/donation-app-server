@@ -164,7 +164,7 @@ const triggerDonation = async (
 
         month: currentMonth,
         year: now.getFullYear(),
-        specialMessage: roundUpConfig.specialMessage,
+        specialMessage: roundUpConfig.specialMessage as string,
         donationId: String(donation._id),
         paymentMethodId: roundUpConfig.paymentMethod as string,
       });
@@ -787,7 +787,7 @@ const processMonthlyDonation = async (
       amount: financials.baseAmount,
       totalAmount: financials.totalCharge,
 
-      // ✅ Pass Destination Params
+      // Pass Destination Params
       applicationFee,
 
       coverFees: financials.coverFees,

@@ -13,6 +13,7 @@ import Donation from '../modules/Donation/donation.model';
 import { calculateAustralianFees } from '../modules/Donation/donation.constant'; // ✅ Fixed Import
 import { IAuth } from '../modules/Auth/auth.interface';
 import Client from '../modules/Client/client.model';
+import { OrganizationModel } from '../modules/Organization/organization.model';
 
 interface IPopulatedRoundUpConfig extends Omit<IRoundUpDocument, 'user'> {
   user: IAuth;
@@ -24,7 +25,6 @@ interface IPopulatedRoundUpConfig extends Omit<IRoundUpDocument, 'user'> {
 
 let isProcessing = false; // Prevents overlapping executions
 const JOB_NAME = 'roundup-transactions-main';
-
 /**
  * Triggers end-of-month donations for users who have an accumulated balance
  */
@@ -40,7 +40,7 @@ const processEndOfMonthDonations = async () => {
   }).populate('user');
 
   if (configsForDonation.length === 0) {
-    console.log('✅ No users with pending balances for month-end processing.');
+    console.log(' No users with pending balances for month-end processing.');
     return { processed: 0, success: 0, failed: 0 };
   }
 
@@ -65,10 +65,11 @@ const processEndOfMonthDonations = async () => {
 
     try {
       const totalAmount = config.currentMonthTotal;
-      const coverFees = config.coverFees || false; // ✅ Use coverFees instead of isTaxable
+      const coverFees = config.coverFees || false;
 
-      // ✅ Calculate Fees (including Stripe)
+      //  Calculate Fees (Australian Logic)
       const financials = calculateAustralianFees(totalAmount, coverFees);
+      const applicationFee = financials.platformFee + financials.gstOnFee;
 
       const now = new Date();
       const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -79,8 +80,19 @@ const processEndOfMonthDonations = async () => {
         `   Initiating month-end donation of $${totalAmount} for user ${userId}...`
       );
       console.log(`   Base Amount: $${financials.baseAmount.toFixed(2)}`);
-      console.log(`   Stripe Fee: $${financials.stripeFee.toFixed(2)}`);
       console.log(`   Total Charged: $${financials.totalCharge.toFixed(2)}`);
+
+      // ✅ Fetch Organization to get Stripe Connect ID
+      // We need this for the Destination Charge
+      const organizationDoc = await OrganizationModel.findById(
+        config.organization
+      ).session(session);
+
+      if (!organizationDoc || !organizationDoc.stripeConnectAccountId) {
+        throw new Error(
+          `Organization ${config.organization} not connected to Stripe`
+        );
+      }
 
       // Get all processed transactions for this round-up config for the month
       const monthTransactions = await RoundUpTransactionModel.find({
@@ -102,7 +114,7 @@ const processEndOfMonthDonations = async () => {
         continue;
       }
 
-      // ✅ Find Client by auth ID
+      // Find Client by auth ID
       const donor = await Client.findOne({ auth: userId }).session(session);
       if (!donor?._id) {
         console.error(
@@ -120,16 +132,16 @@ const processEndOfMonthDonations = async () => {
         cause: config.cause,
         donationType: 'round-up',
 
-        // ✅ Store Financial Breakdown
+        //  Store Financial Breakdown
         amount: financials.baseAmount,
         coverFees: financials.coverFees,
         platformFee: financials.platformFee,
         gstOnFee: financials.gstOnFee,
-        stripeFee: financials.stripeFee, // ✅ NEW
+        stripeFee: financials.stripeFee,
         netAmount: financials.netToOrg,
         totalAmount: financials.totalCharge,
 
-        currency: 'USD',
+        currency: 'AUD', // Australian Context
         status: 'pending',
         donationDate: new Date(),
         specialMessage:
@@ -152,27 +164,31 @@ const processEndOfMonthDonations = async () => {
 
       console.log(`   ✅ Donation record created: ${donation._id}`);
 
-      // STEP 2: Create Stripe PaymentIntent
+      // STEP 2: Create Stripe PaymentIntent (Destination Charge)
       const paymentResult = await StripeService.createRoundUpPaymentIntent({
         roundUpId: String(config._id),
         userId: String(userId),
         charityId: String(config.organization),
         causeId: String(config.cause),
-        amount: financials.baseAmount, // Base Amount
 
-        // ✅ Pass Financial Breakdown
+        amount: financials.baseAmount,
+        totalAmount: financials.totalCharge,
+
+        // Destination Charge
+        applicationFee: applicationFee,
+
+        // Financial Breakdown Metadata
         coverFees: financials.coverFees,
         platformFee: financials.platformFee,
         gstOnFee: financials.gstOnFee,
-        stripeFee: financials.stripeFee, // ✅ NEW
+        stripeFee: financials.stripeFee,
         netToOrg: financials.netToOrg,
-        totalAmount: financials.totalCharge,
 
         month: `${year}-${monthStr}`,
         year: year,
         specialMessage: `Automatic monthly round-up for ${monthStr}/${year}`,
         donationId: String(donation._id),
-        paymentMethodId: config.paymentMethod,
+        paymentMethodId: config.paymentMethod as string,
       });
 
       // STEP 3: Update Donation to PROCESSING
