@@ -27,8 +27,6 @@ const scheduledDonationSchema = new Schema<IScheduledDonationModel>(
       required: [true, 'Base Amount is required'],
       min: [0.01, 'Amount must be at least 0.01'],
     },
-
-    // ✅ Store fee preference for future executions
     coverFees: {
       type: Boolean,
       default: true,
@@ -94,7 +92,6 @@ const scheduledDonationSchema = new Schema<IScheduledDonationModel>(
       required: [true, 'Next donation date is required'],
       index: true,
     },
-    // ✅ REMOVED: endDate field completely
 
     // Status & Execution Tracking
     isActive: {
@@ -103,7 +100,6 @@ const scheduledDonationSchema = new Schema<IScheduledDonationModel>(
       index: true,
     },
 
-    // ✅ Processing status to prevent concurrent execution
     status: {
       type: String,
       enum: ['active', 'processing', 'paused'],
@@ -113,7 +109,9 @@ const scheduledDonationSchema = new Schema<IScheduledDonationModel>(
 
     lastExecutedDate: {
       type: Date,
+      index: true,
     },
+
     totalExecutions: {
       type: Number,
       default: 0,

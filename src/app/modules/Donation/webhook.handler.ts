@@ -40,115 +40,114 @@ const calculateNextDonationDate = (
     case 'daily':
       nextDate.setDate(nextDate.getDate() + 1);
       break;
+
     case 'weekly':
       nextDate.setDate(nextDate.getDate() + 7);
       break;
+
     case 'monthly':
       nextDate.setMonth(nextDate.getMonth() + 1);
       break;
+
     case 'quarterly':
       nextDate.setMonth(nextDate.getMonth() + 3);
       break;
+
     case 'yearly':
       nextDate.setFullYear(nextDate.getFullYear() + 1);
       break;
+
     case 'custom':
-      if (customInterval) {
-        switch (customInterval.unit) {
-          case 'days':
-            nextDate.setDate(nextDate.getDate() + customInterval.value);
-            break;
-          case 'weeks':
-            nextDate.setDate(nextDate.getDate() + customInterval.value * 7);
-            break;
-          case 'months':
-            nextDate.setMonth(nextDate.getMonth() + customInterval.value);
-            break;
-        }
+      if (!customInterval) {
+        throw new Error('Custom interval required for custom frequency');
+      }
+
+      // ✅ Handle custom interval properly
+      switch (customInterval.unit) {
+        case 'days':
+          nextDate.setDate(nextDate.getDate() + customInterval.value);
+          break;
+        case 'weeks':
+          nextDate.setDate(nextDate.getDate() + customInterval.value * 7);
+          break;
+        case 'months':
+          nextDate.setMonth(nextDate.getMonth() + customInterval.value);
+          break;
       }
       break;
+
+    default:
+      throw new AppError(httpStatus.BAD_REQUEST, 'Invalid frequency');
   }
 
   return nextDate;
 };
 
 // ========================================
-// SCHEDULED DONATION: Success Handler
+// SCHEDULED DONATION: Success Handler (FIXED)
 // ========================================
 const updateScheduledDonationAfterSuccess = async (
   scheduledDonationId: string
 ) => {
   try {
-    console.log(
-      `🔄 Updating scheduled donation after success: ${scheduledDonationId}`
-    );
+    console.log(`🔄 Updating scheduled donation: ${scheduledDonationId}`);
 
-    // ✅ Atomic update to prevent race conditions
-    const scheduledDonation = await ScheduledDonation.findOneAndUpdate(
-      {
-        _id: scheduledDonationId,
-        status: 'processing',
-      },
-      {
-        $set: {
-          lastExecutedDate: new Date(),
-        },
-        $inc: {
-          totalExecutions: 1,
-        },
-      },
-      {
-        new: true,
-      }
+    // Find the donation first
+    const scheduledDonation = await ScheduledDonation.findById(
+      scheduledDonationId
     );
+    console.log('1', {
+      scheduledDonation,
+      scheduledDonationId,
+    });
 
     if (!scheduledDonation) {
-      console.error(
-        `❌ Scheduled donation not found or not in processing state: ${scheduledDonationId}`
-      );
+      console.error(`❌ Scheduled donation not found: ${scheduledDonationId}`);
       return;
     }
 
-    // ✅ Calculate next date from lastExecutedDate (not current time)
-    const baseDate = scheduledDonation.lastExecutedDate || new Date();
+    // Calculate next date from NOW (since we just executed)
+    const now = new Date();
     const nextDate = calculateNextDonationDate(
-      baseDate,
+      now,
       scheduledDonation.frequency,
       scheduledDonation.customInterval
     );
+    console.log('2', {
+      now,
+      nextDate,
+    });
 
-    // ✅ Update next date and unlock status
+    // ✅ FIX: Update all 3 fields in one atomic operation
     await ScheduledDonation.findByIdAndUpdate(scheduledDonationId, {
       $set: {
+        lastExecutedDate: now,
         nextDonationDate: nextDate,
         status: 'active',
       },
+      $inc: {
+        totalExecutions: 1,
+      },
+    });
+    console.log('3', {
+      now,
+      nextDate,
     });
 
+    console.log(`✅ Scheduled donation updated successfully`);
+    console.log(`   Last Executed: ${now.toISOString()}`);
+    console.log(`   Next Date: ${nextDate.toISOString()}`);
     console.log(
-      `✅ Updated scheduled donation: ${scheduledDonationId} | Next: ${nextDate.toISOString()} | Status: active`
+      `   Total Executions: ${scheduledDonation.totalExecutions + 1}`
     );
   } catch (error: unknown) {
     const err = error as Error;
-    console.error(
-      `❌ Error updating scheduled donation: ${err.message}`,
-      err.stack
-    );
+    console.error(`❌ Error updating scheduled donation:`, err.message);
 
-    // ✅ Unlock on error to prevent stuck 'processing' status
-    try {
-      await ScheduledDonation.findByIdAndUpdate(scheduledDonationId, {
-        $set: { status: 'active' },
-      });
-      console.log(
-        `🔓 Unlocked scheduled donation ${scheduledDonationId} after error`
-      );
-    } catch (unlockError) {
-      console.error(
-        `❌ Failed to unlock scheduled donation ${scheduledDonationId}:`,
-        unlockError
-      );
-    }
+    // Unlock on error
+    await ScheduledDonation.findByIdAndUpdate(scheduledDonationId, {
+      status: 'active',
+    });
   }
 };
 
@@ -366,7 +365,9 @@ const handlePaymentIntentSucceeded = async (
   paymentIntent: Stripe.PaymentIntent
 ) => {
   const { metadata } = paymentIntent;
-
+  console.log({
+    metadata,
+  });
   console.log(`\n🎉 ========================================`);
   console.log(`   WEBHOOK: payment_intent.succeeded`);
   console.log(`   Payment Intent ID: ${paymentIntent.id}`);
@@ -389,6 +390,8 @@ const handlePaymentIntentSucceeded = async (
       .populate('organization')
       .populate('cause');
 
+    
+
     // Fallback: Try to find by metadata donation ID
     if (!donation && metadata?.donationId) {
       donation = await Donation.findOneAndUpdate(
@@ -406,6 +409,7 @@ const handlePaymentIntentSucceeded = async (
         .populate('donor')
         .populate('organization')
         .populate('cause');
+   
     }
 
     if (!donation) {
@@ -439,6 +443,38 @@ const handlePaymentIntentSucceeded = async (
       console.error(`❌ Failed to update balance:`, err.message);
     }
 
+    // ========================================
+    // DONATION TYPE SPECIFIC HANDLING
+    // ========================================
+
+    // Handle RoundUp donation success
+    if (metadata?.donationType === 'roundup' && metadata?.roundUpId) {
+      try {
+        console.log(`🔄 Processing RoundUp donation success...`);
+        await handleRoundUpDonationSuccess(
+          metadata.roundUpId,
+          paymentIntent.id
+        );
+      } catch (err) {
+        console.error(`❌ Round-Up handling failed:`, err);
+      }
+    }
+
+    //  Handle Scheduled donation success
+    if (
+      donation?.donationType === 'recurring' &&
+      donation?.scheduledDonationId
+    ) {
+      try {
+        console.log(`🔄 Processing Scheduled donation success...`);
+        await updateScheduledDonationAfterSuccess(
+          donation.scheduledDonationId?.toString()
+        );
+      } catch (err) {
+        console.error(`❌ Failed to update scheduled donation:`, err);
+      }
+    }
+
     // 2. Generate receipt
     try {
       await generateReceiptAfterPayment(donation, paymentIntent);
@@ -468,36 +504,6 @@ const handlePaymentIntentSucceeded = async (
       console.log(`✅ Badges checked and updated`);
     } catch (err) {
       console.error(`❌ Badge checking failed:`, err);
-    }
-
-    // ========================================
-    // DONATION TYPE SPECIFIC HANDLING
-    // ========================================
-
-    // Handle RoundUp donation success
-    if (metadata?.donationType === 'roundup' && metadata?.roundUpId) {
-      try {
-        console.log(`🔄 Processing RoundUp donation success...`);
-        await handleRoundUpDonationSuccess(
-          metadata.roundUpId,
-          paymentIntent.id
-        );
-      } catch (err) {
-        console.error(`❌ Round-Up handling failed:`, err);
-      }
-    }
-
-    //  Handle Scheduled donation success
-    if (
-      metadata?.donationType === 'recurring' &&
-      metadata?.scheduledDonationId
-    ) {
-      try {
-        console.log(`🔄 Processing Scheduled donation success...`);
-        await updateScheduledDonationAfterSuccess(metadata.scheduledDonationId);
-      } catch (err) {
-        console.error(`❌ Failed to update scheduled donation:`, err);
-      }
     }
 
     console.log(`\n✅ Payment processing completed successfully\n`);
@@ -622,6 +628,9 @@ const handlePaymentIntentCanceled = async (
 ) => {
   const { metadata } = paymentIntent;
 
+  console.log({
+    metadata,
+  });
   console.log(`\n🚫 ========================================`);
   console.log(`   WEBHOOK: payment_intent.canceled`);
   console.log(`   Payment Intent ID: ${paymentIntent.id}`);

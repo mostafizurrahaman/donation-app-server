@@ -32,25 +32,28 @@ const calculateNextDonationDate = (
     case 'daily':
       nextDate.setDate(nextDate.getDate() + 1);
       break;
+
     case 'weekly':
       nextDate.setDate(nextDate.getDate() + 7);
       break;
+
     case 'monthly':
       nextDate.setMonth(nextDate.getMonth() + 1);
       break;
+
     case 'quarterly':
       nextDate.setMonth(nextDate.getMonth() + 3);
       break;
+
     case 'yearly':
       nextDate.setFullYear(nextDate.getFullYear() + 1);
       break;
+
     case 'custom':
       if (!customInterval) {
-        throw new AppError(
-          httpStatus.BAD_REQUEST,
-          'Custom interval is required for custom frequency'
-        );
+        throw new Error('Custom interval required for custom frequency');
       }
+
       switch (customInterval.unit) {
         case 'days':
           nextDate.setDate(nextDate.getDate() + customInterval.value);
@@ -63,6 +66,7 @@ const calculateNextDonationDate = (
           break;
       }
       break;
+
     default:
       throw new AppError(httpStatus.BAD_REQUEST, 'Invalid frequency');
   }
@@ -352,9 +356,9 @@ const resumeScheduledDonation = async (
     throw new AppError(httpStatus.NOT_FOUND, 'Scheduled donation not found!');
   }
 
-  // Recalculate next date from current time to avoid immediate execution
+  const now = new Date();
   const nextDate = calculateNextDonationDate(
-    new Date(),
+    now,
     scheduledDonation.frequency,
     scheduledDonation.customInterval
   );
