@@ -8,7 +8,7 @@ import {
 } from '../../middlewares/validateRequest';
 import { auth } from '../../middlewares';
 import { BusinessValidation } from './business.validation';
-import { BusinessController } from './business.controller';
+import {  BusinessController } from './business.controller';
 
 const router = Router();
 

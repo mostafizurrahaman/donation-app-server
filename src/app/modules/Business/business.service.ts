@@ -149,7 +149,7 @@ const getBusinessProfileById = async (businessId: string, userId: string) => {
     user: auth._id,
   });
 
-  return view;
+  return business;
 };
 // 3. Increase Business website count
 const increaseWebsiteCount = async (businessId: string, userId: string) => {
@@ -673,7 +673,6 @@ const getSingleRewardAnalytics = async (userId: string, rewardId: string) => {
       },
     ]),
   ]);
-
 
   const viewsMap = new Map(viewsData.map((d) => [d._id, d.count]));
   const claimsMap = new Map(claimsData.map((d) => [d._id, d.count]));
