@@ -19,9 +19,10 @@ import { IPaymentMethodModel } from '../PaymentMethod/paymentMethod.interface';
 import { calculateAustralianFees } from '../Donation/donation.constant';
 import { StripeService } from '../Stripe/stripe.service';
 import { IClient } from '../Client/client.interface';
+import { STRIPE_ACCOUNT_STATUS } from '../Organization/organization.constants';
 
 // Helper function to calculate next donation date
-const calculateNextDonationDate = (
+export const calculateNextDonationDate = (
   currentDate: Date,
   frequency: string,
   customInterval?: { value: number; unit: 'days' | 'weeks' | 'months' }
@@ -112,6 +113,14 @@ const createScheduledDonation = async (
     throw new AppError(
       httpStatus.BAD_REQUEST,
       'This organization is not set up to receive payments.'
+    );
+  }
+
+  if (organization?.stripeAccountStatus !== STRIPE_ACCOUNT_STATUS.ACTIVE) {
+    const status = organization?.stripeAccountStatus ?? 'UNKNOWN';
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      `Organization is not connected to Stripe. Current status: ${status}`
     );
   }
 
@@ -465,6 +474,14 @@ const executeScheduledDonation = async (
       throw new AppError(
         httpStatus.BAD_REQUEST,
         'Organization not connected to Stripe.'
+      );
+    }
+
+    if (organization?.stripeAccountStatus !== STRIPE_ACCOUNT_STATUS.ACTIVE) {
+      const status = organization?.stripeAccountStatus ?? 'UNKNOWN';
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        `Organization is not connected to Stripe. Current status: ${status}`
       );
     }
 

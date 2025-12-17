@@ -18,73 +18,15 @@ import { badgeService } from '../badge/badge.service';
 import { BalanceService } from '../Balance/balance.service';
 import { PAYOUT_STATUS } from '../Payout/payout.constant';
 import { Payout } from '../Payout/payout.model';
-import {
-  BalanceTransaction,
-  OrganizationBalance,
-} from '../Balance/balance.model';
+import { BalanceTransaction } from '../Balance/balance.model';
 import { STRIPE_ACCOUNT_STATUS } from '../Organization/organization.constants';
 import { TOrganizationAccountStatusType } from '../Organization/organization.interface';
 import Organization from '../Organization/organization.model';
+import { calculateNextDonationDate } from '../ScheduledDonation/scheduledDonation.service';
+
 
 // ========================================
-// HELPER: Calculate Next Donation Date
-// ========================================
-const calculateNextDonationDate = (
-  currentDate: Date,
-  frequency: string,
-  customInterval?: { value: number; unit: 'days' | 'weeks' | 'months' }
-): Date => {
-  const nextDate = new Date(currentDate);
-
-  switch (frequency) {
-    case 'daily':
-      nextDate.setDate(nextDate.getDate() + 1);
-      break;
-
-    case 'weekly':
-      nextDate.setDate(nextDate.getDate() + 7);
-      break;
-
-    case 'monthly':
-      nextDate.setMonth(nextDate.getMonth() + 1);
-      break;
-
-    case 'quarterly':
-      nextDate.setMonth(nextDate.getMonth() + 3);
-      break;
-
-    case 'yearly':
-      nextDate.setFullYear(nextDate.getFullYear() + 1);
-      break;
-
-    case 'custom':
-      if (!customInterval) {
-        throw new Error('Custom interval required for custom frequency');
-      }
-
-      // ✅ Handle custom interval properly
-      switch (customInterval.unit) {
-        case 'days':
-          nextDate.setDate(nextDate.getDate() + customInterval.value);
-          break;
-        case 'weeks':
-          nextDate.setDate(nextDate.getDate() + customInterval.value * 7);
-          break;
-        case 'months':
-          nextDate.setMonth(nextDate.getMonth() + customInterval.value);
-          break;
-      }
-      break;
-
-    default:
-      throw new AppError(httpStatus.BAD_REQUEST, 'Invalid frequency');
-  }
-
-  return nextDate;
-};
-
-// ========================================
-// SCHEDULED DONATION: Success Handler (FIXED)
+// SCHEDULED DONATION: Success Handler
 // ========================================
 const updateScheduledDonationAfterSuccess = async (
   scheduledDonationId: string
@@ -92,33 +34,22 @@ const updateScheduledDonationAfterSuccess = async (
   try {
     console.log(`🔄 Updating scheduled donation: ${scheduledDonationId}`);
 
-    // Find the donation first
     const scheduledDonation = await ScheduledDonation.findById(
       scheduledDonationId
     );
-    console.log('1', {
-      scheduledDonation,
-      scheduledDonationId,
-    });
 
     if (!scheduledDonation) {
       console.error(`❌ Scheduled donation not found: ${scheduledDonationId}`);
       return;
     }
 
-    // Calculate next date from NOW (since we just executed)
     const now = new Date();
     const nextDate = calculateNextDonationDate(
       now,
       scheduledDonation.frequency,
       scheduledDonation.customInterval
     );
-    console.log('2', {
-      now,
-      nextDate,
-    });
 
-    // ✅ FIX: Update all 3 fields in one atomic operation
     await ScheduledDonation.findByIdAndUpdate(scheduledDonationId, {
       $set: {
         lastExecutedDate: now,
@@ -129,17 +60,8 @@ const updateScheduledDonationAfterSuccess = async (
         totalExecutions: 1,
       },
     });
-    console.log('3', {
-      now,
-      nextDate,
-    });
 
     console.log(`✅ Scheduled donation updated successfully`);
-    console.log(`   Last Executed: ${now.toISOString()}`);
-    console.log(`   Next Date: ${nextDate.toISOString()}`);
-    console.log(
-      `   Total Executions: ${scheduledDonation.totalExecutions + 1}`
-    );
   } catch (error: unknown) {
     const err = error as Error;
     console.error(`❌ Error updating scheduled donation:`, err.message);
@@ -214,7 +136,7 @@ const generateReceiptAfterPayment = async (
       organizationId: donation.organization._id || donation.organization,
       causeId: donation.cause?._id || donation.cause,
 
-      // ✅ Use Financial Breakdown
+      // Financial Breakdown
       amount: donation.amount,
       coverFees: donation.coverFees,
       platformFee: donation.platformFee,
@@ -365,9 +287,7 @@ const handlePaymentIntentSucceeded = async (
   paymentIntent: Stripe.PaymentIntent
 ) => {
   const { metadata } = paymentIntent;
-  console.log({
-    metadata,
-  });
+  console.log({ metadata });
   console.log(`\n🎉 ========================================`);
   console.log(`   WEBHOOK: payment_intent.succeeded`);
   console.log(`   Payment Intent ID: ${paymentIntent.id}`);
@@ -390,8 +310,6 @@ const handlePaymentIntentSucceeded = async (
       .populate('organization')
       .populate('cause');
 
-    
-
     // Fallback: Try to find by metadata donation ID
     if (!donation && metadata?.donationId) {
       donation = await Donation.findOneAndUpdate(
@@ -409,7 +327,6 @@ const handlePaymentIntentSucceeded = async (
         .populate('donor')
         .populate('organization')
         .populate('cause');
-   
     }
 
     if (!donation) {
@@ -427,20 +344,20 @@ const handlePaymentIntentSucceeded = async (
     // POST-PAYMENT PROCESSING
     // ========================================
 
-    // 1. Add funds to balance ledger
+    // 1. Log funds to history ledger (History Only - No Local Balance Update)
     try {
       const orgId =
         (donation.organization as any)._id?.toString() ||
         donation.organization.toString();
 
-      await BalanceService.addDonationFunds(
+      await BalanceService.logDonationTransaction(
         orgId,
         donation?._id?.toString() as string,
         donation?.donationType
       );
-      console.log(`✅ Funds added to ledger for Org: ${orgId}`);
+      console.log(`✅ Donation transaction logged for Org: ${orgId}`);
     } catch (err: any) {
-      console.error(`❌ Failed to update balance:`, err.message);
+      console.error(`❌ Failed to log transaction:`, err.message);
     }
 
     // ========================================
@@ -460,7 +377,7 @@ const handlePaymentIntentSucceeded = async (
       }
     }
 
-    //  Handle Scheduled donation success
+    // Handle Scheduled donation success
     if (
       donation?.donationType === 'recurring' &&
       donation?.scheduledDonationId
@@ -605,11 +522,11 @@ const handlePaymentIntentFailed = async (
     // ✅ Handle scheduled donation failure
     if (
       donation &&
-      metadata?.donationType === 'recurring' &&
-      metadata?.scheduledDonationId
+      donation?.donationType === 'recurring' &&
+      donation?.scheduledDonationId
     ) {
       await updateScheduledDonationAfterFailure(
-        metadata.scheduledDonationId,
+        donation.scheduledDonationId?.toString(),
         paymentIntent.last_payment_error?.message
       );
     }
@@ -628,9 +545,7 @@ const handlePaymentIntentCanceled = async (
 ) => {
   const { metadata } = paymentIntent;
 
-  console.log({
-    metadata,
-  });
+  console.log({ metadata });
   console.log(`\n🚫 ========================================`);
   console.log(`   WEBHOOK: payment_intent.canceled`);
   console.log(`   Payment Intent ID: ${paymentIntent.id}`);
@@ -656,10 +571,10 @@ const handlePaymentIntentCanceled = async (
       );
     }
 
-    //  Unlock scheduled donation if canceled
+    // Unlock scheduled donation if canceled
     if (
-      metadata?.donationType === 'recurring' &&
-      metadata?.scheduledDonationId
+      donation?.donationType === 'recurring' &&
+      donation?.scheduledDonationId
     ) {
       await updateScheduledDonationAfterFailure(
         metadata.scheduledDonationId,
@@ -700,12 +615,13 @@ const handleChargeRefunded = async (charge: Stripe.Charge) => {
           (donation.organization as any)._id?.toString() ||
           donation.organization.toString();
 
-        // 2. Call Balance Service to deduct from Ledger
-        // This handles the math of reducing (Pending or Available) balance
-        await BalanceService.deductRefund(orgId, donation._id!.toString());
-        console.log(`✅ Refund deducted from ledger for Org: ${orgId}`);
+        await BalanceService.logRefundTransaction(
+          orgId,
+          donation._id!.toString()
+        );
+        console.log(`✅ Refund logged for Org: ${orgId}`);
       } catch (err: any) {
-        console.error(`❌ Failed to update ledger for refund:`, err.message);
+        console.error(`❌ Failed to log refund:`, err.message);
       }
     } else {
       console.warn(
@@ -753,7 +669,7 @@ const handlePayoutPaid = async (payoutEvent: Stripe.Payout) => {
 };
 
 // ========================================
-// PAYOUT: Failed Handler (Reversal Logic)
+// PAYOUT: Failed Handler (Status Update Logic Only)
 // ========================================
 const handlePayoutFailed = async (payoutEvent: Stripe.Payout) => {
   console.log(`\n❌ WEBHOOK: payout.failed - ID: ${payoutEvent.id}`);
@@ -780,71 +696,30 @@ const handlePayoutFailed = async (payoutEvent: Stripe.Payout) => {
       'Bank transfer failed';
     await payout.save({ session });
 
-    // 2. Reverse Ledger: Money returns to 'Available'
-    const balance = await OrganizationBalance.findOne({
-      organization: payout.organization,
-    }).session(session);
-
-    if (balance) {
-      // Revert calculations done in payoutProcessing.job.ts
-
-      // A. Add net amount back to Available (funds returned to Stripe Balance)
-      balance.availableBalance = Number(
-        (balance.availableBalance + payout.netAmount).toFixed(2)
-      );
-
-      // B. Reduce lifetime paid out (since it failed)
-      balance.lifetimePaidOut = Number(
-        (balance.lifetimePaidOut - payout.netAmount).toFixed(2)
-      );
-
-      // Note: We typically dump the returned amount into 'One-Time' or 'Other' breakdown
-      // because tracking exactly which pennies came from 'Recurring' vs 'RoundUp'
-      // after a bulk payout failure is complex.
-      balance.availableByType_oneTime = Number(
-        (balance.availableByType_oneTime + payout.netAmount).toFixed(2)
-      );
-
-      await balance.save({ session });
-
-      // 3. Create Ledger Entry for Reversal
-      await BalanceTransaction.create(
-        [
-          {
-            organization: payout.organization,
-            type: 'credit', // Credit back to available
-            category: 'payout_failed',
-            amount: payout.netAmount,
-
-            // Snapshots
-            balanceAfter_pending: balance.pendingBalance,
-            balanceAfter_available: balance.availableBalance,
-            balanceAfter_reserved: balance.reservedBalance,
-            balanceAfter_total: Number(
-              (
-                balance.pendingBalance +
-                balance.availableBalance +
-                balance.reservedBalance
-              ).toFixed(2)
-            ),
-
-            payout: payout._id,
-            description: `Payout Failed: ${payout.payoutNumber} - Funds Returned`,
-            metadata: {
-              stripePayoutId: payoutEvent.id,
-              reason: payout.failureReason,
-              originalAmount: payout.requestedAmount,
-            },
-            idempotencyKey: `pay_fail_${payout._id}_${Date.now()}`,
+    // 2. Ledger Entry (Log only - no balance restoration needed as Stripe handles the money return)
+    await BalanceTransaction.create(
+      [
+        {
+          organization: payout.organization,
+          type: 'credit', // Log as credit to indicate money returned conceptually
+          category: 'payout_failed',
+          amount: payout.netAmount,
+          payout: payout._id,
+          description: `Payout Failed: ${payout.payoutNumber} - Stripe balance reversed automatically`,
+          metadata: {
+            stripePayoutId: payoutEvent.id,
+            reason: payout.failureReason,
+            originalAmount: payout.requestedAmount,
           },
-        ],
-        { session }
-      );
-    }
+          idempotencyKey: `pay_fail_${payout._id}_${Date.now()}`,
+        },
+      ],
+      { session }
+    );
 
     await session.commitTransaction();
     console.log(
-      `✅ Payout ${payout.payoutNumber} marked FAILED. Funds returned to Available Balance.`
+      `✅ Payout ${payout.payoutNumber} marked FAILED. Transaction logged.`
     );
   } catch (error) {
     await session.abortTransaction();

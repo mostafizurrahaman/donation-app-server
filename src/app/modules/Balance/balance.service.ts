@@ -1,129 +1,108 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { ClientSession, Types } from 'mongoose';
-import { OrganizationBalance, BalanceTransaction } from './balance.model';
-
+import { BalanceTransaction } from './balance.model';
 import { IBalanceTransaction } from './balance.interface';
 import Donation from '../Donation/donation.model';
+import Organization from '../Organization/organization.model';
+import { StripeService } from '../Stripe/stripe.service';
 import { startOfMonth, endOfMonth, subMonths } from 'date-fns';
+import { AppError } from '../../utils';
+import httpStatus from 'http-status';
+import { STRIPE_ACCOUNT_STATUS } from '../Organization/organization.constants';
 
 /**
- * Get or create balance record for an organization
+ * Get Balance Summary from Stripe (Single Source of Truth)
  */
-const getOrCreateBalance = async (
-  organizationId: string,
-  session?: ClientSession
-) => {
-  const query = OrganizationBalance.findOne({ organization: organizationId });
-  if (session) query.session(session);
+const getBalanceSummary = async (organizationId: string) => {
+  const org = await Organization.findById(organizationId).select(
+    'stripeConnectAccountId'
+  );
 
-  let balance = await query;
-
-  if (!balance) {
-    const createData = [{ organization: organizationId }];
-    const options = session ? { session } : {};
-    const [newBalance] = await OrganizationBalance.create(createData, options);
-    balance = newBalance;
+  if (
+    !org ||
+    !org.stripeConnectAccountId ||
+    org?.stripeAccountStatus !== STRIPE_ACCOUNT_STATUS.ACTIVE
+  ) {
+    return {
+      availableBalance: 0,
+      pendingBalance: 0,
+      currency: 'usd',
+    };
   }
 
-  return balance;
+  // Fetch directly from Stripe
+  const stripeBalance = await StripeService.getAccountBalance(
+    org.stripeConnectAccountId
+  );
+
+  return {
+    availableBalance: stripeBalance.available,
+    pendingBalance: stripeBalance.pending,
+    currency: stripeBalance.currency,
+  };
 };
 
 /**
- * Add funds from a donation (Pending State)
- * Used by Webhook Handler when payment succeeds
+ * Log a Donation Transaction (History Only)
+ *  just creates a ledger entry for analytics.
  */
-const addDonationFunds = async (
+const logDonationTransaction = async (
   organizationId: string,
   donationId: string,
   donationType: 'one-time' | 'recurring' | 'round-up',
   session?: ClientSession
 ) => {
-  const balance = await getOrCreateBalance(organizationId, session);
   const donation = await Donation.findById(donationId).session(session || null);
 
   if (!donation) {
-    throw new Error('Donation not found during balance update');
+    throw new Error('Donation not found during logging');
   }
 
-  // This matches the Destination Charge amount sent to their Stripe Connect account
-  const amountToCredit = donation.netAmount;
-
-  // Update Total Balances
-  balance.pendingBalance = Number(
-    (balance.pendingBalance + amountToCredit).toFixed(2)
-  );
-  balance.lifetimeEarnings = Number(
-    (balance.lifetimeEarnings + amountToCredit).toFixed(2)
-  );
-  balance.lastTransactionAt = new Date();
-
-  // Update Breakdown by
-
-  if (donationType === 'one-time') {
-    balance.pendingByType_oneTime = Number(
-      (balance.pendingByType_oneTime + amountToCredit).toFixed(2)
-    );
-  } else if (donationType === 'recurring') {
-    balance.pendingByType_recurring = Number(
-      (balance.pendingByType_recurring + amountToCredit).toFixed(2)
-    );
-  } else if (donationType === 'round-up') {
-    balance.pendingByType_roundUp = Number(
-      (balance.pendingByType_roundUp + amountToCredit).toFixed(2)
-    );
-  }
-
-  await balance.save({ session });
-
-  // Create Ledger Entry
   const transaction: Partial<IBalanceTransaction> = {
     organization: new Types.ObjectId(organizationId),
     type: 'credit',
     category: 'donation_received',
-    amount: amountToCredit,
-
-    // Balance Snapshots
-    balanceAfter_pending: balance.pendingBalance,
-    balanceAfter_available: balance.availableBalance,
-    balanceAfter_reserved: balance.reservedBalance,
-    balanceAfter_total: Number(
-      (
-        balance.pendingBalance +
-        balance.availableBalance +
-        balance.reservedBalance
-      ).toFixed(2)
-    ),
-
+    amount: donation.netAmount, // Destination Charge Net
     donation: new Types.ObjectId(donationId),
     donationType,
-    description: `Donation received (${donationType}) - Net`,
-
-    //  UPDATED METADATA: Stores the full financial picture
+    description: `Donation received (${donationType})`,
     metadata: {
       grossAmount: donation.totalAmount,
-      baseDonation: donation.amount,
-      platformFee: donation.platformFee,
-      gstOnFee: donation.gstOnFee,
       stripeFee: donation.stripeFee,
-      netCredited: amountToCredit,
-      coverFees: donation.coverFees,
+      platformFee: donation.platformFee,
     },
-
     idempotencyKey: `don_${donationId}`,
   };
 
   await BalanceTransaction.create([transaction], { session });
 };
+
 /**
- * Get Balance Summary for Dashboard
+ * Log a Refund (History Only)
  */
-const getBalanceSummary = async (organizationId: string) => {
-  const balance = await getOrCreateBalance(organizationId);
-  return balance;
+const logRefundTransaction = async (
+  organizationId: string,
+  donationId: string,
+  session?: ClientSession
+) => {
+  const donation = await Donation.findById(donationId).session(session || null);
+  if (!donation) return;
+
+  const transaction: Partial<IBalanceTransaction> = {
+    organization: new Types.ObjectId(organizationId),
+    type: 'debit',
+    category: 'refund_issued',
+    amount: donation.netAmount, // The amount taken back
+    donation: new Types.ObjectId(donationId),
+    description: `Refund issued for donation ${donationId}`,
+    idempotencyKey: `ref_${donationId}_${Date.now()}`,
+  };
+
+  await BalanceTransaction.create([transaction], { session });
 };
 
 /**
- * Get Transaction History with Pagination
+ * Get Transaction History (Unchanged mostly, just simpler query)
  */
 const getTransactionHistory = async (
   organizationId: string,
@@ -134,10 +113,7 @@ const getTransactionHistory = async (
 
   const filter: any = { organization: organizationId };
 
-  if (category) {
-    filter.category = category;
-  }
-
+  if (category) filter.category = category;
   if (startDate && endDate) {
     filter.createdAt = {
       $gte: new Date(startDate as string),
@@ -165,130 +141,6 @@ const getTransactionHistory = async (
   };
 };
 
-/**
- * Deduct funds for a refund
- * Used by Webhook Handler when charge.refunded occurs
- */
-const deductRefund = async (
-  organizationId: string,
-  donationId: string,
-  session?: ClientSession
-) => {
-  const balance = await getOrCreateBalance(organizationId, session);
-  const donation = await Donation.findById(donationId).session(session || null);
-
-  if (!donation) {
-    throw new Error('Donation not found for refund deduction');
-  }
-
-  // Determine if funds are likely in Pending or Available based on clearing period
-  const clearingDays = balance.clearingPeriodDays || 7;
-  const clearingMs = clearingDays * 24 * 60 * 60 * 1000;
-  const timeSinceDonation = Date.now() - (donation?.createdAt?.getTime() || 0);
-
-  const isPending = timeSinceDonation < clearingMs;
-
-  // When refunding a Destination Charge, Stripe reverses the transfer.
-  // We must deduct the exact NET amount that was originally credited.
-  const amountToDeduct = donation.netAmount;
-  const type = donation.donationType;
-
-  if (isPending) {
-    // Deduct from Pending
-    balance.pendingBalance = Number(
-      (balance.pendingBalance - amountToDeduct).toFixed(2)
-    );
-
-    if (type === 'one-time')
-      balance.pendingByType_oneTime = Number(
-        (balance.pendingByType_oneTime - amountToDeduct).toFixed(2)
-      );
-    if (type === 'recurring')
-      balance.pendingByType_recurring = Number(
-        (balance.pendingByType_recurring - amountToDeduct).toFixed(2)
-      );
-    if (type === 'round-up')
-      balance.pendingByType_roundUp = Number(
-        (balance.pendingByType_roundUp - amountToDeduct).toFixed(2)
-      );
-  } else {
-    // Deduct from Available
-    balance.availableBalance = Number(
-      (balance.availableBalance - amountToDeduct).toFixed(2)
-    );
-
-    if (type === 'one-time')
-      balance.availableByType_oneTime = Number(
-        (balance.availableByType_oneTime - amountToDeduct).toFixed(2)
-      );
-    if (type === 'recurring')
-      balance.availableByType_recurring = Number(
-        (balance.availableByType_recurring - amountToDeduct).toFixed(2)
-      );
-    if (type === 'round-up')
-      balance.availableByType_roundUp = Number(
-        (balance.availableByType_roundUp - amountToDeduct).toFixed(2)
-      );
-  }
-
-  // Safety checks to prevent negative balances
-  if (balance.pendingBalance < 0) balance.pendingBalance = 0;
-  if (balance.availableBalance < 0) balance.availableBalance = 0;
-
-  // Update Lifetime Stats
-  balance.lifetimeRefunds = Number(
-    (balance.lifetimeRefunds + amountToDeduct).toFixed(2)
-  );
-  // Reduce lifetime earnings to reflect the refund
-  balance.lifetimeEarnings = Number(
-    (balance.lifetimeEarnings - amountToDeduct).toFixed(2)
-  );
-
-  await balance.save({ session });
-
-  // Create Ledger Entry
-  const transaction: Partial<IBalanceTransaction> = {
-    organization: new Types.ObjectId(organizationId),
-    type: 'debit',
-    category: 'refund_issued',
-    amount: amountToDeduct,
-
-    balanceAfter_pending: balance.pendingBalance,
-    balanceAfter_available: balance.availableBalance,
-    balanceAfter_reserved: balance.reservedBalance,
-    balanceAfter_total: Number(
-      (
-        balance.pendingBalance +
-        balance.availableBalance +
-        balance.reservedBalance
-      ).toFixed(2)
-    ),
-
-    donation: new Types.ObjectId(donationId),
-    description: `Refund issued for donation ${donationId} (Net Reversal)`,
-    metadata: {
-      originalNet: donation.netAmount,
-      refundedNet: amountToDeduct,
-      stripeFeeWas: donation.stripeFee, // Note: Stripe fees are usually not refunded
-    },
-    idempotencyKey: `ref_${donationId}_${Date.now()}`,
-  };
-
-  await BalanceTransaction.create([transaction], { session });
-};
-
-
-
-interface IGetDataDashboardQuery {
-  organization?: Types.ObjectId;
-  donationType?: 'one-time' | 'round-up' | 'recurring';
-  category: { $in: string[] };
-}
-
-/**
- * Get Dashboard Analytics (Net Deposits + Growth %)
- * Calculates: (Donations - Refunds) based on the filter
- */
 const getDashboardAnalytics = async (
   organizationId: string,
   donationType?: 'one-time' | 'recurring' | 'round-up' | 'all'
@@ -303,28 +155,24 @@ const getDashboardAnalytics = async (
   const lastMonthEnd = endOfMonth(subMonths(now, 1));
 
   // 2. Build Match Query
-  // ✅ IMPORTANT: We must include 'refund_issued' in the category filter
-  const matchQuery: IGetDataDashboardQuery = {
+  const matchQuery: any = {
     organization: orgObjectId,
     category: { $in: ['donation_received', 'refund_issued'] },
   };
 
-  // Apply donation type filter if specific type requested
   if (donationType && donationType !== 'all') {
     matchQuery.donationType = donationType;
   }
 
-  // 3. Define the Summation Logic (Donation - Refund)
-  // We define this once to reuse it in all 3 facets
   const netDepositSumLogic = {
     $sum: {
       $cond: [
         { $eq: ['$category', 'donation_received'] },
-        '$amount', // Add if donation
+        '$amount',
         {
           $cond: [
             { $eq: ['$category', 'refund_issued'] },
-            { $multiply: ['$amount', -1] }, // Subtract if refund
+            { $multiply: ['$amount', -1] },
             0,
           ],
         },
@@ -332,16 +180,13 @@ const getDashboardAnalytics = async (
     },
   };
 
-  // 4. Run Aggregation
   const stats = await BalanceTransaction.aggregate([
     {
       $facet: {
-        // A. Total All Time Net
         totalLifetime: [
           { $match: matchQuery },
           { $group: { _id: null, total: netDepositSumLogic } },
         ],
-        // B. Current Month Net
         currentMonth: [
           {
             $match: {
@@ -351,7 +196,6 @@ const getDashboardAnalytics = async (
           },
           { $group: { _id: null, total: netDepositSumLogic } },
         ],
-        // C. Last Month Net
         lastMonth: [
           {
             $match: {
@@ -365,15 +209,11 @@ const getDashboardAnalytics = async (
     },
   ]);
 
-  // 5. Extract Results
   const result = stats[0];
-
-  // Default to 0 if no transactions found
   const totalDeposits = result.totalLifetime[0]?.total || 0;
   const currentMonthAmount = result.currentMonth[0]?.total || 0;
   const lastMonthAmount = result.lastMonth[0]?.total || 0;
 
-  // 6. Calculate Percentage Change
   let percentageChange = 0;
   let trend: 'up' | 'down' | 'neutral' = 'neutral';
 
@@ -381,12 +221,9 @@ const getDashboardAnalytics = async (
     percentageChange =
       ((currentMonthAmount - lastMonthAmount) / lastMonthAmount) * 100;
   } else if (lastMonthAmount === 0 && currentMonthAmount > 0) {
-    percentageChange = 100; // 100% increase from 0
-  } else if (lastMonthAmount === 0 && currentMonthAmount === 0) {
-    percentageChange = 0;
+    percentageChange = 100;
   }
 
-  // Determine trend arrow
   if (percentageChange > 0) trend = 'up';
   if (percentageChange < 0) trend = 'down';
 
@@ -402,10 +239,9 @@ const getDashboardAnalytics = async (
 };
 
 export const BalanceService = {
-  getOrCreateBalance,
-  addDonationFunds,
   getBalanceSummary,
+  logDonationTransaction,
+  logRefundTransaction,
   getTransactionHistory,
-  deductRefund,
   getDashboardAnalytics,
 };

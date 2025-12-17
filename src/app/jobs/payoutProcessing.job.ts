@@ -2,19 +2,19 @@
 import cron from 'node-cron';
 import mongoose from 'mongoose';
 import { Payout } from '../modules/Payout/payout.model';
-import {
-  OrganizationBalance,
-  BalanceTransaction,
-} from '../modules/Balance/balance.model';
+import { BalanceTransaction } from '../modules/Balance/balance.model';
 import { StripeService } from '../modules/Stripe/stripe.service';
 import { OrganizationModel } from '../modules/Organization/organization.model';
 import { PAYOUT_STATUS } from '../modules/Payout/payout.constant';
 import { cronJobTracker } from './cronJobTracker';
+import { AppError } from '../utils';
+import { STRIPE_ACCOUNT_STATUS } from '../modules/Organization/organization.constants';
+import httpStatus from 'http-status';
 
 const JOB_NAME = 'payout-processing';
 
 export const startPayoutProcessingCron = () => {
-  // Run every day at 9:00 AM (Australia Time ideally, but server time here)
+  // Run every day at 9:00 AM
   const schedule = '0 9 * * *';
 
   cronJobTracker.registerJob(JOB_NAME, schedule);
@@ -54,15 +54,21 @@ export const startPayoutProcessingCron = () => {
               'Organization not found or no Stripe Connect account linked'
             );
           }
+          if (org?.stripeAccountStatus !== STRIPE_ACCOUNT_STATUS.ACTIVE) {
+            const status = org?.stripeAccountStatus ?? 'UNKNOWN';
+            throw new AppError(
+              httpStatus.BAD_REQUEST,
+              `Organization is not connected to Stripe. Current status: ${status}`
+            );
+          }
 
           // 2. Mark as PROCESSING in DB
           payout.status = PAYOUT_STATUS.PROCESSING;
           payout.processedAt = new Date();
           await payout.save({ session });
 
-          // 3. Execute Stripe Payout (Balance -> Bank)
-          // Note: Since we use Destination Charges, funds are ALREADY in the Connect Account.
-          // We just need to release them from the Stripe Balance to the Bank Account.
+          // 3. Execute Stripe Payout (Connected Account Balance -> External Bank)
+          // Note: This relies on Stripe to throw an error if funds are insufficient.
           const stripePayout = await StripeService.createPayout(
             org.stripeConnectAccountId, // Perform action ON BEHALF OF this account
             payout.netAmount, // Amount to send to bank
@@ -75,60 +81,27 @@ export const startPayoutProcessingCron = () => {
           payout.stripePayoutId = stripePayout.id; // Store Payout ID
           await payout.save({ session });
 
-          // 5. Update Internal Ledger (Reserved -> Paid Out)
-          const balance = await OrganizationBalance.findOne({
-            organization: payout.organization,
-          }).session(session);
-
-          if (balance) {
-            // Gross amount removed from reserved (it was moved from available to reserved on request)
-            balance.reservedBalance = Number(
-              (balance.reservedBalance - payout.requestedAmount).toFixed(2)
-            );
-            balance.lifetimePaidOut = Number(
-              (balance.lifetimePaidOut + payout.netAmount).toFixed(2)
-            );
-
-            // Note: Fees were already deducted during donation processing,
-            // so we don't deduct them again here.
-            balance.lastPayoutAt = new Date();
-
-            // Safety check
-            if (balance.reservedBalance < 0) balance.reservedBalance = 0;
-
-            await balance.save({ session });
-
-            // 6. Ledger Entry
-            await BalanceTransaction.create(
-              [
-                {
-                  organization: payout.organization,
-                  type: 'debit',
-                  category: 'payout_completed',
-                  amount: payout.requestedAmount, // Amount leaving the system
-                  balanceAfter_pending: balance.pendingBalance,
-                  balanceAfter_available: balance.availableBalance,
-                  balanceAfter_reserved: balance.reservedBalance,
-                  balanceAfter_total: Number(
-                    (
-                      balance.pendingBalance +
-                      balance.availableBalance +
-                      balance.reservedBalance
-                    ).toFixed(2)
-                  ),
-                  payout: payout._id,
-                  description: `Payout completed: ${payout.payoutNumber}`,
-                  metadata: {
-                    stripePayoutId: stripePayout.id,
-                    netAmountSent: payout.netAmount,
-                    destinationBank: stripePayout.destination, // Bank ID usually
-                  },
-                  idempotencyKey: `pay_complete_${payout._id}`,
+          // 5. Create Ledger Entry (History Only)
+          // We no longer update a local balance model. We just record that this event happened.
+          await BalanceTransaction.create(
+            [
+              {
+                organization: payout.organization,
+                type: 'debit',
+                category: 'payout_completed',
+                amount: payout.netAmount,
+                payout: payout._id,
+                description: `Payout completed: ${payout.payoutNumber}`,
+                metadata: {
+                  stripePayoutId: stripePayout.id,
+                  destinationBank: stripePayout.destination,
+                  currency: payout.currency,
                 },
-              ],
-              { session }
-            );
-          }
+                idempotencyKey: `pay_complete_${payout._id}`,
+              },
+            ],
+            { session }
+          );
 
           await session.commitTransaction();
           successCount++;
@@ -136,22 +109,56 @@ export const startPayoutProcessingCron = () => {
             `✅ Payout ${payout.payoutNumber} processed successfully.`
           );
         } catch (error: any) {
+          // Abort the transaction that tried to mark it as COMPLETED
           await session.abortTransaction();
+
           console.error(
             `❌ Failed to process payout ${payout.payoutNumber}:`,
             error.message
           );
 
-          // Mark as Failed in DB so we don't retry immediately without review
-          // In a production system, you might want to auto-retry X times or alert admins
-          await Payout.findByIdAndUpdate(payout._id, {
-            status: PAYOUT_STATUS.FAILED,
-            failureReason: error.message,
-            $inc: { retryCount: 1 },
-          });
+          // Start a NEW transaction to mark it as FAILED
+          const failureSession = await mongoose.startSession();
+          failureSession.startTransaction();
+          try {
+            await Payout.findByIdAndUpdate(
+              payout._id,
+              {
+                status: PAYOUT_STATUS.FAILED,
+                failureReason: error.message,
+                $inc: { retryCount: 1 },
+              },
+              { session: failureSession }
+            );
 
-          // Logic to return funds to 'Available' could go here if the failure is permanent,
-          // but usually, we keep it in 'Reserved' until an Admin investigates.
+            // Optional: Log the failure in the ledger for visibility
+            await BalanceTransaction.create(
+              [
+                {
+                  organization: payout.organization,
+                  type: 'credit', // Neutral/Info entry (amount didn't leave)
+                  category: 'payout_failed',
+                  amount: payout.netAmount,
+                  payout: payout._id,
+                  description: `Payout attempt failed: ${error.message}`,
+                  metadata: {
+                    failureReason: error.message,
+                  },
+                  idempotencyKey: `pay_fail_attempt_${
+                    payout._id
+                  }_${Date.now()}`,
+                },
+              ],
+              { session: failureSession }
+            );
+
+            await failureSession.commitTransaction();
+          } catch (innerErr) {
+            console.error('Failed to save payout failure status', innerErr);
+            await failureSession.abortTransaction();
+          } finally {
+            failureSession.endSession();
+          }
 
           failureCount++;
         }

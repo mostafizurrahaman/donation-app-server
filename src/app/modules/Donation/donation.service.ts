@@ -45,6 +45,7 @@ import {
 } from './donation.constant';
 import { ScheduledDonation } from '../ScheduledDonation/scheduledDonation.model';
 import { RoundUpModel } from '../RoundUp/roundUp.model';
+import { STRIPE_ACCOUNT_STATUS } from '../Organization/organization.constants';
 
 // Helper function to generate unique idempotency key
 const generateIdempotencyKey = (): string => {
@@ -91,6 +92,13 @@ const createOneTimeDonation = async (
     throw new AppError(
       httpStatus.BAD_REQUEST,
       'This organization is not set up to receive payments yet.'
+    );
+  }
+  if (organization?.stripeAccountStatus !== STRIPE_ACCOUNT_STATUS.ACTIVE) {
+    const status = organization?.stripeAccountStatus ?? 'not_connected';
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      `Organization is not connected to Stripe. Current status: ${status}`
     );
   }
 

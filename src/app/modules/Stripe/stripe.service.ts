@@ -768,6 +768,36 @@ const createPayout = async (
   }
 };
 
+// 21. Get Connected Account Balance
+const getAccountBalance = async (accountId: string) => {
+  if (!accountId) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'Stripe Account ID is required');
+  }
+
+  try {
+    const balance = await stripe.balance.retrieve({
+      stripeAccount: accountId,
+    });
+
+    // Convert cents to dollars (assuming USD/AUD standard 100 cents)
+    const available =
+      balance.available.reduce((acc, cur) => acc + cur.amount, 0) / 100;
+    const pending =
+      balance.pending.reduce((acc, cur) => acc + cur.amount, 0) / 100;
+
+    return {
+      available,
+      pending,
+      currency: balance.available[0]?.currency || 'usd',
+    };
+  } catch (error: any) {
+    throw new AppError(
+      httpStatus.INTERNAL_SERVER_ERROR,
+      `Failed to fetch balance: ${error.message}`
+    );
+  }
+};
+
 export const StripeService = {
   // Payment intent methods
   createPaymentIntent,
@@ -801,4 +831,5 @@ export const StripeService = {
   // Transfer methods
   transferFundsToConnectedAccount,
   createPayout,
+  getAccountBalance,
 };

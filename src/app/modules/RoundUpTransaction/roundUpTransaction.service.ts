@@ -22,6 +22,7 @@ import { AppError } from '../../utils';
 import Client from '../Client/client.model';
 import { Logger } from '../../utils/logger';
 import { OrganizationModel } from '../Organization/organization.model';
+import { STRIPE_ACCOUNT_STATUS } from '../Organization/organization.constants';
 
 // Check and reset monthly total at the beginning of each month
 const checkAndResetMonthlyTotal = async (
@@ -61,6 +62,14 @@ const triggerDonation = async (
       throw new AppError(
         httpStatus.BAD_REQUEST,
         'Organization is not connected to Stripe. Cannot process donation.'
+      );
+    }
+
+    if (organization?.stripeAccountStatus !== STRIPE_ACCOUNT_STATUS.ACTIVE) {
+      const status = organization?.stripeAccountStatus ?? 'UNKNOWN';
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        `Organization is not connected to Stripe. Current status: ${status}`
       );
     }
 
@@ -394,7 +403,7 @@ const processTransactionsFromPlaid = async (
           // ⚡ Trigger Donation Immediately (Destination Charge)
           // This calls the refactored function we defined earlier
           await triggerDonation(roundUpConfig);
-           console.log(`✅ Donation triggered successfully`);
+          console.log(`✅ Donation triggered successfully`);
 
           // Stop processing further transactions to prevent over-charging in this batch
           break;
