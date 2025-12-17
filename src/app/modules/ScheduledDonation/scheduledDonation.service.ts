@@ -528,7 +528,7 @@ const executeScheduledDonation = async (
       totalAmount: financials.totalCharge,
 
       currency: scheduledDonation.currency,
-      status: 'processing', // Webhook will mark as completed
+      status: 'processing',
       donationDate: new Date(),
 
       stripePaymentIntentId: paymentIntent.payment_intent_id,
@@ -573,7 +573,7 @@ const updateScheduledDonationAfterExecution = async (
     scheduledDonation.lastExecutedDate = new Date();
     scheduledDonation.totalExecutions += 1;
 
-    // ✅ Calculate next date from lastExecutedDate
+    //  Calculate next date from lastExecutedDate
     const baseDate = scheduledDonation.lastExecutedDate;
     const nextDate = calculateNextDonationDate(
       baseDate,
