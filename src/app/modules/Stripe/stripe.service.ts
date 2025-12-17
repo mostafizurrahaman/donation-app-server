@@ -14,6 +14,7 @@ import {
   ICreateRoundUpPaymentIntentRequest,
 } from './stripe.interface';
 import PaymentMethod from '../PaymentMethod/paymentMethod.model';
+import { StripeAccount } from '../OrganizationAccount/stripe-account.model';
 
 // 1. Create refund for payment intent
 const createRefund = async (
@@ -360,10 +361,6 @@ const createPaymentIntentWithMethod = async (
       confirm: true, // Automatically confirm the payment
       return_url: config.stripe.stripeSuccessUrl,
 
-      // ✅ Destination Charge Logic:
-      // 1. Charge the Total Amount.
-      // 2. Keep 'application_fee_amount' in Platform.
-      // 3. Send the rest to the Organization immediately.
       application_fee_amount: Math.round(applicationFee * 100),
       transfer_data: {
         destination: orgStripeAccountId,
@@ -377,7 +374,7 @@ const createPaymentIntentWithMethod = async (
         baseAmount: amount.toString(),
         totalAmount: totalAmount.toString(),
 
-        // ✅ Fee Breakdown
+        //  Fee Breakdown
         platformFee: platformFee.toString(),
         gstOnFee: gstOnFee.toString(),
         stripeFee: stripeFee.toString(),
@@ -476,7 +473,7 @@ const createConnectAccount = async (
         card_payments: { requested: true },
         transfers: { requested: true },
       },
-      business_type: 'non_profit',
+      business_type: 'individual',
       business_profile: {
         name: organizationName,
       },
@@ -548,7 +545,6 @@ const createAccountLink = async (
 };
 
 // 16. Create payment intent for round-up donation (Destination Charge)
-// Refactored to support Split Payments for automated round-ups
 const createRoundUpPaymentIntent = async (
   payload: ICreateRoundUpPaymentIntentRequest
 ): Promise<{ client_secret: string; payment_intent_id: string }> => {
@@ -584,10 +580,15 @@ const createRoundUpPaymentIntent = async (
       throw new AppError(httpStatus.BAD_REQUEST, 'Charity not found!');
     }
 
-    if (!charity.stripeConnectAccountId) {
+    // check is stripe account exists :
+    const stripeAccount = await StripeAccount.findOne({
+      organization: charity._id,
+    });
+
+    if (!stripeAccount || !stripeAccount.chargesEnabled) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
-        'Charity is not connected to Stripe!'
+        'This organization is not set up to receive payments (Stripe account inactive).'
       );
     }
 
@@ -632,7 +633,7 @@ const createRoundUpPaymentIntent = async (
       //  Destination Charge
       application_fee_amount: Math.round(applicationFee * 100),
       transfer_data: {
-        destination: charity.stripeConnectAccountId,
+        destination: stripeAccount.stripeAccountId,
       },
 
       metadata: {
@@ -656,7 +657,7 @@ const createRoundUpPaymentIntent = async (
         stripeFee: stripeFee.toString(),
         netToOrg: netToOrg.toString(),
         coverFees: coverFees.toString(),
-        destinationAccount: charity.stripeConnectAccountId,
+        destinationAccount: stripeAccount.stripeAccountId,
       },
     };
 

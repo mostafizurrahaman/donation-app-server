@@ -9,6 +9,7 @@ import QueryBuilder from '../../builders/QueryBuilder';
 import { StripeService } from '../Stripe/stripe.service';
 import Organization from '../Organization/organization.model';
 import { STRIPE_ACCOUNT_STATUS } from '../Organization/organization.constants';
+import { StripeAccount } from '../OrganizationAccount/stripe-account.model';
 
 const generatePayoutNumber = () => {
   const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -32,24 +33,26 @@ const requestPayout = async (
     const organization = await Organization.findById(organizationId).session(
       session
     );
-
-    if (!organization?.stripeConnectAccountId) {
-      throw new AppError(
-        httpStatus.BAD_REQUEST,
-        'Organization not connected to Stripe'
-      );
-    }
-    if (organization?.stripeAccountStatus !== STRIPE_ACCOUNT_STATUS.ACTIVE) {
-      const status = organization?.stripeAccountStatus ?? 'UNKNOWN';
-      throw new AppError(
-        httpStatus.BAD_REQUEST,
-        `Organization is not connected to Stripe. Current status: ${status}`
-      );
+    if (!organization) {
+      throw new AppError(httpStatus.NOT_FOUND, 'Organization not found');
     }
 
-    // 1. Check Stripe Balance
+    // 1. Find Stripe Account
+    const stripeAccount = await StripeAccount.findOne({
+      organization: organizationId,
+      status: 'active',
+    }).session(session);
+
+    if (!stripeAccount || !stripeAccount.payoutsEnabled) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        'Organization payouts are disabled or Stripe account is not fully connected.'
+      );
+    }
+
+    // 2. Check Stripe Balance using the correct Account ID
     const stripeBalance = await StripeService.getAccountBalance(
-      organization.stripeConnectAccountId
+      stripeAccount.stripeAccountId
     );
 
     if (stripeBalance.available < amount) {
@@ -59,7 +62,7 @@ const requestPayout = async (
       );
     }
 
-    // 2. Create Payout Record
+    // 3. Create Payout Record
     const payoutDate = scheduledDate ? new Date(scheduledDate) : new Date();
 
     const [payout] = await Payout.create(
@@ -113,7 +116,7 @@ const getAllPayouts = async (
 ) => {
   const payoutQuery = Payout.find({ organization: organizationId }).populate(
     'organization',
-    'name stripeConnectAccountId'
+    'name'
   );
 
   const payoutBuilder = new QueryBuilder(payoutQuery, query)

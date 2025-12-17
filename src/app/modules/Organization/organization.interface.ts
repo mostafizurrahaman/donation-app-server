@@ -29,10 +29,8 @@ export interface IORGANIZATION extends Document {
   tfnOrAbnNumber: string;
   acncNumber: string;
   zakatLicenseHolderNumber: string | null;
-  stripeConnectAccountId?: string;
+
   dateOfEstablishment: Date;
   registeredCharityName: string;
   isProfileVisible?: boolean;
-  stripeAccountStatus: TOrganizationAccountStatusType;
-  stripeAccountRequirements?: string[];
 }

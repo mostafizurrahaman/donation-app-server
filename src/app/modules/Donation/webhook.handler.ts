@@ -19,11 +19,8 @@ import { BalanceService } from '../Balance/balance.service';
 import { PAYOUT_STATUS } from '../Payout/payout.constant';
 import { Payout } from '../Payout/payout.model';
 import { BalanceTransaction } from '../Balance/balance.model';
-import { STRIPE_ACCOUNT_STATUS } from '../Organization/organization.constants';
-import { TOrganizationAccountStatusType } from '../Organization/organization.interface';
-import Organization from '../Organization/organization.model';
 import { calculateNextDonationDate } from '../ScheduledDonation/scheduledDonation.service';
-
+import { StripeAccount } from '../OrganizationAccount/stripe-account.model';
 
 // ========================================
 // SCHEDULED DONATION: Success Handler
@@ -732,40 +729,77 @@ const handlePayoutFailed = async (payoutEvent: Stripe.Payout) => {
 // ========================================
 // ACCOUNT: Updated Handler (KYC & Bank Status)
 // ========================================
-const handleAccountUpdated = async (account: Stripe.Account) => {
-  console.log(`\n👤 WEBHOOK: account.updated - ID: ${account.id}`);
+const handleAccountUpdated = async (stripeAccountData: Stripe.Account) => {
+  const accountId = stripeAccountData.id;
+
+  console.log(`\n👤 [STRIPE WEBHOOK] account.updated - ID: ${accountId}`);
 
   try {
-    // 1. Determine Status based on Stripe Flags
-    let status: TOrganizationAccountStatusType = STRIPE_ACCOUNT_STATUS.PENDING;
-    const requirements = account.requirements?.currently_due || [];
+   
+    let internalStatus: 'active' | 'pending' | 'restricted' | 'rejected' =
+      'pending';
 
-    if (account.charges_enabled && account.payouts_enabled) {
-      status = STRIPE_ACCOUNT_STATUS.ACTIVE;
-    } else if (account.requirements?.disabled_reason) {
-      status = STRIPE_ACCOUNT_STATUS.RESTRICTED;
-    } else if (account.details_submitted) {
-      // Submitted but waiting for verification or bank
-      status = STRIPE_ACCOUNT_STATUS.PENDING;
+    const requirements = stripeAccountData.requirements;
+    const isChargesEnabled = stripeAccountData.charges_enabled;
+    const isPayoutsEnabled = stripeAccountData.payouts_enabled;
+    const isDisabled = !!requirements?.disabled_reason;
+    const hasOverdueRequirements =
+      (requirements?.currently_due || []).length > 0;
+
+    if (isDisabled) {
+      internalStatus = 'rejected';
+    } else if (isChargesEnabled && isPayoutsEnabled) {
+      internalStatus = 'active';
+    } else if (hasOverdueRequirements) {
+      internalStatus = 'restricted';
+    } else if (stripeAccountData.details_submitted) {
+      internalStatus = 'pending';
     }
 
-    console.log(`   New Status: ${status}`);
-    console.log(`   Missing Requirements: ${requirements.join(', ')}`);
+    console.log(`   Mapped Status: ${internalStatus}`);
+    console.log(`   Charges Enabled: ${isChargesEnabled}`);
+    console.log(`   Payouts Enabled: ${isPayoutsEnabled}`);
 
-    // 2. Update Database
-    await Organization.findOneAndUpdate(
-      { stripeConnectAccountId: account.id },
+   
+    const updatedAccount = await StripeAccount.findOneAndUpdate(
+      { stripeAccountId: accountId },
       {
         $set: {
-          stripeAccountStatus: status,
-          stripeAccountRequirements: requirements,
+          status: internalStatus,
+          chargesEnabled: isChargesEnabled,
+          payoutsEnabled: isPayoutsEnabled,
+          detailsSubmitted: stripeAccountData.details_submitted,
+          requirements: {
+            currently_due: requirements?.currently_due || [],
+            eventually_due: requirements?.eventually_due || [],
+            disabled_reason: requirements?.disabled_reason || null,
+          },
         },
-      }
+      },
+      { new: true }
     );
 
-    console.log(`✅ Organization ${account.id} status updated to ${status}`);
-  } catch (error) {
-    console.error(`❌ Error handling account.updated:`, error);
+    if (!updatedAccount) {
+      console.warn(
+        `⚠️  Received webhook for unknown Stripe Account ID: ${accountId}. No matching record in Database.`
+      );
+      return;
+    }
+
+    console.log(`✅ Database successfully synced for account: ${accountId}`);
+
+    // If account just became active, you could trigger a notification here
+    if (internalStatus === 'active') {
+      console.log(
+        `🎉 Organization linked to ${accountId} is now FULLY ACTIVE.`
+      );
+    }
+  } catch (error: any) {
+    // We log the error but don't re-throw to ensure the webhook returns 200 to Stripe
+    console.error(
+      `❌ Error processing account.updated webhook:`,
+      error.message
+    );
   }
 };
 

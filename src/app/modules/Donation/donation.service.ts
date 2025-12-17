@@ -45,7 +45,7 @@ import {
 } from './donation.constant';
 import { ScheduledDonation } from '../ScheduledDonation/scheduledDonation.model';
 import { RoundUpModel } from '../RoundUp/roundUp.model';
-import { STRIPE_ACCOUNT_STATUS } from '../Organization/organization.constants';
+import { StripeAccount } from '../OrganizationAccount/stripe-account.model';
 
 // Helper function to generate unique idempotency key
 const generateIdempotencyKey = (): string => {
@@ -57,13 +57,7 @@ const createOneTimeDonation = async (
   payload: TCreateOneTimeDonationPayload & {
     userId: string;
   }
-): Promise<{
-  donation: IDonation;
-  paymentIntent: {
-    client_secret: string;
-    payment_intent_id: string;
-  };
-}> => {
+) => {
   const {
     amount,
     coverFees = false,
@@ -75,35 +69,31 @@ const createOneTimeDonation = async (
   } = payload;
 
   // 1. Check if donor exists
-  const donor = await Client.findOne({
-    auth: userId,
-  });
+  const donor = await Client.findOne({ auth: userId });
   if (!donor?._id) {
     throw new AppError(httpStatus.NOT_FOUND, 'Donor not found!');
   }
 
-  // 2. Validate organization exists and has Stripe Connect
+  // 2. Validate organization exists
   const organization = await Organization.findById(organizationId);
   if (!organization) {
     throw new AppError(httpStatus.NOT_FOUND, 'Organization not found!');
   }
 
-  if (!organization.stripeConnectAccountId) {
+  // 3. Get Stripe Account from dedicated model
+  const stripeAccount = await StripeAccount.findOne({
+    organization: organizationId,
+    status: 'active',
+  });
+
+  if (!stripeAccount || !stripeAccount.chargesEnabled) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      'This organization is not set up to receive payments yet.'
-    );
-  }
-  if (organization?.stripeAccountStatus !== STRIPE_ACCOUNT_STATUS.ACTIVE) {
-    const status = organization?.stripeAccountStatus ?? 'not_connected';
-    throw new AppError(
-      httpStatus.BAD_REQUEST,
-      `Organization is not connected to Stripe. Current status: ${status}`
+      'This organization is not set up to receive payments (Stripe account inactive).'
     );
   }
 
-  // 3. Validate cause exists and is verified
-  // If causeId is provided, validate it
+  // 4. Validate cause exists and is verified
   let cause = null;
   if (causeId) {
     cause = await Cause.findById(causeId);
@@ -113,12 +103,12 @@ const createOneTimeDonation = async (
     if (cause.status !== CAUSE_STATUS_TYPE.VERIFIED) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
-        `Cannot create donation for cause with status: ${cause.status}. Only verified causes can receive donations.`
+        `Cannot create donation for cause with status: ${cause.status}.`
       );
     }
   }
 
-  // 4. Validate Payment Method
+  // 5. Validate Payment Method
   const paymentMethod = await PaymentMethodService.getPaymentMethodById(
     paymentMethodId,
     userId
@@ -128,32 +118,26 @@ const createOneTimeDonation = async (
     throw new AppError(httpStatus.BAD_REQUEST, 'Payment method is not active!');
   }
 
-  // 5. ✅ Apply Australian Fee Logic
+  // 6. Calculate Fees
   const financials = calculateAustralianFees(amount, coverFees);
-
-  // Calculate Application Fee (Platform Revenue + GST)
   const applicationFee = financials.platformFee + financials.gstOnFee;
-
   console.log(`💰 Donation Breakdown (Destination Charge):`);
   console.log(`   Base: $${financials.baseAmount.toFixed(2)}`);
   console.log(`   App Fee: $${applicationFee.toFixed(2)}`);
   console.log(`   Stripe Fee: $${financials.stripeFee.toFixed(2)}`);
   console.log(`   Total Charged: $${financials.totalCharge.toFixed(2)}`);
   console.log(`   Net To Org: $${financials.netToOrg.toFixed(2)}`);
-
-  // Generate idempotency key on backend
+  // Generate idempotency key
   const idempotencyKey = generateIdempotencyKey();
 
-  // Start mongoose session for transaction
   const session = await mongoose.startSession();
 
   try {
     await session.startTransaction();
 
-    // Generate unique ID for the donation
     const donationUniqueId = new Types.ObjectId();
 
-    // Create donation record
+    // 7. Create Donation Record
     const donation = new Donation({
       _id: donationUniqueId,
       donor: new Types.ObjectId(donor._id),
@@ -161,7 +145,6 @@ const createOneTimeDonation = async (
       cause: cause ? new Types.ObjectId(cause._id) : undefined,
       donationType: 'one-time',
 
-      // ✅ Store Financials
       amount: financials.baseAmount,
       coverFees: financials.coverFees,
       platformFee: financials.platformFee,
@@ -170,7 +153,7 @@ const createOneTimeDonation = async (
       netAmount: financials.netToOrg,
       totalAmount: financials.totalCharge,
 
-      currency: 'USD', // Australian Context
+      currency: 'USD',
       status: 'pending',
       specialMessage,
       pointsEarned: Math.floor(financials.baseAmount * 100),
@@ -183,16 +166,14 @@ const createOneTimeDonation = async (
 
     const savedDonation = await donation.save({ session });
 
-    // 6. Create Payment Intent (Destination Charge)
+    // 8. Create Payment Intent (Destination Charge)
     const paymentIntent = await StripeService.createPaymentIntentWithMethod({
       amount: financials.baseAmount,
       totalAmount: financials.totalCharge,
-
-      // Pass calculated fees for Stripe Split
       applicationFee: applicationFee,
-      orgStripeAccountId: organization.stripeConnectAccountId,
 
-      // Metadata breakdown
+      orgStripeAccountId: stripeAccount.stripeAccountId,
+
       coverFees: financials.coverFees,
       platformFee: financials.platformFee,
       gstOnFee: financials.gstOnFee,
@@ -208,7 +189,6 @@ const createOneTimeDonation = async (
       specialMessage,
     });
 
-    // Update donation with payment intent ID
     savedDonation.stripePaymentIntentId = paymentIntent.payment_intent_id;
     savedDonation.status = 'processing';
     await savedDonation.save({ session });
@@ -222,7 +202,7 @@ const createOneTimeDonation = async (
   } catch (error: unknown) {
     await session.abortTransaction();
     const errorMessage =
-      error instanceof Error ? error.message : 'Unknown error occurred';
+      error instanceof Error ? error.message : 'Unknown error';
     throw new AppError(
       httpStatus.INTERNAL_SERVER_ERROR,
       `Failed to create donation: ${errorMessage}`
@@ -570,14 +550,26 @@ const retryFailedPayment = async (
 
   // Fetch Organization to get Connected Account ID
   const organization = await Organization.findById(donation.organization);
-  if (!organization?.stripeConnectAccountId) {
+  if (!organization) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      'Organization is not connected to Stripe. Cannot process retry.'
+      'Organization not found. Cannot process retry.'
     );
   }
 
-  // ✅ Recalculate fees to ensure consistency
+  const stripeAccount = await StripeAccount.findOne({
+    organization: organization._id,
+    status: 'active',
+  });
+
+  if (!stripeAccount) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'Stripe Account either not connected or exist!'
+    );
+  }
+
+  //  Recalculate fees to ensure consistency
   const financials = calculateAustralianFees(
     donation.amount,
     donation.coverFees
@@ -593,7 +585,7 @@ const retryFailedPayment = async (
 
     // Fee Params for Destination Charge
     applicationFee: applicationFee,
-    orgStripeAccountId: organization.stripeConnectAccountId,
+    orgStripeAccountId: stripeAccount.stripeAccountId,
 
     // Pass existing metadata + Fee Breakdown
     coverFees: financials.coverFees,

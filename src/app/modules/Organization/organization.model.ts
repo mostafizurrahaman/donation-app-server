@@ -49,7 +49,6 @@ const organizationSchema = new Schema<IORGANIZATION>(
       optional: true,
     },
 
-    // Verify Your registration
     tfnOrAbnNumber: {
       type: String,
     },
@@ -61,13 +60,6 @@ const organizationSchema = new Schema<IORGANIZATION>(
       default: null,
     },
 
-    // Stripe Connect account for receiving donations
-    stripeConnectAccountId: {
-      type: String,
-      required: false,
-    },
-
-    //  Extra fields added:
     country: {
       type: String,
       default: '',
@@ -81,7 +73,6 @@ const organizationSchema = new Schema<IORGANIZATION>(
       default: now(),
     },
 
-    // Extra Access Fields :
     registeredCharityName: {
       type: String,
       default: '',
@@ -90,21 +81,20 @@ const organizationSchema = new Schema<IORGANIZATION>(
       type: Boolean,
       default: true,
     },
-
-    stripeAccountStatus: {
-      type: String,
-      enum: STRIPE_ACCOUNT_STATUS_VALUES,
-      default: STRIPE_ACCOUNT_STATUS.NOT_CONNECTED,
-    },
-
-    // Optional: Store why it's pending (e.g., "bank_account_missing")
-    stripeAccountRequirements: {
-      type: [String],
-      default: [],
-    },
   },
-  { timestamps: true, versionKey: false }
+  {
+    timestamps: true,
+    toJSON: { virtuals: true }, // Enable virtuals
+    toObject: { virtuals: true },
+  }
 );
+
+organizationSchema.virtual('stripeAccount', {
+  ref: 'StripeAccount',
+  localField: '_id',
+  foreignField: 'organization',
+  justOne: true,
+});
 
 const Organization = model<IORGANIZATION>('Organization', organizationSchema);
 

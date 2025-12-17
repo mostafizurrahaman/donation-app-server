@@ -3,26 +3,23 @@ import { ClientSession, Types } from 'mongoose';
 import { BalanceTransaction } from './balance.model';
 import { IBalanceTransaction } from './balance.interface';
 import Donation from '../Donation/donation.model';
-import Organization from '../Organization/organization.model';
 import { StripeService } from '../Stripe/stripe.service';
 import { startOfMonth, endOfMonth, subMonths } from 'date-fns';
-import { AppError } from '../../utils';
-import httpStatus from 'http-status';
-import { STRIPE_ACCOUNT_STATUS } from '../Organization/organization.constants';
+
+import { StripeAccount } from '../OrganizationAccount/stripe-account.model';
 
 /**
  * Get Balance Summary from Stripe (Single Source of Truth)
  */
 const getBalanceSummary = async (organizationId: string) => {
-  const org = await Organization.findById(organizationId).select(
-    'stripeConnectAccountId'
-  );
+  // 1. Find the Stripe Account linked to this org
+  const stripeAccount = await StripeAccount.findOne({
+    organization: organizationId,
+    status: 'active',
+  });
 
-  if (
-    !org ||
-    !org.stripeConnectAccountId ||
-    org?.stripeAccountStatus !== STRIPE_ACCOUNT_STATUS.ACTIVE
-  ) {
+  // If no account or not enabled, return zero
+  if (!stripeAccount || !stripeAccount.chargesEnabled) {
     return {
       availableBalance: 0,
       pendingBalance: 0,
@@ -30,9 +27,9 @@ const getBalanceSummary = async (organizationId: string) => {
     };
   }
 
-  // Fetch directly from Stripe
+  // 2. Fetch directly from Stripe l
   const stripeBalance = await StripeService.getAccountBalance(
-    org.stripeConnectAccountId
+    stripeAccount.stripeAccountId
   );
 
   return {

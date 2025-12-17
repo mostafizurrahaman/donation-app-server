@@ -22,7 +22,7 @@ import { AppError } from '../../utils';
 import Client from '../Client/client.model';
 import { Logger } from '../../utils/logger';
 import { OrganizationModel } from '../Organization/organization.model';
-import { STRIPE_ACCOUNT_STATUS } from '../Organization/organization.constants';
+import { StripeAccount } from '../OrganizationAccount/stripe-account.model';
 
 // Check and reset monthly total at the beginning of each month
 const checkAndResetMonthlyTotal = async (
@@ -58,18 +58,20 @@ const triggerDonation = async (
     const organization = await OrganizationModel.findById(
       roundUpConfig.organization
     );
-    if (!organization || !organization.stripeConnectAccountId) {
-      throw new AppError(
-        httpStatus.BAD_REQUEST,
-        'Organization is not connected to Stripe. Cannot process donation.'
-      );
+    if (!organization) {
+      throw new AppError(httpStatus.BAD_REQUEST, 'Organization not found!');
     }
 
-    if (organization?.stripeAccountStatus !== STRIPE_ACCOUNT_STATUS.ACTIVE) {
-      const status = organization?.stripeAccountStatus ?? 'UNKNOWN';
+    // check is stripe account exists :
+    const stripeAccount = await StripeAccount.findOne({
+      organization: organization._id,
+      status: 'active',
+    });
+
+    if (!stripeAccount || !stripeAccount.chargesEnabled) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
-        `Organization is not connected to Stripe. Current status: ${status}`
+        'This organization is not set up to receive payments (Stripe account inactive).'
       );
     }
 
@@ -106,7 +108,7 @@ const triggerDonation = async (
     console.log(`   Base: $${financials.baseAmount.toFixed(2)}`);
     console.log(`   App Fee: $${applicationFee.toFixed(2)}`);
     console.log(`   Total Charged: $${financials.totalCharge.toFixed(2)}`);
-    console.log(`   Destination: ${organization.stripeConnectAccountId}`);
+    console.log(`   Destination: ${stripeAccount.stripeAccountId}`);
 
     // 4. Validate Donor & Cause
     const cause = await Cause.findById(roundUpConfig.cause);
@@ -161,7 +163,7 @@ const triggerDonation = async (
         amount: financials.baseAmount,
         totalAmount: financials.totalCharge,
 
-        // ✅ Destination Charge Params
+        //  Destination Charge Params
         applicationFee: applicationFee,
 
         // Metadata Breakdown
@@ -717,12 +719,27 @@ const processMonthlyDonation = async (
       roundUpConfig.organization
     ).session(session);
 
-    if (!organization || !organization.stripeConnectAccountId) {
+    if (!organization) {
       await session.abortTransaction();
       return {
         success: false,
+        message: 'Organization not found!',
+        statusCode: httpStatus.BAD_REQUEST,
+        data: null,
+      };
+    }
+
+    // check is stripe account exists :
+    const stripeAccount = await StripeAccount.findOne({
+      organization: organization._id,
+      status: 'active',
+    });
+
+    if (!stripeAccount || !stripeAccount.chargesEnabled) {
+      return {
+        success: false,
         message:
-          'Organization not connected to Stripe. Payout cannot be processed.',
+          'This organization is not set up to receive payments (Stripe account inactive).',
         statusCode: httpStatus.BAD_REQUEST,
         data: null,
       };

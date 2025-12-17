@@ -10,6 +10,7 @@ import { cronJobTracker } from './cronJobTracker';
 import { AppError } from '../utils';
 import { STRIPE_ACCOUNT_STATUS } from '../modules/Organization/organization.constants';
 import httpStatus from 'http-status';
+import { StripeAccount } from '../modules/OrganizationAccount/stripe-account.model';
 
 const JOB_NAME = 'payout-processing';
 
@@ -49,19 +50,22 @@ export const startPayoutProcessingCron = () => {
             payout.organization
           ).session(session);
 
-          if (!org || !org.stripeConnectAccountId) {
-            throw new Error(
-              'Organization not found or no Stripe Connect account linked'
-            );
-          }
-          if (org?.stripeAccountStatus !== STRIPE_ACCOUNT_STATUS.ACTIVE) {
-            const status = org?.stripeAccountStatus ?? 'UNKNOWN';
-            throw new AppError(
-              httpStatus.BAD_REQUEST,
-              `Organization is not connected to Stripe. Current status: ${status}`
-            );
+          if (!org) {
+            throw new Error('Organization not found!');
           }
 
+          const stripeAccount = await StripeAccount.findOne({
+            organization: org._id,
+            status: 'active',
+          });
+
+          if (!stripeAccount) {
+            throw new AppError(
+              httpStatus.BAD_REQUEST,
+              'Stripe Account either not connected or exist!'
+            );
+          }
+          
           // 2. Mark as PROCESSING in DB
           payout.status = PAYOUT_STATUS.PROCESSING;
           payout.processedAt = new Date();
@@ -70,7 +74,7 @@ export const startPayoutProcessingCron = () => {
           // 3. Execute Stripe Payout (Connected Account Balance -> External Bank)
           // Note: This relies on Stripe to throw an error if funds are insufficient.
           const stripePayout = await StripeService.createPayout(
-            org.stripeConnectAccountId, // Perform action ON BEHALF OF this account
+            stripeAccount.stripeAccountId, // Perform action ON BEHALF OF this account
             payout.netAmount, // Amount to send to bank
             payout.currency
           );

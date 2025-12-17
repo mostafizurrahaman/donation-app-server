@@ -19,23 +19,22 @@ import {
 import QueryBuilder from '../../builders/QueryBuilder';
 import Cause from '../Causes/causes.model';
 import Donation from '../Donation/donation.model';
+import { StripeAccount } from '../OrganizationAccount/stripe-account.model';
 
 /**
  * Start Stripe Connect onboarding for an organization
- * Creates a Stripe Connect account and returns onboarding URL
- *
- * Refactored for Australia (AU) & Manual Payouts
+ * Checks for existing account first to prevent duplicates.
  */
 const startStripeConnectOnboarding = async (
   userId: string
 ): Promise<{ onboardingUrl: string; accountId: string }> => {
-  // Find user
+  // 1. Find user to get email
   const user = await Auth.findById(userId);
   if (!user) {
     throw new AppError(httpStatus.NOT_FOUND, 'User not found!');
   }
 
-  // Find organization
+  // 2. Find organization associated with this user
   const organization = await Organization.findOne({ auth: userId });
   if (!organization) {
     throw new AppError(
@@ -44,30 +43,46 @@ const startStripeConnectOnboarding = async (
     );
   }
 
-  // Check if already has Stripe Connect account
-  if (organization.stripeConnectAccountId) {
-    // Account exists, create new onboarding link (in case they didn't finish)
-    const { onboardingUrl } = await StripeService.createAccountLink(
-      organization.stripeConnectAccountId
+  // 3. Check if a Stripe Account ALREADY exists for this org
+  let stripeAccount = await StripeAccount.findOne({
+    organization: organization._id,
+  });
+
+  let accountId = '';
+
+  if (stripeAccount) {
+    console.log(
+      `♻️ Reusing existing Stripe Account: ${stripeAccount.stripeAccountId}`
+    );
+    accountId = stripeAccount.stripeAccountId;
+  } else {
+    console.log(`🆕 Creating new Stripe Connected Account...`);
+
+    // Call Stripe API to create the Express account
+    const stripeResponse = await StripeService.createConnectAccount(
+      user.email,
+      organization.name || 'Organization',
+      'AU'
     );
 
-    return {
-      onboardingUrl,
-      accountId: organization.stripeConnectAccountId,
-    };
+    // Save the new ID to our dedicated StripeAccount model
+    stripeAccount = await StripeAccount.create({
+      organization: organization._id,
+      stripeAccountId: stripeResponse.accountId,
+      status: 'pending',
+      country: 'AU',
+      requirements: {
+        currently_due: [],
+        eventually_due: [],
+      },
+      isActive: true, // Mark as the active account
+    });
+
+    accountId = stripeResponse.accountId;
   }
 
-  // Create new Stripe Connect account
-  const { accountId, onboardingUrl } = await StripeService.createConnectAccount(
-    user.email,
-    organization.name || 'Organization',
-    'AU' // Australian Company
-  );
-
-  // Save account ID to organization
-  organization.stripeConnectAccountId = accountId;
-  organization.stripeAccountStatus = STRIPE_ACCOUNT_STATUS.PENDING;
-  await organization.save();
+  // 4. Generate a fresh Onboarding Link
+  const { onboardingUrl } = await StripeService.createAccountLink(accountId);
 
   return {
     onboardingUrl,
@@ -78,6 +93,7 @@ const startStripeConnectOnboarding = async (
 /**
  * Get Stripe Connect account status
  */
+
 const getStripeConnectStatus = async (
   userId: string
 ): Promise<{
@@ -87,29 +103,60 @@ const getStripeConnectStatus = async (
   chargesEnabled: boolean;
   payoutsEnabled: boolean;
   detailsSubmitted: boolean;
+  requirements: string[];
+  status: string;
 }> => {
-  // Find organization
+  // 1. Find Organization
   const organization = await Organization.findOne({ auth: userId });
   if (!organization) {
     throw new AppError(httpStatus.NOT_FOUND, 'Organization not found!');
   }
 
-  // Check if has Stripe Connect account
-  if (!organization.stripeConnectAccountId) {
+  // 2. Find the Stripe Account record
+  const stripeAccount = await StripeAccount.findOne({
+    organization: organization._id,
+  });
+
+  // 3. Return early if no account exists
+  if (!stripeAccount) {
     return {
       hasAccount: false,
       isActive: false,
       chargesEnabled: false,
       payoutsEnabled: false,
       detailsSubmitted: false,
+      requirements: [],
+      status: 'not_connected',
     };
   }
 
-  // Fetch account details from Stripe
+  // 4. Fetch LATEST details directly from Stripe API (Source of Truth)
   try {
     const account = await StripeService.getConnectAccount(
-      organization.stripeConnectAccountId
+      stripeAccount.stripeAccountId
     );
+
+    // 5. Determine Database Status based on Stripe Flags
+    let newStatus = 'pending';
+    if (account.requirements?.disabled_reason) {
+      newStatus = 'rejected';
+    } else if (account.charges_enabled && account.payouts_enabled) {
+      newStatus = 'active';
+    } else if ((account.requirements?.currently_due || []).length > 0) {
+      newStatus = 'restricted';
+    }
+
+    // 6. SYNC: Update local database with fresh data (Self-healing)
+    stripeAccount.chargesEnabled = account.charges_enabled;
+    stripeAccount.payoutsEnabled = account.payouts_enabled;
+    stripeAccount.detailsSubmitted = account.details_submitted;
+    stripeAccount.status = newStatus as any;
+    stripeAccount.requirements = {
+      currently_due: account.requirements?.currently_due || [],
+      eventually_due: account.requirements?.eventually_due || [],
+      disabled_reason: account.requirements?.disabled_reason! || null,
+    };
+    await stripeAccount.save();
 
     return {
       hasAccount: true,
@@ -118,39 +165,45 @@ const getStripeConnectStatus = async (
       chargesEnabled: account.charges_enabled,
       payoutsEnabled: account.payouts_enabled,
       detailsSubmitted: account.details_submitted,
+      requirements: account.requirements?.currently_due || [],
+      status: newStatus,
     };
   } catch (error) {
     throw new AppError(
       httpStatus.INTERNAL_SERVER_ERROR,
-      `Failed to fetch Stripe Connect account status: ${
-        (error as Error).message
-      }`
+      `Failed to fetch Stripe Connect status: ${(error as Error).message}`
     );
   }
 };
 
 /**
  * Refresh Stripe Connect onboarding link
+ * Used when a user's link expires or they return to finish the process.
  */
 const refreshStripeConnectOnboarding = async (
   userId: string
 ): Promise<{ onboardingUrl: string }> => {
-  // Find organization
+  // 1. Find Organization
   const organization = await Organization.findOne({ auth: userId });
   if (!organization) {
     throw new AppError(httpStatus.NOT_FOUND, 'Organization not found!');
   }
 
-  if (!organization.stripeConnectAccountId) {
+  // 2. Find Stripe Account
+  const stripeAccount = await StripeAccount.findOne({
+    organization: organization._id,
+  });
+
+  if (!stripeAccount || !stripeAccount.stripeAccountId) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
       'No Stripe Connect account found! Please start onboarding first.'
     );
   }
 
-  // Create new account link
+  // 3. Create new account link using the existing ID
   const { onboardingUrl } = await StripeService.createAccountLink(
-    organization.stripeConnectAccountId
+    stripeAccount.stripeAccountId
   );
 
   return { onboardingUrl };

@@ -19,7 +19,7 @@ import { IPaymentMethodModel } from '../PaymentMethod/paymentMethod.interface';
 import { calculateAustralianFees } from '../Donation/donation.constant';
 import { StripeService } from '../Stripe/stripe.service';
 import { IClient } from '../Client/client.interface';
-import { STRIPE_ACCOUNT_STATUS } from '../Organization/organization.constants';
+import { StripeAccount } from '../OrganizationAccount/stripe-account.model';
 
 // Helper function to calculate next donation date
 export const calculateNextDonationDate = (
@@ -108,19 +108,16 @@ const createScheduledDonation = async (
     throw new AppError(httpStatus.NOT_FOUND, 'Organization not found!');
   }
 
-  //  Ensure Org is connected to Stripe (Early check)
-  if (!organization.stripeConnectAccountId) {
-    throw new AppError(
-      httpStatus.BAD_REQUEST,
-      'This organization is not set up to receive payments.'
-    );
-  }
+  // check is stripe account exists :
+  const stripeAccount = await StripeAccount.findOne({
+    organization: organization._id,
+    status: 'active',
+  });
 
-  if (organization?.stripeAccountStatus !== STRIPE_ACCOUNT_STATUS.ACTIVE) {
-    const status = organization?.stripeAccountStatus ?? 'UNKNOWN';
+  if (!stripeAccount || !stripeAccount.chargesEnabled) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      `Organization is not connected to Stripe. Current status: ${status}`
+      'This organization is not set up to receive payments (Stripe account inactive).'
     );
   }
 
@@ -470,18 +467,20 @@ const executeScheduledDonation = async (
     const organization = await Organization.findById(
       scheduledDonation.organization
     );
-    if (!organization || !organization.stripeConnectAccountId) {
-      throw new AppError(
-        httpStatus.BAD_REQUEST,
-        'Organization not connected to Stripe.'
-      );
+    if (!organization) {
+      throw new AppError(httpStatus.BAD_REQUEST, 'Organization not found.');
     }
 
-    if (organization?.stripeAccountStatus !== STRIPE_ACCOUNT_STATUS.ACTIVE) {
-      const status = organization?.stripeAccountStatus ?? 'UNKNOWN';
+    // check is stripe account exists :
+    const stripeAccount = await StripeAccount.findOne({
+      organization: organization._id,
+      status: 'active',
+    });
+
+    if (!stripeAccount || !stripeAccount.chargesEnabled) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
-        `Organization is not connected to Stripe. Current status: ${status}`
+        'This organization is not set up to receive payments (Stripe account inactive).'
       );
     }
 
@@ -498,7 +497,7 @@ const executeScheduledDonation = async (
     console.log(`   Base: $${financials.baseAmount}`);
     console.log(`   Total Charge: $${financials.totalCharge}`);
     console.log(`   App Fee: $${applicationFee}`);
-    console.log(`   Destination: ${organization.stripeConnectAccountId}`);
+    console.log(`   Destination: ${stripeAccount.stripeAccountId}`);
 
     // 5. Execute Stripe Payment (Destination Charge)
 
@@ -508,7 +507,7 @@ const executeScheduledDonation = async (
 
       // Destination Charge Params
       applicationFee: applicationFee,
-      orgStripeAccountId: organization.stripeConnectAccountId,
+      orgStripeAccountId: stripeAccount.stripeAccountId,
 
       // Metadata Breakdown
       coverFees: financials.coverFees,

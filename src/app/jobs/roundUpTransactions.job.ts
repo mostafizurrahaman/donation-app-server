@@ -14,6 +14,8 @@ import { calculateAustralianFees } from '../modules/Donation/donation.constant';
 import { IAuth } from '../modules/Auth/auth.interface';
 import Client from '../modules/Client/client.model';
 import { OrganizationModel } from '../modules/Organization/organization.model';
+import { StripeAccount } from '../modules/OrganizationAccount/stripe-account.model';
+import { AppError } from '../utils';
 
 interface IPopulatedRoundUpConfig extends Omit<IRoundUpDocument, 'user'> {
   user: IAuth;
@@ -88,10 +90,17 @@ const processEndOfMonthDonations = async () => {
         config.organization
       ).session(session);
 
-      if (!organizationDoc || !organizationDoc.stripeConnectAccountId) {
-        throw new Error(
-          `Organization ${config.organization} not connected to Stripe`
-        );
+      if (!organizationDoc) {
+        throw new Error(`Organization ${config.organization} not found!`);
+      }
+
+      const stripeAccount = await StripeAccount.findOne({
+        organization: organizationDoc._id,
+        status: 'active',
+      });
+
+      if (!stripeAccount) {
+        throw new Error('Stripe Account either not connected or exist!');
       }
 
       // Get all processed transactions for this round-up config for the month
