@@ -75,7 +75,6 @@ const startStripeConnectOnboarding = async (
         currently_due: [],
         eventually_due: [],
       },
-      isActive: true, // Mark as the active account
     });
 
     accountId = stripeResponse.accountId;
