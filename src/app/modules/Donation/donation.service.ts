@@ -120,7 +120,7 @@ const createOneTimeDonation = async (
 
   // 6. Calculate Fees
   const financials = calculateAustralianFees(amount, coverFees);
-  const applicationFee = financials.platformFee + financials.gstOnFee;
+  const applicationFee = financials.platformFeeWithStripe;
   console.log(`💰 Donation Breakdown (Destination Charge):`);
   console.log(`   Base: $${financials.baseAmount.toFixed(2)}`);
   console.log(`   App Fee: $${applicationFee.toFixed(2)}`);
@@ -575,8 +575,8 @@ const retryFailedPayment = async (
     donation.coverFees
   );
 
-  // Platform Fee = Platform Revenue + GST
-  const applicationFee = financials.platformFee + financials.gstOnFee;
+  // Platform Fee = Platform Revenue + GST + Stripe Fee
+  const applicationFee = financials.platformFeeWithStripe
 
   // Create a new payment intent for retry (Destination Charge)
   const paymentIntent = await StripeService.createPaymentIntentWithMethod({

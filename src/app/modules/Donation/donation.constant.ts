@@ -101,7 +101,7 @@ export const calculateAustralianFees = (
   const stripeFeePercent =
     Number(config.paymentSetting.stripeFeePercent) || 0.029;
   const stripeFixedFee = Number(config.paymentSetting.stripeFixedFee) || 0.3;
-   console.log({ stripeFeePercent });
+  console.log({ stripeFeePercent });
 
   // 1. Platform Revenue + GST
   const platformFee = Number((baseAmount * platformFeePercent).toFixed(2));
@@ -138,6 +138,8 @@ export const calculateAustralianFees = (
     netToOrg = Number((totalCharge - stripeFee - applicationFee).toFixed(2));
   }
 
+  const platformFeeWithStripe = stripeFee + applicationFee;
+
   console.log({
     baseAmount, // Tax Deductible amount
     platformFee, // Platform Revenue
@@ -147,6 +149,7 @@ export const calculateAustralianFees = (
     totalCharge, // Amount to Charge Card
     netToOrg, // Amount to Credit Organization
     coverFees,
+    platformFeeWithStripe 
   });
 
   return {
@@ -158,6 +161,7 @@ export const calculateAustralianFees = (
     applicationFee, // Amount passed to Stripe as application_fee_amount
     netToOrg,
     coverFees,
+    platformFeeWithStripe // platformFee + Applicaton Fee
   };
 };
 

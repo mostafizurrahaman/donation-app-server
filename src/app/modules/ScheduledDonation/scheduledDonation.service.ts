@@ -491,7 +491,7 @@ const executeScheduledDonation = async (
     );
 
     // Calculate Application Fee (Platform + GST)
-    const applicationFee = financials.platformFee + financials.gstOnFee;
+    const applicationFee = financials.platformFeeWithStripe;
 
     console.log(`🔄 Executing Recurring Donation (${scheduledDonationId}):`);
     console.log(`   Base: $${financials.baseAmount}`);

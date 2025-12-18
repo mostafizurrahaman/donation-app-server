@@ -62,7 +62,7 @@ const startStripeConnectOnboarding = async (
     const stripeResponse = await StripeService.createConnectAccount(
       user.email,
       organization.name || 'Organization',
-      'AU'
+      'US'
     );
 
     // Save the new ID to our dedicated StripeAccount model
@@ -70,7 +70,7 @@ const startStripeConnectOnboarding = async (
       organization: organization._id,
       stripeAccountId: stripeResponse.accountId,
       status: 'pending',
-      country: 'AU',
+      country: 'US',
       requirements: {
         currently_due: [],
         eventually_due: [],

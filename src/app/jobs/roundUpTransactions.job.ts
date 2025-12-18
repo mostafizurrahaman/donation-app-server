@@ -71,7 +71,7 @@ const processEndOfMonthDonations = async () => {
 
       //  Calculate Fees (Australian Logic)
       const financials = calculateAustralianFees(totalAmount, coverFees);
-      const applicationFee = financials.platformFee + financials.gstOnFee;
+      const applicationFee = financials.platformFeeWithStripe;
 
       const now = new Date();
       const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);

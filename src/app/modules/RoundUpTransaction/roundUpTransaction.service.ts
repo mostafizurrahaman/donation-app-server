@@ -102,7 +102,7 @@ const triggerDonation = async (
     );
 
     // Platform Fee + GST
-    const applicationFee = financials.platformFee + financials.gstOnFee;
+    const applicationFee = financials.platformFeeWithStripe;
 
     console.log(`\n🎯 Triggering RoundUp Donation (Destination Charge):`);
     console.log(`   Base: $${financials.baseAmount.toFixed(2)}`);
@@ -702,7 +702,7 @@ const processMonthlyDonation = async (
   );
 
   // applicationFee = Platform Revenue + GST component
-  const applicationFee = financials.platformFee + financials.gstOnFee;
+  const applicationFee = financials.platformFeeWithStripe;
 
   Logger.info(`\n💰 Manual RoundUp Breakdown (Destination Charge):`);
   Logger.info(`   Base: $${financials.baseAmount.toFixed(2)}`);
