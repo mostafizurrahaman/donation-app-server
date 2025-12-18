@@ -60,7 +60,6 @@
     "pdfkit": "^0.17.2",
     "plaid": "^21.0.0",
     "qrcode": "^1.5.4",
-    "stripe": "^20.0.0",
     "zod": "^4.1.12"
   },
   "devDependencies": {
