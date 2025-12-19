@@ -21,6 +21,11 @@ import { Payout } from '../Payout/payout.model';
 import { BalanceTransaction } from '../Balance/balance.model';
 import { calculateNextDonationDate } from '../ScheduledDonation/scheduledDonation.service';
 import { StripeAccount } from '../OrganizationAccount/stripe-account.model';
+import { createNotification } from '../Notification/notification.service';
+import { NOTIFICATION_TYPE } from '../Notification/notification.constant';
+import { IORGANIZATION } from '../Organization/organization.interface';
+import { IClient } from '../Client/client.interface';
+import { ICause } from '../Causes/causes.interface';
 
 // ========================================
 // SCHEDULED DONATION: Success Handler
@@ -303,9 +308,9 @@ const handlePaymentIntentSucceeded = async (
       },
       { new: true }
     )
-      .populate('donor')
-      .populate('organization')
-      .populate('cause');
+      .populate<{ donor: IClient }>('donor')
+      .populate<{ organization: IORGANIZATION }>('organization')
+      .populate<{ cuase: ICause }>('cause');
 
     // Fallback: Try to find by metadata donation ID
     if (!donation && metadata?.donationId) {
@@ -321,9 +326,9 @@ const handlePaymentIntentSucceeded = async (
         },
         { new: true }
       )
-        .populate('donor')
-        .populate('organization')
-        .populate('cause');
+        .populate<{ donor: IClient }>('donor')
+        .populate<{ organization: IORGANIZATION }>('organization')
+        .populate<{ cuase: ICause }>('cause');
     }
 
     if (!donation) {
@@ -342,11 +347,12 @@ const handlePaymentIntentSucceeded = async (
     // ========================================
 
     // 1. Log funds to history ledger (History Only - No Local Balance Update)
-    try {
-      const orgId =
-        (donation.organization as any)._id?.toString() ||
-        donation.organization.toString();
+    const orgId =
+      (donation.organization as any)._id?.toString() ||
+      donation.organization.toString();
 
+    const donorAuthId = (donation.donor as any).auth?.toString();
+    try {
       await BalanceService.logDonationTransaction(
         orgId,
         donation?._id?.toString() as string,
@@ -420,6 +426,34 @@ const handlePaymentIntentSucceeded = async (
       console.error(`❌ Badge checking failed:`, err);
     }
 
+    try {
+      // Notify Donor
+      await createNotification(
+        donorAuthId,
+        NOTIFICATION_TYPE.DONATION_SUCCESS,
+        `Your ${donation?.donationType} donation of $${donation.amount} to ${donation.organization.name} was successful!`,
+        donation._id!.toString(),
+        { ...donation }
+      );
+      console.log(`🔔 Cilent notification sucussfully sent!`);
+    } catch (err) {
+      console.log(`❌🔔 Cilent notification Failed!`);
+    }
+
+    try {
+      // Notify Organization
+      await createNotification(
+        donation.organization.auth.toString(), // Use org's auth ID
+        NOTIFICATION_TYPE.NEW_DONATION,
+        `New ${donation?.donationType} donation received: $${donation.amount} from ${donation.donor.name}`,
+        donation._id!.toString(),
+        { ...donation }
+      );
+      console.log(`🔔 Organization notification sucussfully sent!`);
+    } catch (err) {
+      console.log(`❌🔔 Organization notification Failed!`);
+    }
+
     console.log(`\n✅ Payment processing completed successfully\n`);
   } catch (error) {
     console.error(
@@ -457,7 +491,10 @@ const handlePaymentIntentFailed = async (
         lastPaymentAttempt: new Date(),
       },
       { new: true }
-    );
+    )
+      .populate<{ donor: IClient }>('donor')
+      .populate<{ organization: IORGANIZATION }>('organization')
+      .populate<{ cuase: ICause }>('cause');
 
     // Fallback: Try to find by metadata donation ID
     if (!donation && metadata?.donationId) {
@@ -528,6 +565,20 @@ const handlePaymentIntentFailed = async (
       );
     }
 
+    try {
+      const donorAuthId = donation?.donor.auth?.toString() as string;
+      // Notify Donor
+      await createNotification(
+        donorAuthId,
+        NOTIFICATION_TYPE.DONATION_FAILED,
+        `Your ${donation?.donationType} donation attempt of $${donation?.amount} failed. Please check your payment method.`,
+        donation?._id!.toString()
+      );
+      console.log(`🔔 Cilent notification sucussfully sent!`);
+    } catch (err) {
+      console.log(`❌🔔 Cilent notification Failed!`);
+    }
+
     console.log(`✅ Payment failure processed`);
   } catch (error) {
     console.error(`❌ Failed to update donation for payment intent:`, error);
@@ -559,7 +610,10 @@ const handlePaymentIntentCanceled = async (
         $inc: { paymentAttempts: 1 },
         lastPaymentAttempt: new Date(),
       }
-    );
+    )
+      .populate<{ donor: IClient }>('donor')
+      .populate<{ organization: IORGANIZATION }>('organization')
+      .populate<{ cuase: ICause }>('cause');
 
     if (!donation && metadata?.donationId) {
       await Donation.findOneAndUpdate(
@@ -577,6 +631,20 @@ const handlePaymentIntentCanceled = async (
         metadata.scheduledDonationId,
         'Payment canceled by user or system'
       );
+    }
+
+    try {
+      const donorAuthId = donation?.donor.auth?.toString() as string;
+      // Notify Donor
+      await createNotification(
+        donorAuthId,
+        NOTIFICATION_TYPE.DONATION_CANCELLED,
+        `Your ${donation?.donationType} donation attempt of $${donation?.amount} cancelled successfully!`,
+        donation?._id!.toString()
+      );
+      console.log(`🔔 Cilent notification sucussfully sent!`);
+    } catch (err) {
+      console.log(`❌🔔 Cilent notification Failed!`);
     }
 
     console.log(`✅ Payment cancellation processed`);
@@ -604,7 +672,10 @@ const handleChargeRefunded = async (charge: Stripe.Charge) => {
       },
       { status: 'refunded' },
       { new: true }
-    );
+    )
+      .populate<{ donor: IClient }>('donor')
+      .populate<{ organization: IORGANIZATION }>('organization')
+      .populate<{ cuase: ICause }>('cause');
 
     if (donation) {
       try {
@@ -619,6 +690,20 @@ const handleChargeRefunded = async (charge: Stripe.Charge) => {
         console.log(`✅ Refund logged for Org: ${orgId}`);
       } catch (err: any) {
         console.error(`❌ Failed to log refund:`, err.message);
+      }
+
+      try {
+        const donorAuthId = donation?.donor.auth?.toString() as string;
+        // Notify Donor
+        await createNotification(
+          donorAuthId,
+          NOTIFICATION_TYPE.DONATION_REFUNDED,
+          `Your donation of $${donation?.amount} has been refunded. Please check your payment method for details.`,
+          donation?._id!.toString()
+        );
+        console.log(`🔔 Cilent notification sucussfully sent!`);
+      } catch (err) {
+        console.log(`❌🔔 Cilent notification Failed!`);
       }
     } else {
       console.warn(
@@ -735,7 +820,6 @@ const handleAccountUpdated = async (stripeAccountData: Stripe.Account) => {
   console.log(`\n👤 [STRIPE WEBHOOK] account.updated - ID: ${accountId}`);
 
   try {
-   
     let internalStatus: 'active' | 'pending' | 'restricted' | 'rejected' =
       'pending';
 
@@ -760,7 +844,6 @@ const handleAccountUpdated = async (stripeAccountData: Stripe.Account) => {
     console.log(`   Charges Enabled: ${isChargesEnabled}`);
     console.log(`   Payouts Enabled: ${isPayoutsEnabled}`);
 
-   
     const updatedAccount = await StripeAccount.findOneAndUpdate(
       { stripeAccountId: accountId },
       {

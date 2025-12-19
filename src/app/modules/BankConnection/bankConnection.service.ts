@@ -24,6 +24,8 @@ import {
 import plaidClient, { encryptData, decryptData } from '../../config/plaid';
 import { RoundUpModel } from '../RoundUp/roundUp.model';
 import QueryBuilder from '../../builders/QueryBuilder';
+import { createNotification } from '../Notification/notification.service';
+import { NOTIFICATION_TYPE } from '../Notification/notification.constant';
 
 // Initialize Plaid client
 const plaidApi = plaidClient.client as PlaidApi;
@@ -371,6 +373,19 @@ async function handleWebhook(
         break;
 
       case 'ITEM':
+        if (webhookCode === 'LOGIN_REQUIRED' || webhookCode === 'ERROR') {
+          try {
+            await createNotification(
+              bankConnection.user.toString(),
+              NOTIFICATION_TYPE.BANK_DISCONNECTED,
+              `Action Required: Your connection to ${bankConnection.institutionName} has expired. Please reconnect to continue Round-Ups.`,
+              bankConnection?._id!.toString()
+            );
+            console.log(`✅ Bank disconnected notification sent!`);
+          } catch (error) {
+            console.log(`✅ Bank disconnected notification show error!`);
+          }
+        }
         if (
           webhookCode === 'ERROR' ||
           webhookCode === 'USER_PERMISSION_REVOKED'

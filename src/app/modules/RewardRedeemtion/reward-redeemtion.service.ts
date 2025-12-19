@@ -26,6 +26,8 @@ import {
   CANCELLATION_WINDOW_HOURS,
 } from './reward-redeemtion.constant';
 import { REWARD_MESSAGES, STATIC_POINTS_COST } from '../Reward/reward.constant';
+import { createNotification } from '../Notification/notification.service';
+import { NOTIFICATION_TYPE } from '../Notification/notification.constant';
 
 // ==========================================
 // REWARD CLAIMING & REDEMPTION SERVICES
@@ -174,6 +176,29 @@ const claimReward = async (
     if (reward.remainingCount <= 0) {
       reward.status = 'sold-out';
       await reward.save({ session });
+    }
+
+    // create  Claim rewards:
+    try {
+      await createNotification(
+        userId,
+        NOTIFICATION_TYPE.REWARD_CLAIMED,
+        `You have successfully claimed "${reward.title}". ${
+          assignedCode
+            ? 'Your redemption code is ready.'
+            : 'Please visit the store to redeem.'
+        }`,
+        redemption._id?.toString(),
+        {
+          rewardId: reward?._id,
+          redeemtionId: redemption._id,
+          image: reward?.image,
+          assignedCode,
+        }
+      );
+      console.log(`✅ Notification sent for reward claimed`);
+    } catch (error) {
+      console.log(`❌ Failed to sent notification for claimed`);
     }
 
     await session.commitTransaction();

@@ -7,6 +7,10 @@ import routes from './app/routes';
 import webhookRoutes from './app/routes/webhook.routes';
 import { globalErrorHandler, notFoundHandler } from './app/utils';
 import { manualTriggerRoundUpProcessing } from './app/jobs';
+import { createNotification } from './app/modules/Notification/notification.service';
+import { ROLE } from './app/modules/Auth/auth.constant';
+import { auth } from './app/middlewares';
+import { NOTIFICATION_TYPE } from './app/modules/Notification/notification.constant';
 
 // app
 const app: Application = express();
@@ -67,6 +71,23 @@ app.post('/api/v1/test-my-corn', async (req, res) => {
     message: 'Manual Trigger completed',
     data: null,
   });
+});
+app.post('/api/v1/test-notification', auth(ROLE.ADMIN), async (req, res) => {
+  const userId = req.user._id.toString(); // Send it to yourself
+
+  // Call the dispatcher you built
+  await createNotification(
+    userId,
+    NOTIFICATION_TYPE.NEW_DONATION,
+    `Donation created successully`,
+    'test_id',
+    {
+      name: 'mostafizur rahaman',
+      email: 'test@gmail.com',
+    }
+  );
+
+  res.json({ success: true, message: 'Notification triggered' });
 });
 
 // Add webhook routes after the raw body middleware

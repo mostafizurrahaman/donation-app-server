@@ -22,6 +22,7 @@ import z from 'zod';
 import jwt, { JwtPayload, SignOptions } from 'jsonwebtoken';
 import { BoardMemberStatus } from '../BoardMember/board-member.constant';
 import { BoardMemeber } from '../BoardMember/board-member.model';
+import { FcmToken } from '../FcmToken/fcmToken.model';
 
 const OTP_EXPIRY_MINUTES =
   Number.parseInt(config.jwt.otpSecretExpiresIn as string, 10) || 5;
@@ -208,6 +209,7 @@ const signinIntoDB = async (payload: {
   email: string;
   password: string;
   fcmToken: string;
+  deviceType: string;
 }) => {
   // const user = await Auth.findOne({ email: payload.email }).select('+password');
   const user = await Auth.isUserExistsByEmail(payload.email);
@@ -252,6 +254,14 @@ const signinIntoDB = async (payload: {
 
   if (!isPasswordCorrect) {
     throw new AppError(httpStatus.UNAUTHORIZED, 'Invalid credentials!');
+  }
+
+  if (payload.fcmToken && payload.deviceType) {
+    await AuthService.updateFcmToken(
+      user.id,
+      payload.fcmToken,
+      payload.deviceType
+    );
   }
 
   // Prepare user data for token generation
@@ -1500,7 +1510,6 @@ const organizationSignupWithProfile = async (
 ) => {
   // Extract auth and organization data
   const { email, password, ...orgData } = payload;
-  
 
   // Check if user already exists
   const existingUser = await Auth.isUserExistsByEmail(email);
@@ -1582,7 +1591,6 @@ const organizationSignupWithProfile = async (
       aboutUs: orgData.aboutUs,
       registeredCharityName: orgData.registeredCharityName,
       dateOfEstablishment: orgData.dateOfEstablishment,
-      
 
       // Verification details
       tfnOrAbnNumber: orgData.tfnOrAbnNumber,
@@ -1613,10 +1621,6 @@ const organizationSignupWithProfile = async (
       drivingLicenseURL,
       status: BoardMemberStatus.PENDING,
     };
-
-    console.log({
-      boardMemeberPayload,
-    });
 
     const [boardMember] = await BoardMemeber.create([boardMemeberPayload], {
       session,
@@ -1679,6 +1683,19 @@ const organizationSignupWithProfile = async (
     );
   }
 };
+
+const updateFcmToken = async (
+  userId: string,
+  token: string,
+  deviceType: string
+) => {
+  return await FcmToken.findOneAndUpdate(
+    { token },
+    { user: userId, deviceType },
+    { upsert: true, new: true }
+  );
+};
+
 export const AuthService = {
   createAuthIntoDB,
   sendSignupOtpAgain,
@@ -1698,4 +1715,5 @@ export const AuthService = {
   updateAuthDataIntoDB,
   businessSignupWithProfile,
   organizationSignupWithProfile,
+  updateFcmToken,
 };

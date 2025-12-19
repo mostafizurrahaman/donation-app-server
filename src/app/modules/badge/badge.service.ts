@@ -28,6 +28,8 @@ import {
 import { getFileUrl } from '../../lib/upload';
 import QueryBuilder from '../../builders/QueryBuilder';
 import { getDateHeader, getTimeAgo } from '../../lib/filter-helper';
+import { createNotification } from '../Notification/notification.service';
+import { NOTIFICATION_TYPE } from '../Notification/notification.constant';
 
 const createBadge = async (
   payload: ICreateBadgePayload,
@@ -348,7 +350,7 @@ const getBadgeHistory = async (userId: string, badgeId: string) => {
     const totalReq =
       nextTierConfig.requiredCount > 0
         ? nextTierConfig.requiredCount
-        : nextTierConfig.requiredAmount as number
+        : (nextTierConfig.requiredAmount as number);
     const currentProg =
       nextTierConfig.requiredCount > 0
         ? userBadge?.progressCount || 0
@@ -750,8 +752,27 @@ const checkTierUpgrade = async (userBadge: any, badge: any) => {
       unlockedAt: new Date(),
     });
 
-    // Update the history record if needed (Optional optimization)
-    // Find latest history for this badge and mark tier achieved
+    try {
+      // 1. Fetch the client to get the Auth ID (required by Notification Model)
+      const client = await Client.findById(userBadge.user);
+
+      if (client && client.auth) {
+        await createNotification(
+          client.auth.toString(), // Receiver Auth ID
+          NOTIFICATION_TYPE.BADGE_UNLOCKED,
+          `Congratulations! You've unlocked the ${nextTierName} tier for the "${badge.name}" badge!`,
+          badge._id.toString(),
+          {
+            tier: nextTierName,
+            badgeName: badge.name,
+            badgeId: badge._id.toString(),
+          }
+        );
+      }
+    } catch (error) {
+      console.error('Failed to send badge notification:', error);
+    }
+
     const latestHistory = await UserBadgeHistory.findOne({
       userBadge: userBadge._id,
     }).sort({ createdAt: -1 });

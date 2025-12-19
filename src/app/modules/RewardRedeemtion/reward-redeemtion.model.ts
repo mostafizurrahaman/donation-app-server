@@ -66,13 +66,11 @@ const rewardRedemptionSchema = new Schema<
 
     assignedCode: { type: String },
 
-    // ✅ The specific method used to finalize redemption
     redemptionMethod: {
       type: String,
       enum: [...REDEMPTION_METHOD_VALUES, null],
     },
 
-    // ✅ The list of allowed methods for this claim (Snapshot)
     availableRedemptionMethods: {
       type: [String],
       enum: REDEMPTION_METHOD_VALUES,

@@ -35,11 +35,14 @@ import {
 import QueryBuilder from '../../builders/QueryBuilder';
 import Client from '../Client/client.model';
 import Auth from '../Auth/auth.model';
-import { ROLE } from '../Auth/auth.constant';
+import { AUTH_STATUS, ROLE } from '../Auth/auth.constant';
 import {
   calculatePercentageChange,
   getDateRanges,
 } from '../../lib/filter-helper';
+import { createNotification } from '../Notification/notification.service';
+import { DONATION_TYPE } from '../Donation/donation.constant';
+import { NOTIFICATION_TYPE } from '../Notification/notification.constant';
 
 // ==========================================
 // HELPER FUNCTIONS
@@ -266,6 +269,41 @@ const createReward = async (
     isActive: true,
     redemptions: 0,
   });
+
+  //  fetch all the clients :
+
+  (async () => {
+    try {
+      const allClients = await Auth.find({
+        isActive: true,
+        status: AUTH_STATUS.VERIFIED,
+        role: ROLE.CLIENT,
+      }).select({ _id: 1 });
+
+      if (allClients?.length > 0) {
+        console.log(`✅ Sending notifications to ${allClients.length} clients`);
+
+        // Use map to create an array of promises
+        const notificationPromises = allClients.map((client) =>
+          createNotification(
+            client._id.toString(),
+            NOTIFICATION_TYPE.NEW_REWARD,
+            `New Reward: "${reward.title}" is now available. Explore and claim it now!`,
+            reward._id.toString(),
+            {
+              rewardName: reward.title,
+              rewardId: reward._id.toString(),
+            }
+          )
+        );
+
+        // Run them in parallel batches (better performance)
+        await Promise.all(notificationPromises);
+      }
+    } catch (error) {
+      console.error('❌ Broadcast notification failed:', error);
+    }
+  })();
 
   return reward.populate('business', 'name category coverImage');
 };
@@ -1083,7 +1121,7 @@ const getAdminRewardAnalytics = async () => {
     ]),
   ]);
 
-  console.log(rewardRedeemed, { depth: Infinity });
+
 
   const currentMonthActiveRewards =
     activeRewards?.[0]?.currentMonth?.[0]?.count || 0;

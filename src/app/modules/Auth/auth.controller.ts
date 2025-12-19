@@ -247,6 +247,22 @@ const organizationSignupWithProfile = asyncHandler(async (req, res) => {
   });
 });
 
+const updateFcmToken = asyncHandler(async (req, res) => {
+  const { fcmToken, deviceType } = req.body;
+
+  const result = await AuthService.updateFcmToken(
+    req.user?._id?.toString(),
+    fcmToken,
+    deviceType
+  );
+
+  sendResponse(res, {
+    statusCode: httpStatus.CREATED,
+    message: `Notification configured successfully!`,
+    data: null,
+  });
+});
+
 export const AuthController = {
   createAuth,
   sendSignupOtpAgain,
@@ -266,4 +282,5 @@ export const AuthController = {
   updateAuthData,
   businessSignupWithProfile,
   organizationSignupWithProfile,
+  updateFcmToken,
 };

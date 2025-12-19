@@ -131,9 +131,9 @@ const config: IConfig = {
   defaultUserImage:
     process.env.DEFAULT_USER_IMAGE || 'https://example.com/default-avatar.png',
   firebase: {
-    projectId: process.env.FIREBASE_PROJECT_ID || '',
-    privateKey: process.env.FIREBASE_PRIVATE_KEY || '',
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL || '',
+    projectId: process.env.FIREBASE_PROJECT_ID!,
+    privateKey: process.env.FIREBASE_PRIVATE_KEY!,
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL!,
   },
   twilio: {
     sid: process.env.TWILIO_SID || '',

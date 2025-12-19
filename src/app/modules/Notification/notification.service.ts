@@ -1,9 +1,8 @@
-import { Types, Document, startSession } from 'mongoose';
+import { Types, Document } from 'mongoose';
 import Notification from './notification.model';
 import QueryBuilder from '../../builders/QueryBuilder';
 import { IAuth } from '../Auth/auth.interface';
-import { AppError } from '../../utils';
-import httpStatus from 'http-status';
+import { sendPushNotification } from '../../utils/fcm.utils';
 
 interface INotification extends Document {
   _id: Types.ObjectId;
@@ -73,31 +72,36 @@ const createNotification = async (
   type: string,
   message: string,
   relatedId?: string,
-  session?: typeof startSession
+  data?: Record<string, unknown>,
+  session?: any
 ) => {
-  try {
-    const notificationData = {
-      title: type.replace('_', ' ').replace(/\b\w/g, (l) => l.toUpperCase()),
-      message,
-      receiver: new Types.ObjectId(receiverId),
-      type,
-      relatedId: relatedId ? new Types.ObjectId(relatedId) : undefined,
-    };
+  const title = type
+    .split('_')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
 
-    if (session) {
-      const notification = await Notification.create([notificationData], {
-        session,
-      });
-      return notification[0];
-    } else {
-      const notification = await Notification.create(notificationData);
-      return notification;
-    }
-  } catch (error: unknown) {
-    console.warn('Failed to create notification:', error);
-    // Don't throw error to avoid breaking main flow
-    return null;
-  }
+  // 1. Save In-App Notification (as you already do)
+  const notification = await Notification.create(
+    [
+      {
+        receiver: receiverId,
+        type,
+        message,
+        title,
+        redirectId: relatedId,
+      },
+    ],
+    { session }
+  );
+
+  // 2. Trigger Push (Fire and forget)
+ await sendPushNotification(receiverId, title, message, {
+    ...data,
+    type,
+    redirectId: relatedId || '',
+  });
+
+  return notification[0];
 };
 
 export const notificationService = {

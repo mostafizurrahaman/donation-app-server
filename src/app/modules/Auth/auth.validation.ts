@@ -102,6 +102,8 @@ const signinSchema = z.object({
       .regex(/[@$!%*?&#]/, {
         message: 'Password must contain at least one special character!',
       }),
+    fcmToken: z.string().optional(),
+    deviceType: z.enum(['web', 'android', 'ios']).optional(),
   }),
 });
 
@@ -579,6 +581,15 @@ const businessSignupWithProfileSchema = z.object({
   }),
 });
 
+const updateFcmToken = z.object({
+  fcmToken: z.string({
+    error: 'fcmToken is required!',
+  }),
+  deviceType: z.enum(['android', 'ios', 'web'], {
+    error: 'Invalid deviceType! DeviceType should be android, ios or web!',
+  }),
+});
+
 export type TProfilePayload = z.infer<typeof createProfileSchema.shape.body>;
 
 export const AuthValidation = {
@@ -597,4 +608,5 @@ export const AuthValidation = {
   updateAuthDataSchema,
   businessSignupWithProfileSchema,
   organizationSignupWithProfileSchema,
+  updateFcmToken,
 };

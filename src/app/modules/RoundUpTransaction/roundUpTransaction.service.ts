@@ -23,6 +23,8 @@ import Client from '../Client/client.model';
 import { Logger } from '../../utils/logger';
 import { OrganizationModel } from '../Organization/organization.model';
 import { StripeAccount } from '../OrganizationAccount/stripe-account.model';
+import { createNotification } from '../Notification/notification.service';
+import { NOTIFICATION_TYPE } from '../Notification/notification.constant';
 
 // Check and reset monthly total at the beginning of each month
 const checkAndResetMonthlyTotal = async (
@@ -407,6 +409,17 @@ const processTransactionsFromPlaid = async (
           await triggerDonation(roundUpConfig);
           console.log(`✅ Donation triggered successfully`);
 
+          try {
+            await createNotification(
+              userId,
+              NOTIFICATION_TYPE.THRESHOLD_REACHED,
+              `Your Round-Up balance reached $${roundUpConfig.monthlyThreshold}. A donation has been triggered!`,
+              roundUpConfig?._id!.toString()
+            );
+            console.log('✅ Round up Triggered notification sent');
+          } catch (err) {
+            console.log('❌ Failed to sent roundup triggered notification');
+          }
           // Stop processing further transactions to prevent over-charging in this batch
           break;
         }

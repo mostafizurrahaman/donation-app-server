@@ -11,6 +11,8 @@ import { AppError } from '../utils';
 import { STRIPE_ACCOUNT_STATUS } from '../modules/Organization/organization.constants';
 import httpStatus from 'http-status';
 import { StripeAccount } from '../modules/OrganizationAccount/stripe-account.model';
+import { createNotification } from '../modules/Notification/notification.service';
+import { NOTIFICATION_TYPE } from '../modules/Notification/notification.constant';
 
 const JOB_NAME = 'payout-processing';
 
@@ -65,7 +67,7 @@ export const startPayoutProcessingCron = () => {
               'Stripe Account either not connected or exist!'
             );
           }
-          
+
           // 2. Mark as PROCESSING in DB
           payout.status = PAYOUT_STATUS.PROCESSING;
           payout.processedAt = new Date();
@@ -87,7 +89,7 @@ export const startPayoutProcessingCron = () => {
 
           // 5. Create Ledger Entry (History Only)
           // We no longer update a local balance model. We just record that this event happened.
-          await BalanceTransaction.create(
+          const [balanceTx] = await BalanceTransaction.create(
             [
               {
                 organization: payout.organization,
@@ -106,6 +108,22 @@ export const startPayoutProcessingCron = () => {
             ],
             { session }
           );
+
+          try {
+            await createNotification(
+              org?.auth?.toString(),
+              NOTIFICATION_TYPE.PAYOUT_COMPLETED,
+              `Your payout of $${payout.netAmount} has been successfully completed.`,
+              payout._id?.toString(),
+              {
+                payoutId: payout._id,
+                ...balanceTx,
+              }
+            );
+            console.log('✅ Notification sent for payout completion');
+          } catch (error) {
+            console.log('❌ Failed to send notification for payout completion');
+          }
 
           await session.commitTransaction();
           successCount++;
@@ -136,7 +154,7 @@ export const startPayoutProcessingCron = () => {
             );
 
             // Optional: Log the failure in the ledger for visibility
-            await BalanceTransaction.create(
+            const [balanceTx] = await BalanceTransaction.create(
               [
                 {
                   organization: payout.organization,
@@ -155,6 +173,29 @@ export const startPayoutProcessingCron = () => {
               ],
               { session: failureSession }
             );
+
+            try {
+              const org = await OrganizationModel.findById(
+                payout.organization
+              ).session(session);
+
+              if (!org) {
+                throw new Error('Organization not found!');
+              }
+              await createNotification(
+                org?.auth?.toString(),
+                NOTIFICATION_TYPE.PAYOUT_FAILED,
+                `Your payout of $${payout.netAmount} could not be completed. Please try again later.`,
+                payout._id?.toString(),
+                {
+                  payoutId: payout._id,
+                  ...balanceTx,
+                }
+              );
+              console.log('✅ Notification sent for payout failure');
+            } catch (error) {
+              console.log('❌ Failed to send notification for payout failure');
+            }
 
             await failureSession.commitTransaction();
           } catch (innerErr) {

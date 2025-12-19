@@ -20,6 +20,9 @@ import { calculateAustralianFees } from '../Donation/donation.constant';
 import { StripeService } from '../Stripe/stripe.service';
 import { IClient } from '../Client/client.interface';
 import { StripeAccount } from '../OrganizationAccount/stripe-account.model';
+import { createNotification } from '../Notification/notification.service';
+import { NOTIFICATION_TYPE } from '../Notification/notification.constant';
+import { IORGANIZATION } from '../Organization/organization.interface';
 
 // Helper function to calculate next donation date
 export const calculateNextDonationDate = (
@@ -170,6 +173,27 @@ const createScheduledDonation = async (
     stripeCustomerId: paymentMethod.stripeCustomerId,
     paymentMethod,
   });
+
+  // 🔔 NOTIFICATION LOGIC
+  try {
+    // 1. To Donor
+    await createNotification(
+      userId,
+      NOTIFICATION_TYPE.RECURRING_PLAN_STARTED,
+      `Your recurring donation of $${amount} to ${organization.name} has been scheduled.`,
+      scheduledDonation?._id!.toString()
+    );
+
+    // 2. To Organization
+    await createNotification(
+      organization.auth.toString(),
+      NOTIFICATION_TYPE.RECURRING_PLAN_STARTED,
+      `New Recurring Supporter: A donor has scheduled a ${frequency} donation of $${amount}.`,
+      scheduledDonation?._id!.toString()
+    );
+  } catch (error) {
+    console.error('Notification Error:', error);
+  }
 
   return scheduledDonation;
 };
@@ -341,6 +365,21 @@ const pauseScheduledDonation = async (
     throw new AppError(httpStatus.NOT_FOUND, 'Scheduled donation not found!');
   }
 
+  if (scheduledDonation) {
+    try {
+      await createNotification(
+        userId,
+        NOTIFICATION_TYPE.RECURRING_STATUS_CHANGED,
+        `Your recurring donation to ${
+          (scheduledDonation.organization as any).name
+        } has been paused.`,
+        scheduledDonation._id!.toString()
+      );
+    } catch (err) {
+      console.log(`❌ Failed to send notification (Pause scheduled)`);
+    }
+  }
+
   return scheduledDonation;
 };
 
@@ -377,6 +416,19 @@ const resumeScheduledDonation = async (
 
   await scheduledDonation.populate('organization', 'name email logo');
   await scheduledDonation.populate('cause', 'name description');
+
+  try {
+    await createNotification(
+      userId,
+      NOTIFICATION_TYPE.RECURRING_STATUS_CHANGED,
+      `Your recurring donation to ${
+        (scheduledDonation.organization as any).name
+      } has been resumed.`,
+      scheduledDonation._id!.toString()
+    );
+  } catch (error) {
+    console.log(`❌ Failed to sent notification!`);
+  }
 
   return scheduledDonation;
 };
