@@ -118,68 +118,68 @@ export type NotificationPayloads =
   | GuestComingPayload;
 
 // Templates for each notification type
-export const notificationTemplates: Record<
-  TNotification,
-  (data: NotificationPayloads) => string
-> = {
-  booking_request: (data: NotificationPayloads) => {
-    const { fullName, serviceName } = data as BookingRequestPayload;
-    return baseEmailTemplate(
-      'New Booking Request',
-      `Hello ${fullName}, you have a new booking request for <b>${serviceName}</b>. Please review and confirm.`,
-      'View Booking',
-      `${config.clientUrl}/bookings`
-    );
-  },
+// export const notificationTemplates: Record<
+//   TNotification,
+//   (data: NotificationPayloads) => string
+// > = {
+//   booking_request: (data: NotificationPayloads) => {
+//     const { fullName, serviceName } = data as BookingRequestPayload;
+//     return baseEmailTemplate(
+//       'New Booking Request',
+//       `Hello ${fullName}, you have a new booking request for <b>${serviceName}</b>. Please review and confirm.`,
+//       'View Booking',
+//       `${config.clientUrl}/bookings`
+//     );
+//   },
 
-  confirmed_booking: (data: NotificationPayloads) => {
-    const { fullName, serviceName, date } = data as ConfirmedBookingPayload;
-    return baseEmailTemplate(
-      'Booking Confirmed',
-      `Hi ${fullName}, your booking for <b>${serviceName}</b> on <b>${date}</b> has been confirmed.`,
-      'View Details',
-      `${config.clientUrl}/bookings`
-    );
-  },
+//   confirmed_booking: (data: NotificationPayloads) => {
+//     const { fullName, serviceName, date } = data as ConfirmedBookingPayload;
+//     return baseEmailTemplate(
+//       'Booking Confirmed',
+//       `Hi ${fullName}, your booking for <b>${serviceName}</b> on <b>${date}</b> has been confirmed.`,
+//       'View Details',
+//       `${config.clientUrl}/bookings`
+//     );
+//   },
 
-  completed_booking: (data: NotificationPayloads) => {
-    const { fullName, serviceName } = data as CompletedBookingPayload;
-    return baseEmailTemplate(
-      'Booking Completed',
-      `Hello ${fullName}, your booking for <b>${serviceName}</b> is now marked as completed. Thank you!`
-    );
-  },
+//   completed_booking: (data: NotificationPayloads) => {
+//     const { fullName, serviceName } = data as CompletedBookingPayload;
+//     return baseEmailTemplate(
+//       'Booking Completed',
+//       `Hello ${fullName}, your booking for <b>${serviceName}</b> is now marked as completed. Thank you!`
+//     );
+//   },
 
-  cancel_booking: (data: NotificationPayloads) => {
-    const { fullName, serviceName } = data as CancelBookingPayload;
-    return baseEmailTemplate(
-      'Booking Cancelled',
-      `Dear ${fullName}, your booking for <b>${serviceName}</b> has been cancelled. Please contact support if you think this is a mistake.`
-    );
-  },
+//   cancel_booking: (data: NotificationPayloads) => {
+//     const { fullName, serviceName } = data as CancelBookingPayload;
+//     return baseEmailTemplate(
+//       'Booking Cancelled',
+//       `Dear ${fullName}, your booking for <b>${serviceName}</b> has been cancelled. Please contact support if you think this is a mistake.`
+//     );
+//   },
 
-  guest_coming: (data: NotificationPayloads) => {
-    const { fullName, guestName, date } = data as GuestComingPayload;
-    return baseEmailTemplate(
-      'Guest is Coming',
-      `Hi ${fullName}, your guest <b>${guestName}</b> is coming on <b>${date}</b>. Please be prepared.`
-    );
-  },
+//   guest_coming: (data: NotificationPayloads) => {
+//     const { fullName, guestName, date } = data as GuestComingPayload;
+//     return baseEmailTemplate(
+//       'Guest is Coming',
+//       `Hi ${fullName}, your guest <b>${guestName}</b> is coming on <b>${date}</b>. Please be prepared.`
+//     );
+//   },
 
-  join_studio_request: (data: NotificationPayloads) => {
-    // You may want to define a specific payload interface for this notification type
-    // For now, we'll use fullName as a generic example
-    const { fullName } = data;
+//   join_studio_request: (data: NotificationPayloads) => {
+//     // You may want to define a specific payload interface for this notification type
+//     // For now, we'll use fullName as a generic example
+//     const { fullName } = data;
 
-    return baseEmailTemplate(
-      'Studio Join Request',
-      `Hello${
-        fullName ? ' ' + fullName : ''
-      }, you have a new request to join the studio. Please review the details.`,
-      'Review Request',
-      `${config.clientUrl}/studio-requests`
-    );
-  },
-};
+//     return baseEmailTemplate(
+//       'Studio Join Request',
+//       `Hello${
+//         fullName ? ' ' + fullName : ''
+//       }, you have a new request to join the studio. Please review the details.`,
+//       'Review Request',
+//       `${config.clientUrl}/studio-requests`
+//     );
+//   },
+// };
 
-// Send Notification Email
+// // Send Notification Email

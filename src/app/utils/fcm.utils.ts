@@ -12,31 +12,31 @@ export const sendPushNotification = async (
 ) => {
   try {
     // 1. Get all tokens for this user
-    // const userTokens = await FcmToken.find({ user: userId });
-    // if (userTokens.length === 0) return;
+    const userTokens = await FcmToken.find({ user: userId });
+    if (userTokens.length === 0) return;
 
-    // const tokens = userTokens.map((t) => t.token);
+    const tokens = userTokens.map((t) => t.token);
 
     // 2. Build the message
-    // const message = {
-    //   notification: { title, body },
-    //   data: { ...data, click_action: 'FLUTTER_NOTIFICATION_CLICK' },
-    //   tokens: tokens,
-    // };
-
     const message = {
-      topic: 'test-topic',
-      notification: {
-        title: 'Topic Test',
-        body: 'No device required',
-      },
+      notification: { title, body },
+      data: { ...data, click_action: 'FLUTTER_NOTIFICATION_CLICK' },
+      tokens: tokens,
     };
 
+    // const message = {
+    //   topic: 'test-topic',
+    //   notification: {
+    //     title: 'Topic Test',
+    //     body: 'No device required',
+    //   },
+    // };
+
     // 3. Send Multicast
-    const response = await firebaseAdmin.messaging().send(message);
-    // .sendEachForMulticast(message);
-    console.log(response);
-    return response;
+    const response = await firebaseAdmin
+      .messaging()
+      .sendEachForMulticast(message);
+
     // 4. Production Cleanup: Remove invalid/expired tokens from DB
     if (response.failureCount > 0) {
       const tokensToRemove: string[] = [];

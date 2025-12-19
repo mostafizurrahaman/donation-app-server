@@ -6,44 +6,44 @@ import getUserNotificationCount from '../../utils/getUnseenNotificationCount';
 import { TNotification } from './notification.constant';
 import {
   NotificationPayloads,
-  notificationTemplates,
+  // notificationTemplates,
 } from './notification.template';
 import { INotificationPayload } from './notification.interface';
 import Notification from './notification.model';
 
-export const sendNotificationByEmail = async (
-  email: string,
-  type: TNotification,
-  data: NotificationPayloads
-) => {
-  try {
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: config.email.nodemailerEmail,
-        pass: config.email.nodemailerPassword,
-      },
-    });
+// export const sendNotificationByEmail = async (
+//   email: string,
+//   type: TNotification,
+//   data: NotificationPayloads
+// ) => {
+//   try {
+//     const transporter = nodemailer.createTransport({
+//       service: 'gmail',
+//       auth: {
+//         user: config.email.nodemailerEmail,
+//         pass: config.email.nodemailerPassword,
+//       },
+//     });
 
-    const html = notificationTemplates[type](data);
+//     const html = notificationTemplates[type](data);
 
-    const mailOptions = {
-      from: config.email.nodemailerEmail,
-      to: email,
-      subject: `Steady Hands - ${type.replace('_', ' ')}`,
-      html,
-    };
+//     const mailOptions = {
+//       from: config.email.nodemailerEmail,
+//       to: email,
+//       subject: `Steady Hands - ${type.replace('_', ' ')}`,
+//       html,
+//     };
 
-    await transporter.sendMail(mailOptions);
-  } catch (error) {
-    // eslint-disable-next-line no-console
-    console.log(error);
-    throw new AppError(
-      httpStatus.INTERNAL_SERVER_ERROR,
-      'Failed to send email'
-    );
-  }
-};
+//     await transporter.sendMail(mailOptions);
+//   } catch (error) {
+//     // eslint-disable-next-line no-console
+//     console.log(error);
+//     throw new AppError(
+//       httpStatus.INTERNAL_SERVER_ERROR,
+//       'Failed to send email'
+//     );
+//   }
+// };
 
 export const sendNotificationBySocket = async (
   notificationData: INotificationPayload
