@@ -166,5 +166,5 @@ const config: IConfig = {
   },
 };
 
-console.log(config.paymentSetting);
+console.log(config.firebase);
 export default config;
