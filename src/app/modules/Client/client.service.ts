@@ -445,6 +445,7 @@ export const getRecurringDonationStats = async (userId: string) => {
         frequency: 1,
         customInterval: 1,
         startDate: 1,
+        'organizationDetails._id': 1,
         'organizationDetails.name': 1,
         'organizationDetails.logoImage': 1,
         'organizationDetails.coverImage': 1,
@@ -539,8 +540,6 @@ export const getUserRecurringDonationsForSpecificOrganization = async (
     previousDonations,
   };
 };
-
-
 
 const getUnifiedTransactionHistory = async (
   userId: string,

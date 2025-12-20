@@ -33,29 +33,6 @@ const limitUpdateRecordSchema = new Schema<ILimitUpdateRecord>(
   { _id: false }
 );
 
-// Reward Code Sub-Schema
-const rewardCodeSchema = new Schema<IRewardCode>(
-  {
-    code: {
-      type: String,
-      required: true,
-      maxlength: MAX_CODE_LENGTH,
-      trim: true,
-    },
-    isGiftCard: { type: Boolean, default: false },
-    isDiscountCode: { type: Boolean, default: false },
-    isUsed: { type: Boolean, default: false, index: true },
-    usedBy: { type: Schema.Types.ObjectId, ref: 'Client' },
-    usedAt: { type: Date },
-    redemptionId: { type: Schema.Types.ObjectId, ref: 'RewardRedemption' },
-    redemptionMethod: {
-      type: String,
-      enum: [...REDEMPTION_METHOD_VALUES, undefined],
-    },
-  },
-  { _id: false }
-);
-
 // In-Store Redemption Methods Sub-Schema
 const inStoreRedemptionMethodsSchema = new Schema(
   {
@@ -172,10 +149,11 @@ const rewardSchema = new Schema<IRewardDocument, IRewardModel>(
     onlineRedemptionMethods: {
       type: onlineRedemptionMethodsSchema,
     },
-
-    codes: {
-      type: [rewardCodeSchema],
-      default: [],
+    codePrefix: {
+      type: String,
+      unique: true,
+      uppercase: true,
+      index: true,
     },
 
     featured: {

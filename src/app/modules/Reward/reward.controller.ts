@@ -237,8 +237,6 @@ const uploadCodes = asyncHandler(async (req: Request, res: Response) => {
     message: REWARD_MESSAGES.CODES_UPLOADED,
     data: {
       codesAdded: result.codesAdded,
-      codesDuplicated: result.codesDuplicated,
-      totalCodes: result.reward.codes.length,
       newRedemptionLimit: result.reward.redemptionLimit,
       filesProcessed: result.filesProcessed,
     },

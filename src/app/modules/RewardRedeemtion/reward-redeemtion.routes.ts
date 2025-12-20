@@ -11,6 +11,14 @@ const router = express.Router();
 // CLIENT ROUTES (User Actions)
 // ==========================================
 
+// 2. Mark reward as REDEEMED (Final Step)
+router.post(
+  '/redeem',
+  auth(ROLE.BUSINESS, ROLE.ADMIN),
+  validateRequest(rewardRedemptionValidation.redeemRewardSchema),
+  RewardRedemptionController.redeemReward
+);
+
 // Claim a reward (Deducts Points)
 router.post(
   '/:id/claim',
@@ -53,14 +61,6 @@ router.post(
   auth(ROLE.BUSINESS, ROLE.ADMIN),
   validateRequest(rewardRedemptionValidation.verifyRedemptionSchema),
   RewardRedemptionController.verifyRedemption
-);
-
-// 2. Mark reward as REDEEMED (Final Step)
-router.post(
-  '/:redemptionId/redeem',
-  auth(ROLE.BUSINESS, ROLE.ADMIN),
-  validateRequest(rewardRedemptionValidation.redeemRewardSchema),
-  RewardRedemptionController.redeemReward
 );
 
 export const RewardRedemptionRoutes = router;

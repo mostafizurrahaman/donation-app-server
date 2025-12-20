@@ -28,193 +28,189 @@ import {
 import { REWARD_MESSAGES, STATIC_POINTS_COST } from '../Reward/reward.constant';
 import { createNotification } from '../Notification/notification.service';
 import { NOTIFICATION_TYPE } from '../Notification/notification.constant';
+import { RewardCode } from '../RewardCode/reward-code.model';
+import Auth from '../Auth/auth.model';
+import sendRewardCodeEmail from '../../utils/sendReward';
+import { RedemptionMethod } from './reward-redeemtion.interface';
+import { IClient } from '../Client/client.interface';
 
 // ==========================================
 // REWARD CLAIMING & REDEMPTION SERVICES
 // ==========================================
 
 /**
- * Claim a reward (deduct points)
+ * Claim a reward
+ * Digital (Online): Claim -> Auto-Redeem -> Email Code
+ * Physical (In-Store): Claim -> Status: 'claimed' -> Wait for store scan
  */
-const claimReward = async (
-  payload: IClaimRewardPayload
-): Promise<IClaimResult> => {
+const claimReward = async (payload: { rewardId: string; userId: string }) => {
   const { rewardId, userId } = payload;
-  const idempotencyKey = crypto.randomBytes(16).toString('hex');
 
-  // Check if client exists
-  const isClientExists = await Client.findOne({ auth: userId });
-  if (!isClientExists) {
-    throw new AppError(httpStatus.NOT_FOUND, 'Client not found');
+  // 1. Resolve Client Profile
+  const client = await Client.findOne({ auth: userId });
+  if (!client) {
+    throw new AppError(httpStatus.NOT_FOUND, 'Client profile not found');
   }
 
-  // Check for duplicate claim
-  const existingUserClaim = await RewardRedemption.findOne({
-    user: isClientExists._id,
+  // 2. Prevent Duplicate Claims (If already claimed/redeemed and not expired)
+  const existingClaim = await RewardRedemption.findOne({
+    user: client._id,
     reward: rewardId,
-    status: { $in: ['claimed', 'redeemed'] },
+    status: { $in: [REDEMPTION_STATUS.CLAIMED, REDEMPTION_STATUS.REDEEMED] },
   });
 
-  if (existingUserClaim) {
+  if (existingClaim) {
     throw new AppError(httpStatus.CONFLICT, REWARD_MESSAGES.ALREADY_CLAIMED);
   }
 
+  // 3. Start Transaction
   const session: ClientSession = await mongoose.startSession();
   session.startTransaction();
 
   try {
-    // 1. Atomic reward stock check & decrement
+    // 4. Atomic Stock Check & Decrement
     const reward = await Reward.findOneAndUpdate(
       {
         _id: rewardId,
         remainingCount: { $gt: 0 },
         status: 'active',
         isActive: true,
-        startDate: { $lte: new Date() },
-        $or: [{ expiryDate: { $gte: new Date() } }, { expiryDate: null }],
       },
-      {
-        $inc: { remainingCount: -1, redeemedCount: 1, redemptions: 1 },
-      },
-      { new: true, session, runValidators: true }
+      { $inc: { remainingCount: -1, redeemedCount: 1, redemptions: 1 } },
+      { session, new: true }
     );
 
     if (!reward) {
       throw new AppError(httpStatus.GONE, REWARD_MESSAGES.RACE_CONDITION);
     }
 
-    // 2. Atomic points deduction (Passing session to prevent write conflict)
-    try {
-      await pointsServices.deductPoints(
-        isClientExists._id?.toString(),
-        STATIC_POINTS_COST,
-        'reward_redemption',
-        undefined, // rewardRedemptionId not created yet
-        `Claimed reward: ${reward.title}`,
-        {
-          rewardId: reward._id.toString(),
-          businessId: reward.business.toString(),
+    // 5. Fetch and Lock one unique Code from inventory
+    const availableCode = await RewardCode.findOneAndUpdate(
+      { reward: rewardId, isUsed: false },
+      {
+        $set: {
+          isUsed: true,
+          usedBy: client._id,
+          usedAt: new Date(),
         },
-        session // ✅ Critical: Pass the session
-      );
-    } catch (err: any) {
-      throw new AppError(
-        httpStatus.PAYMENT_REQUIRED,
-        err.message || REWARD_MESSAGES.INSUFFICIENT_POINTS
-      );
-    }
-
-    // 3. Determine Available Methods & Assign Code
-    let assignedCode: string | undefined;
-    const availableMethods: string[] = [];
-    let finalRedemptionMethod: string | undefined;
-
-    if (reward.type === 'in-store') {
-      // Snapshot available methods for in-store
-      if (reward.inStoreRedemptionMethods?.qrCode)
-        availableMethods.push(REDEMPTION_METHOD.QR_CODE);
-      if (reward.inStoreRedemptionMethods?.staticCode)
-        availableMethods.push(REDEMPTION_METHOD.STATIC_CODE);
-      if (reward.inStoreRedemptionMethods?.nfcTap)
-        availableMethods.push(REDEMPTION_METHOD.NFC);
-
-      // Assign static code if available
-      if (reward.codes.length > 0) {
-        const availableCode = reward.getAvailableCode();
-        if (availableCode) {
-          assignedCode = availableCode.code;
-        }
-      }
-    } else if (reward.type === 'online') {
-      // Snapshot method for online
-      if (reward.codes.length > 0) {
-        const availableCode = reward.getAvailableCode();
-        if (availableCode) {
-          assignedCode = availableCode.code;
-          const method = availableCode.isGiftCard
-            ? REDEMPTION_METHOD.GIFT_CARD
-            : REDEMPTION_METHOD.DISCOUNT_CODE;
-          availableMethods.push(method);
-          finalRedemptionMethod = method; // Auto-set for online
-        }
-      }
-    }
-
-    const expiresAt = new Date(
-      Date.now() + CLAIM_EXPIRY_DAYS * 24 * 60 * 60 * 1000
+      },
+      { session, new: true }
     );
 
-    // 4. Create Redemption Record
+    if (!availableCode) {
+      throw new AppError(
+        httpStatus.INTERNAL_SERVER_ERROR,
+        'Inventory Mismatch: No codes available.'
+      );
+    }
+
+    // 6. Branching Logic: Online vs In-Store
+    const isOnline = reward.type === 'online';
+    const finalStatus = isOnline
+      ? REDEMPTION_STATUS.REDEEMED
+      : REDEMPTION_STATUS.CLAIMED;
+    const availableMethods = [];
+
+    if (isOnline) {
+      if (reward?.onlineRedemptionMethods?.discountCode) {
+        availableMethods?.push(REDEMPTION_METHOD.DISCOUNT_CODE);
+      }
+      if (reward?.onlineRedemptionMethods?.giftCard) {
+        availableMethods?.push(REDEMPTION_METHOD.GIFT_CARD);
+      }
+    } else {
+      if (reward?.inStoreRedemptionMethods?.nfcTap) {
+        availableMethods?.push(REDEMPTION_METHOD.NFC);
+      }
+      if (reward?.inStoreRedemptionMethods?.qrCode) {
+        availableMethods?.push(REDEMPTION_METHOD.QR_CODE);
+      }
+      if (reward?.inStoreRedemptionMethods?.staticCode) {
+        availableMethods?.push(REDEMPTION_METHOD.STATIC_CODE);
+      }
+    }
+
+    const expiryDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 Days
+
+    // 7. Create Redemption Ticket
     const [redemption] = await RewardRedemption.create(
       [
         {
-          user: isClientExists._id,
+          user: client._id,
           reward: rewardId,
           business: reward.business,
           pointsSpent: STATIC_POINTS_COST,
-          status: REDEMPTION_STATUS.CLAIMED,
-          assignedCode,
-          availableRedemptionMethods: availableMethods, // ✅ Stored Snapshot
-          redemptionMethod: finalRedemptionMethod,
-          idempotencyKey,
-          expiresAt,
+          status: finalStatus,
+          assignedCode: availableCode.code,
+          redeemedAt: isOnline ? new Date() : undefined,
+          expiresAt: expiryDate,
         },
       ],
       { session }
     );
 
-    // 5. Mark Code as Used
-    if (assignedCode) {
-      await reward.markCodeAsUsed(
-        assignedCode,
-        isClientExists._id,
-        redemption._id as Types.ObjectId
-      );
-    }
+    // Link code back to the redemption record for audit
+    availableCode.redemption = redemption._id as Types.ObjectId;
+    await availableCode.save({ session });
 
-    // 6. Update Reward Status if Sold Out
+    // 8. Deduct Points (Atomic)
+    await pointsServices.deductPoints(
+      client._id.toString(),
+      STATIC_POINTS_COST,
+      'reward_redemption',
+      redemption._id?.toString() as string,
+      `Points used for: ${reward.title}`,
+      { rewardId: reward._id.toString() },
+      session
+    );
+
+    // 9. If stock hit zero, mark as sold-out
     if (reward.remainingCount <= 0) {
       reward.status = 'sold-out';
       await reward.save({ session });
     }
 
-    // create  Claim rewards:
-    try {
-      await createNotification(
-        userId,
-        NOTIFICATION_TYPE.REWARD_CLAIMED,
-        `You have successfully claimed "${reward.title}". ${
-          assignedCode
-            ? 'Your redemption code is ready.'
-            : 'Please visit the store to redeem.'
-        }`,
-        redemption._id?.toString(),
-        {
-          rewardId: reward?._id,
-          redeemtionId: redemption._id,
-          image: reward?.image,
-          assignedCode,
-        }
-      );
-      console.log(`✅ Notification sent for reward claimed`);
-    } catch (error) {
-      console.log(`❌ Failed to sent notification for claimed`);
-    }
-
     await session.commitTransaction();
 
-    await redemption.populate([
-      { path: 'reward', select: 'title description image type category' },
-      { path: 'business', select: 'name locations' },
-    ]);
+    // ==========================================
+    // POST-TRANSACTION (ASYNC ACTIONS)
+    // ==========================================
+
+    const userAuth = await Auth.findById(userId);
+    const business = await Business.findById(reward.business);
+
+    // A. Send Email for Online Rewards
+    if (isOnline && userAuth) {
+      sendRewardCodeEmail({
+        email: userAuth.email,
+        userName: client.name,
+        rewardTitle: reward.title,
+        code: availableCode.code,
+        businessName: business?.name || 'Partner Business',
+      }).catch((err) => console.error('Reward Email Failed:', err));
+    }
+
+    // B. Send In-App/Push Notification
+    createNotification(
+      userId,
+      NOTIFICATION_TYPE.REWARD_CLAIMED,
+      isOnline
+        ? `Success! Your code for "${reward.title}" has been sent to your email.`
+        : `Success! You've claimed "${reward.title}". View your code in the rewards section.`,
+      redemption._id.toString(),
+      { rewardId: reward._id, image: reward.image }
+    ).catch((err) => console.error('Notification Failed:', err));
 
     return {
       redemption,
-      message: REWARD_MESSAGES.CLAIMED,
-      code: assignedCode,
+      code: availableCode.code,
+      status: finalStatus,
       availableMethods,
+      message: isOnline
+        ? 'Reward sent to your email!'
+        : REWARD_MESSAGES.CLAIMED,
     };
-  } catch (error) {
+  } catch (error: any) {
     await session.abortTransaction();
     throw error;
   } finally {
@@ -366,77 +362,139 @@ const verifyRedemption = async (
 /**
  * Mark reward as redeemed (Step 2: Confirmation)
  */
-const redeemReward = async (
-  payload: IRedeemRewardPayload
-): Promise<IRewardRedemptionDocument> => {
-  const { redemptionId, code, staffId, location, notes, method } = payload;
+const redeemRewardByCode = async (payload: {
+  code: string;
+  staffAuthId: string;
+  method: RedemptionMethod;
+}) => {
+  const { code, staffAuthId, method } = payload;
 
-  const business = await Business.findOne({ auth: staffId });
-  if (!business)
-    throw new AppError(
-      httpStatus.NOT_FOUND,
-      REWARD_MESSAGES.BUSINESS_NOT_FOUND
-    );
-
-  let redemption;
-
-  // Lookup redemption doc by ID or Code
-  if (redemptionId) {
-    redemption = await RewardRedemption.findById(redemptionId);
-  } else if (code) {
-    redemption = await RewardRedemption.findOne({ assignedCode: code });
+  // 1. Identify the Business performing the action
+  const business = await Business.findOne({ auth: staffAuthId });
+  if (!business) {
+    throw new AppError(httpStatus.NOT_FOUND, 'Business profile not found.');
   }
 
-  if (!redemption)
+  // 2. Parse the Code to extract the Prefix
+  // Expected format: RWDXXXX-YYYY
+  const codeParts = code.split('-');
+  if (codeParts.length < 2) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'Invalid code format. Code must include prefix.'
+    );
+  }
+  const prefix = codeParts[0];
+
+  // 3. Identify the Reward using the Prefix
+  const reward = await Reward.findOne({ codePrefix: prefix });
+  if (!reward) {
     throw new AppError(
       httpStatus.NOT_FOUND,
-      REWARD_MESSAGES.REDEMPTION_NOT_FOUND
+      'No reward found matching this code prefix.'
     );
+  }
 
-  if (redemption.business.toString() !== business._id.toString()) {
+  // 4. Verify that this Reward actually belongs to the scanning Business
+  if (reward.business.toString() !== business._id.toString()) {
     throw new AppError(
       httpStatus.FORBIDDEN,
-      'This reward does not belong to your business'
+      'Permission Denied: This reward belongs to another business.'
     );
   }
 
-  if (redemption.status === 'redeemed')
-    throw new AppError(httpStatus.CONFLICT, REWARD_MESSAGES.ALREADY_REDEEMED);
-  if (redemption.status !== 'claimed')
+  if (reward.type === 'in-store') {
+    const availableMethods = [];
+
+    if (reward?.inStoreRedemptionMethods?.nfcTap) {
+      availableMethods.push(REDEMPTION_METHOD.NFC);
+    }
+
+    if (reward?.inStoreRedemptionMethods?.qrCode) {
+      availableMethods.push(REDEMPTION_METHOD.QR_CODE);
+    }
+
+    if (reward?.inStoreRedemptionMethods?.staticCode) {
+      availableMethods.push(REDEMPTION_METHOD.STATIC_CODE);
+    }
+
+    if (!availableMethods?.includes(method)) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        `Invalid redemption method "${method}". Allowed methods are: ${availableMethods.join(
+          ', '
+        )}.`
+      );
+    }
+  }
+
+  // 5. Find the specific Claim/Redemption record using the full Code
+  const redemption = await RewardRedemption.findOne({
+    assignedCode: code,
+    reward: reward._id,
+    business: business._id,
+    status: REDEMPTION_STATUS.CLAIMED,
+  }).populate<{ user: IClient }>('user', 'name auth'); // Identify the user
+
+  if (!redemption) {
+    // Check if it was already redeemed
+    const alreadyRedeemed = await RewardRedemption.findOne({
+      assignedCode: code,
+      status: REDEMPTION_STATUS.REDEEMED,
+    });
+    if (alreadyRedeemed) {
+      throw new AppError(
+        httpStatus.CONFLICT,
+        'This code has already been redeemed.'
+      );
+    }
     throw new AppError(
-      httpStatus.BAD_REQUEST,
-      REWARD_MESSAGES.CANNOT_REDEEM_NON_CLAIMED
+      httpStatus.NOT_FOUND,
+      'No active claim found for this code. It may be expired or invalid.'
     );
+  }
+
+  // 6. Security Check: Expiry
   if (new Date() > redemption.expiresAt) {
     redemption.status = 'expired';
-    redemption.expiredAt = new Date();
     await redemption.save();
-    throw new AppError(httpStatus.GONE, REWARD_MESSAGES.CLAIM_EXPIRED);
+    throw new AppError(httpStatus.GONE, 'This reward claim has expired.');
   }
 
-  // ✅ VALIDATE METHOD: Ensure method matches the snapshot allowed list
-  if (!redemption.availableRedemptionMethods.includes(method)) {
-    throw new AppError(
-      httpStatus.BAD_REQUEST,
-      `Invalid redemption method: '${method}'. Allowed methods: ${redemption.availableRedemptionMethods.join(
-        ', '
-      )}`
-    );
-  }
-
-  redemption.status = 'redeemed';
+  // 7. Atomic Update: Mark as REDEEMED
+  redemption.status = REDEMPTION_STATUS.REDEEMED;
   redemption.redeemedAt = new Date();
-  redemption.redemptionMethod = method; // ✅ Record specific method used
   redemption.redeemedByStaff = new Types.ObjectId(business._id);
-  if (location) redemption.redemptionLocation = location;
-  if (notes) redemption.redemptionNotes = notes;
+  redemption.redemptionMethod = method; // Log method
 
   await redemption.save();
 
-  return redemption.populate([
-    { path: 'reward', select: 'title description image type category' },
-    { path: 'business', select: 'name locations' },
-  ]);
+  // 8. Update the RewardCode inventory record for auditing
+  await RewardCode.findOneAndUpdate(
+    { code: code },
+    {
+      $set: {
+        isUsed: true,
+        usedAt: new Date(),
+      },
+    }
+  );
+
+  // 9. Notify User (Async)
+  createNotification(
+    redemption.user.auth.toString(),
+    NOTIFICATION_TYPE.REWARD_REDEEMED,
+    `Your reward "${reward.title}" has been successfully redeemed at ${business.name}. Enjoy!`,
+    redemption._id.toString()
+  ).catch((err) => console.error('Redemption notification failed', err));
+
+  return {
+    success: true,
+    rewardTitle: reward.title,
+    userName: (redemption.user as any).name,
+    redeemedAt: redemption.redeemedAt,
+    status: redemption.status,
+  };
 };
 
 /**
@@ -620,7 +678,7 @@ export const rewardRedemptionService = {
   claimReward,
   cancelClaimedReward,
   verifyRedemption,
-  redeemReward,
+  redeemRewardByCode,
   getUserClaimedRewards,
   getClaimedRewardById,
   expireOldClaimsWithFullRestoration,

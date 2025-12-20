@@ -55,7 +55,7 @@ export interface IReward {
     giftCard: boolean;
   };
 
-  codes: IRewardCode[];
+  codePrefix: string;
 
   featured: boolean;
   priority: number;
@@ -163,6 +163,7 @@ export interface ICreateRewardPayload {
   type: 'in-store' | 'online';
   category: string;
   redemptionLimit: number;
+  codePrefix?: string;
   startDate?: Date;
   expiryDate?: Date;
   inStoreRedemptionMethods?: {

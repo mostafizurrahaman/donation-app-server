@@ -29,7 +29,6 @@ const claimReward = asyncHandler(
         redemption: result.redemption,
         code: result.code,
         availableMethods: result.availableMethods,
-        isRetry: result.isRetry || false,
       },
     });
   }
@@ -67,16 +66,11 @@ const cancelClaimedReward = asyncHandler(
  */
 const redeemReward = asyncHandler(
   async (req: ExtendedRequest, res: Response) => {
-    const staffId = req.user?._id?.toString();
+    const { staffAuthId, code, method } = req.body;
 
-    const { redemptionId, code, location, notes, method } = req.body;
-
-    const result = await rewardRedemptionService.redeemReward({
-      redemptionId, // Can be from params OR body
-      code, // Can be from body
-      staffId,
-      location,
-      notes,
+    const result = await rewardRedemptionService.redeemRewardByCode({
+      code,
+      staffAuthId,
       method,
     });
 

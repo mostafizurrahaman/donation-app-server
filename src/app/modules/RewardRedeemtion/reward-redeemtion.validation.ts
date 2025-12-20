@@ -30,23 +30,17 @@ const cancelClaimedRewardSchema = z.object({
 
 // Redeem reward schema (Single Endpoint supports both ID and Code)
 const redeemRewardSchema = z.object({
-  body: z
-    .object({
-      redemptionId: z.string().optional(), // ID from QR
-      code: z
-        .string({
-          error: 'Code must be a valid string',
-        })
-        .optional(), // Static code
-      location: z.string().max(200).optional(),
-      notes: z.string().max(500).optional(),
-      method: z.enum(REDEMPTION_METHOD_VALUES as [string, ...string[]], {
-        error: 'Invalid redemption method provided',
-      }),
-    })
-    .refine((data) => data.redemptionId || data.code, {
-      message: "Either 'redemptionId' or 'code' is required",
+  body: z.object({
+    code: z
+      .string({
+        error: 'Code must be a valid string',
+      })
+      .optional(), // Static code
+    method: z.enum(REDEMPTION_METHOD_VALUES as [string, ...string[]], {
+      error: 'Invalid redemption method provided',
     }),
+    staffAuthId: z.string({ error: 'staffAuthId is required' }),
+  }),
 });
 
 // Verify redemption schema (Optional Pre-Check)
