@@ -27,7 +27,7 @@ router.post(
   RewardRedemptionController.claimReward
 );
 
-// Get currently logged-in user's claimed rewards
+// Get currently logged-in user's claimed rewards 
 router.get(
   '/my/claimed',
   auth(ROLE.CLIENT),

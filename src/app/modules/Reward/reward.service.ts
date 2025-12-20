@@ -281,14 +281,14 @@ const createReward = async (
 
     // 8. Type-Specific Code Logic & Validation
     if (reward.type === 'in-store') {
-      const suffixes = await generateInStoreCodes(
+      const codes = await generateInStoreCodes(
         reward?.codePrefix,
         reward.redemptionLimit
       );
-      codesToInsert = suffixes.map((suffix) => ({
+      codesToInsert = codes.map((code) => ({
         reward: reward._id,
         business: reward.business,
-        code: `${autoPrefix}-${suffix}`, // RWDXXXX-YYYY
+        code, // RWDXXXX-YYYY
         isDiscountCode: false,
         isUsed: false,
       }));
@@ -449,12 +449,12 @@ const updateReward = async (
       // CASE: In-Store Limit Increase (Auto-generate codes with the RWD prefix)
       if (newLimit > currentLimit && reward.type === 'in-store') {
         const diff = newLimit - currentLimit;
-        const suffixes = await generateInStoreCodes(reward.codePrefix, diff);
+        const codes = await generateInStoreCodes(reward.codePrefix, diff);
 
-        const newCodes = suffixes.map((s) => ({
+        const newCodes = codes.map((code) => ({
           reward: reward._id,
           business: reward.business,
-          code: `${reward.codePrefix}-${s}`, // Consistent RWD prefix from DB
+          code,
           isDiscountCode: false,
           isGiftCard: false,
           isUsed: false,
@@ -879,7 +879,7 @@ const uploadCodesToReward = async (
         remainingCount: reward.remainingCount,
       },
       codesAdded: countAdded,
-     
+
       filesProcessed,
     };
   } catch (error: any) {
