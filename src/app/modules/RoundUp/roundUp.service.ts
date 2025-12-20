@@ -145,8 +145,6 @@ const savePlaidConsent = async (
     bankConnection: bankConnectionId,
     paymentMethod: String(paymentMethod._id),
     monthlyThreshold: monthlyThreshold || undefined,
-
-    // ✅ Store fee preference
     coverFees,
 
     specialMessage: specialMessage || undefined,

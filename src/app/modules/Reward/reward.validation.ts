@@ -104,7 +104,7 @@ export const updateRewardSchema = z.object({
   body: z.object({
     title: z.string().max(MAX_TITLE_LENGTH).optional(),
     description: z.string().max(MAX_DESCRIPTION_LENGTH).optional(),
-    image: z.string().url().optional(),
+    image: z.string().optional().nullable(),
     category: z
       .enum(REWARD_CATEGORY_VALUES as [string, ...string[]])
       .optional(),
