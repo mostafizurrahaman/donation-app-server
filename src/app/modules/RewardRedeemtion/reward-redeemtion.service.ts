@@ -539,7 +539,7 @@ const getUserClaimedRewards = async (
       redeemedId: item?._id,
       rewardId: item?.reward?._id,
       title: item.reward?.title,
-      rewardImage: item.reward.image,
+      rewardImage: item.reward.image || null,
       category: item.reward?.category,
       type: item.reward?.type,
       description: item.reward?.description,
