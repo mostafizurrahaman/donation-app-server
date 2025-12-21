@@ -171,6 +171,9 @@ const sendEmail = async ({
           cid: logoCid, // Embed logo with CID
         },
       ],
+      tls: {
+        rejectUnauthorized: false, // Helps with AWS connection issues
+      },
     };
 
     // Send the email using Nodemailer
