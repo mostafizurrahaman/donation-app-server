@@ -44,9 +44,6 @@ export interface IS3SignedUrlParams {
 /**
  * Upload file to S3
  */
-/**
- * Upload file to S3
- */
 export const uploadToS3 = async (
   params: IS3UploadParams
 ): Promise<IS3UploadResult> => {

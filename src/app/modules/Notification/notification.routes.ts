@@ -12,7 +12,7 @@ router.get(
 );
 
 router.patch(
-  '/mark-notification',
+  '/mark-notification/:id',
   auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION, ROLE.ADMIN),
   notificationController.markAsSeen
 );
