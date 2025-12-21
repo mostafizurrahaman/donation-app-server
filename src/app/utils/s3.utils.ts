@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   S3Client,
   PutObjectCommand,
@@ -43,10 +44,14 @@ export interface IS3SignedUrlParams {
 /**
  * Upload file to S3
  */
+/**
+ * Upload file to S3
+ */
 export const uploadToS3 = async (
   params: IS3UploadParams
 ): Promise<IS3UploadResult> => {
   try {
+    const { region } = config.awsConfig;
     const fullKey = params.folder
       ? `${params.folder}/${params.key}`
       : params.key;
@@ -57,20 +62,15 @@ export const uploadToS3 = async (
       Body: params.buffer,
       ContentType: params.contentType || 'application/octet-stream',
       Metadata: params.metadata,
+      ACL: 'public-read', // Makes the file publicly accessible via URL
     });
 
     await s3Client.send(command);
 
-    // Generate signed URL
-    const signedUrl = await getSignedS3Url({
-      key: fullKey,
-      expiresIn: 7 * 24 * 60 * 60, // 7 days default
-    });
+    // Standard S3 URL Format
+    const url = `https://${S3_BUCKET_NAME}.s3.${region}.amazonaws.com/${fullKey}`;
 
-    return {
-      url: signedUrl,
-      key: fullKey,
-    };
+    return { url, key: fullKey };
   } catch (error) {
     console.error('S3 upload error:', error);
     throw new AppError(
@@ -103,6 +103,25 @@ export const getSignedS3Url = async (
       httpStatus.INTERNAL_SERVER_ERROR,
       `Failed to generate signed URL: ${(error as Error).message}`
     );
+  }
+};
+
+export const getS3KeyFromUrl = (url: string): string | null => {
+  if (!url) return null;
+  try {
+    // This splits the URL at the end of the domain
+    const parts = url.split('.com/');
+    if (parts.length <= 1) return null;
+
+    // Remove any query parameters (the stuff after '?')
+    // in case a signed URL was passed
+    const keyWithParams = parts[1];
+    const key = keyWithParams.split('?')[0];
+
+    return decodeURIComponent(key); // decode in case there are spaces or special chars
+  } catch (error: unknown) {
+    console.log(error);
+    return null;
   }
 };
 

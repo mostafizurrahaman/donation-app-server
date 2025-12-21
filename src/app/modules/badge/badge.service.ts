@@ -10,7 +10,7 @@ import {
   BADGE_MESSAGES,
   SEASONAL_PERIOD,
 } from './badge.constant';
-import { AppError, deleteFile } from '../../utils';
+import { AppError, uploadToS3 } from '../../utils';
 import httpStatus from 'http-status';
 import {
   isRamadan,
@@ -25,11 +25,12 @@ import {
   IUpdateBadgePayload,
   IBadgeTierConfig,
 } from './badge.interface';
-import { getFileUrl } from '../../lib/upload';
+
 import QueryBuilder from '../../builders/QueryBuilder';
 import { getDateHeader, getTimeAgo } from '../../lib/filter-helper';
 import { createNotification } from '../Notification/notification.service';
 import { NOTIFICATION_TYPE } from '../Notification/notification.constant';
+import { deleteFromS3, getS3KeyFromUrl } from '../../utils/s3.utils';
 
 const createBadge = async (
   payload: ICreateBadgePayload,
@@ -37,15 +38,19 @@ const createBadge = async (
 ) => {
   const existing = await Badge.findOne({ name: payload.name });
   if (existing) {
-    if (file) deleteFile(file.path); // Cleanup upload if duplicate
     throw new AppError(httpStatus.CONFLICT, BADGE_MESSAGES.ALREADY_EXISTS);
   }
 
-  // Handle Icon Upload
+  // Handle Icon Upload to S3
   if (file) {
-    payload.icon = getFileUrl(file);
+    const uploadResult = await uploadToS3({
+      buffer: file.buffer,
+      key: `badge-${Date.now()}`,
+      contentType: file.mimetype,
+      folder: 'badges',
+    });
+    payload.icon = uploadResult.url;
   } else if (!payload.icon) {
-    // If no file and no string URL provided
     throw new AppError(httpStatus.BAD_REQUEST, 'Badge icon is required');
   }
 
@@ -60,24 +65,35 @@ const updateBadge = async (
 ) => {
   const badge = await Badge.findById(id);
   if (!badge) {
-    if (file) deleteFile(file.path);
     throw new AppError(httpStatus.NOT_FOUND, BADGE_MESSAGES.NOT_FOUND);
   }
 
-  // Handle Image Update
+  // Handle Image Update in S3
   if (file) {
-    // Delete old image if it's a local file
-    if (badge.icon && badge.icon.startsWith('/')) {
-      deleteFile(`public${badge.icon}`);
+    // 1. Delete old icon from S3 if it exists
+    if (badge.icon) {
+      const oldKey = getS3KeyFromUrl(badge.icon);
+      if (oldKey) {
+        // Fire and forget deletion
+        deleteFromS3(oldKey).catch((err) =>
+          console.error('Failed to delete old badge icon from S3:', err)
+        );
+      }
     }
-    payload.icon = getFileUrl(file);
+
+    // 2. Upload new icon buffer to S3
+    const uploadResult = await uploadToS3({
+      buffer: file.buffer,
+      key: `badge-${Date.now()}`,
+      contentType: file.mimetype,
+      folder: 'badges',
+    });
+    payload.icon = uploadResult.url;
   }
 
-  // Check Name Uniqueness if changing name
   if (payload.name && payload.name !== badge.name) {
     const existing = await Badge.findOne({ name: payload.name });
     if (existing) {
-      if (file) deleteFile(file.path);
       throw new AppError(httpStatus.CONFLICT, BADGE_MESSAGES.ALREADY_EXISTS);
     }
   }

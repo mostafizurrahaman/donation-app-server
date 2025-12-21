@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import fs from 'fs';
 import httpStatus from 'http-status';
 import { startSession } from 'mongoose';
@@ -9,7 +10,7 @@ import {
   verifyToken,
 } from '../../lib';
 import { TDeactiveAccountPayload, TProfileFileFields } from '../../types';
-import { AppError, sendOtpEmail } from '../../utils';
+import { AppError, sendOtpEmail, uploadToS3 } from '../../utils';
 import Business from '../Business/business.model';
 import Organization from '../Organization/organization.model';
 import Client from '../Client/client.model';
@@ -291,6 +292,7 @@ const signinIntoDB = async (payload: {
 };
 
 // 5. createProfileIntoDB
+
 const createProfileIntoDB = async (
   payload: TProfilePayload,
   user: IAuth,
@@ -306,28 +308,19 @@ const createProfileIntoDB = async (
 
   user.ensureActiveStatus();
 
-  // Destructure relevant fields from the payload
   const {
     role,
-
-    // CLIENT fields
     name,
     address,
     state,
     postalCode,
-    // notificationPreferences,
-
-    // BUSINESS fields
     category,
     tagLine,
     description,
     businessPhoneNumber,
     businessEmail,
     businessWebsite,
-
     locations,
-
-    // ORGANIZATION fields
     serviceType,
     website,
     phoneNumber,
@@ -338,262 +331,206 @@ const createProfileIntoDB = async (
     zakatLicenseHolderNumber,
   } = payload;
 
-  // Extract file paths for ID verification images for artists
-  const clientImage = files?.clientImage?.[0]?.path.replace(/\\/g, '/') || null;
-  const businessImage =
-    files?.businessImage?.[0]?.path.replace(/\\/g, '/') || null;
-  const organizationImage =
-    files?.organizationImage?.[0]?.path.replace(/\\/g, '/') || null;
-
-  const drivingLicenseURL =
-    files?.drivingLincenseURL?.[0]?.path.replace(/\\/g, '/') || null;
-
   // Start a MongoDB session for transaction
   const session = await startSession();
 
   try {
     session.startTransaction();
 
-    // CLIENT PROFILE CREATION
+    // --- CLIENT PROFILE ---
     if (role === ROLE.CLIENT) {
       const isExistClient = await Client.findOne({ auth: user._id });
-      if (isExistClient) {
-        throw new AppError(
-          httpStatus.BAD_REQUEST,
-          'Client data already saved in database'
-        );
+      if (isExistClient)
+        throw new AppError(httpStatus.BAD_REQUEST, 'Client already exists');
+
+      let imageUrl = null;
+      if (files?.clientImage?.[0]) {
+        const upload = await uploadToS3({
+          buffer: files.clientImage[0].buffer,
+          key: `client-${user._id}-${Date.now()}`,
+          contentType: files.clientImage[0].mimetype,
+          folder: 'profiles/clients',
+        });
+        imageUrl = upload.url;
       }
 
-      const clientPayload = {
-        auth: user._id,
-
-        name,
-        address,
-        state,
-        postalCode,
-
-        image: clientImage,
-      };
-
-      const [client] = await Client.create([clientPayload], { session });
-
-      if (!client) {
-        throw new AppError(
-          httpStatus.BAD_REQUEST,
-          'Client data not saved in database!'
-        );
-      }
+      const [client] = await Client.create(
+        [
+          {
+            auth: user._id,
+            name,
+            address,
+            state,
+            postalCode,
+            image: imageUrl,
+          },
+        ],
+        { session }
+      );
 
       await Auth.findByIdAndUpdate(
         user._id,
         { role: ROLE.CLIENT, isProfile: true },
         { session }
       );
-
       await session.commitTransaction();
       await session.endSession();
 
-      const accessTokenPayload = {
-        id: user._id.toString(),
-        name: client.name,
-        image: client.image,
-        email: user.email,
-        role: user.role,
-        isProfile: true,
-        isActive: user?.isActive,
-        status: user.status,
-      };
-
-      // const refreshTokenPayload = {
-      //   email: user.email,
-      // };
-
-      const accessToken = createAccessToken(accessTokenPayload);
-      // const refreshToken = createRefreshToken(refreshTokenPayload);
-
       return {
-        accessToken,
-        // refreshToken,
+        accessToken: createAccessToken({
+          id: user._id.toString(),
+          name: client.name,
+          image: client.image || '',
+          email: user.email,
+          role: user.role,
+          isProfile: true,
+          isActive: user.isActive,
+          status: user.status,
+        }),
       };
-    } else if (role === ROLE.BUSINESS) {
-      // BUSINESS PROFILE CREATION
+    }
+
+    // --- BUSINESS PROFILE ---
+    else if (role === ROLE.BUSINESS) {
       const isExistBusiness = await Business.findOne({ auth: user._id });
-      if (isExistBusiness) {
-        throw new AppError(
-          httpStatus.BAD_REQUEST,
-          'Business profile already exists.'
-        );
+      if (isExistBusiness)
+        throw new AppError(httpStatus.BAD_REQUEST, 'Business already exists');
+
+      let coverUrl = null;
+      if (files?.businessImage?.[0]) {
+        const upload = await uploadToS3({
+          buffer: files.businessImage[0].buffer,
+          key: `business-${user._id}-${Date.now()}`,
+          contentType: files.businessImage[0].mimetype,
+          folder: 'profiles/businesses',
+        });
+        coverUrl = upload.url;
       }
 
-      const businessPayload = {
-        auth: user._id,
-
-        category,
-        name,
-        tagLine,
-        description,
-
-        coverImage: businessImage,
-
-        businessPhoneNumber,
-        businessEmail,
-        businessWebsite,
-        locations,
-      };
-
-      const [business] = await Business.create([businessPayload], { session });
-
-      if (!business) {
-        throw new AppError(
-          httpStatus.BAD_REQUEST,
-          'Business data not saved in database!'
-        );
-      }
+      const [business] = await Business.create(
+        [
+          {
+            auth: user._id,
+            category,
+            name,
+            tagLine,
+            description,
+            coverImage: coverUrl,
+            businessPhoneNumber,
+            businessEmail,
+            businessWebsite,
+            locations,
+          },
+        ],
+        { session }
+      );
 
       await Auth.findByIdAndUpdate(
         user._id,
         { role: ROLE.BUSINESS, isProfile: true },
         { session }
       );
-
       await session.commitTransaction();
       await session.endSession();
 
-      const accessTokenPayload = {
-        id: user?._id.toString(),
-        name: business?.name,
-        image: business?.coverImage,
-        email: user?.email,
-        role: user?.role,
-        isProfile: true,
-        isActive: user?.isActive,
-        status: user.status,
-      };
-
-      // const refreshTokenPayload = {
-      //   email: user?.email,
-      // };
-
-      const accessToken = createAccessToken(accessTokenPayload);
-      // const refreshToken = createRefreshToken(refreshTokenPayload);
-
       return {
-        accessToken,
-        // refreshToken,
+        accessToken: createAccessToken({
+          id: user._id.toString(),
+          name: business.name,
+          image: business.coverImage || '',
+          email: user.email,
+          role: user.role,
+          isProfile: true,
+          isActive: user.isActive,
+          status: user.status,
+        }),
       };
-    } else if (role === ROLE.ORGANIZATION) {
-      // ORGANIZATION PROFILE CREATION
+    }
+
+    // --- ORGANIZATION PROFILE ---
+    else if (role === ROLE.ORGANIZATION) {
       const isExistOrganization = await Organization.findOne({
         auth: user._id,
       });
-      if (isExistOrganization) {
+      if (isExistOrganization)
         throw new AppError(
           httpStatus.BAD_REQUEST,
-          'Organization profile already exists.'
+          'Organization already exists'
         );
+
+      let coverUrl = null;
+      let licenseUrl = null;
+
+      if (files?.organizationImage?.[0]) {
+        const upload = await uploadToS3({
+          buffer: files.organizationImage[0].buffer,
+          key: `org-cover-${user._id}-${Date.now()}`,
+          contentType: files.organizationImage[0].mimetype,
+          folder: 'profiles/orgs',
+        });
+        coverUrl = upload.url;
       }
 
-      const organizationPayload = {
-        auth: user._id,
-
-        name,
-        serviceType,
-        address,
-        state,
-        postalCode,
-        website,
-
-        phoneNumber,
-        coverImage: organizationImage,
-
-        boardMemberName,
-        boardMemberEmail,
-        boardMemberPhoneNumber,
-        drivingLicenseURL,
-
-        tfnOrAbnNumber,
-        zakatLicenseHolderNumber,
-      };
-
-      const [organization] = await Organization.create([organizationPayload], {
-        session,
-      });
-
-      if (!organization) {
-        throw new AppError(
-          httpStatus.BAD_REQUEST,
-          'Organization data not saved in database!'
-        );
+      if (files?.drivingLincenseURL?.[0]) {
+        const upload = await uploadToS3({
+          buffer: files.drivingLincenseURL[0].buffer,
+          key: `org-license-${user._id}-${Date.now()}`,
+          contentType: files.drivingLincenseURL[0].mimetype,
+          folder: 'documents/orgs',
+        });
+        licenseUrl = upload.url;
       }
+
+      const [organization] = await Organization.create(
+        [
+          {
+            auth: user._id,
+            name,
+            serviceType,
+            address,
+            state,
+            postalCode,
+            website,
+            phoneNumber,
+            coverImage: coverUrl,
+            boardMemberName,
+            boardMemberEmail,
+            boardMemberPhoneNumber,
+            drivingLicenseURL: licenseUrl,
+            tfnOrAbnNumber,
+            zakatLicenseHolderNumber,
+          },
+        ],
+        { session }
+      );
 
       await Auth.findByIdAndUpdate(
         user._id,
         { role: ROLE.ORGANIZATION, isProfile: true },
         { session }
       );
-
       await session.commitTransaction();
       await session.endSession();
 
-      const accessTokenPayload = {
-        id: user._id.toString(),
-        name: organization?.name,
-        email: user.email,
-        image: organization?.coverImage,
-        role: user.role,
-        isProfile: true,
-        isActive: user?.isActive,
-        status: user.status,
-      };
-
-      // const refreshTokenPayload = {
-      //   email: user?.email,
-      // };
-
-      const accessToken = createAccessToken(accessTokenPayload);
-      // const refreshToken = createRefreshToken(refreshTokenPayload);
-
       return {
-        accessToken,
-        // refreshToken,
+        accessToken: createAccessToken({
+          id: user._id.toString(),
+          name: organization.name,
+          image: organization.coverImage || '',
+          email: user.email,
+          role: user.role,
+          isProfile: true,
+          isActive: user.isActive,
+          status: user.status,
+        }),
       };
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
-    // ❌ Roll back transaction in case of any error
     await session.abortTransaction();
     await session.endSession();
-
-    // 🧼 Cleanup: Delete uploaded files to avoid storage bloat
-    if (files && typeof files === 'object' && !Array.isArray(files)) {
-      Object.values(files).forEach((fileArray) => {
-        fileArray.forEach((file) => {
-          try {
-            if (file?.path && fs.existsSync(file.path)) {
-              fs.unlinkSync(file.path);
-            }
-          } catch (deleteErr) {
-            // eslint-disable-next-line no-console
-            console.warn(
-              'Failed to delete uploaded file:',
-              file.path,
-              deleteErr
-            );
-          }
-        });
-      });
-    }
-
-    // Re-throw application-specific errors
-    if (error instanceof AppError) {
-      throw error;
-    }
-
-    // Throw generic internal server error
-    throw new AppError(
-      httpStatus.INTERNAL_SERVER_ERROR,
-      error?.message || 'Failed to create profile. Please try again!'
-    );
+    throw error instanceof AppError
+      ? error
+      : new AppError(httpStatus.INTERNAL_SERVER_ERROR, error.message);
   }
 };
 
@@ -1375,7 +1312,16 @@ const businessSignupWithProfile = async (
   }
 
   // Extract cover image path (optional)
-  const logoImage = files?.logoImage?.[0]?.path.replace(/\\/g, '/') || null;
+  let logoImageUrl = null;
+  if (files?.logoImage?.[0]) {
+    const uploadResult = await uploadToS3({
+      buffer: files.logoImage[0].buffer,
+      key: `logo-${Date.now()}`,
+      contentType: files.logoImage[0].mimetype,
+      folder: 'profiles/businesses',
+    });
+    logoImageUrl = uploadResult.url;
+  }
 
   // Generate OTP for new user
   const otp = generateOtp();
@@ -1420,7 +1366,7 @@ const businessSignupWithProfile = async (
       description: businessData.description,
 
       // Optional fields - only add if provided
-      ...(logoImage && { logoImage }),
+      ...(logoImageUrl && { logoImage: logoImageUrl }),
       ...(businessData.businessPhoneNumber && {
         businessPhoneNumber: businessData.businessPhoneNumber,
       }),
@@ -1474,14 +1420,14 @@ const businessSignupWithProfile = async (
     await session.abortTransaction();
     await session.endSession();
 
-    // Clean up uploaded files on error
-    if (logoImage && fs.existsSync(logoImage)) {
-      try {
-        fs.unlinkSync(logoImage);
-      } catch (deleteErr) {
-        console.error('Failed to delete uploaded file:', deleteErr);
-      }
-    }
+    // // Clean up uploaded files on error
+    // if (logoImage && fs.existsSync(logoImage)) {
+    //   try {
+    //     fs.unlinkSync(logoImage);
+    //   } catch (deleteErr) {
+    //     console.error('Failed to delete uploaded file:', deleteErr);
+    //   }
+    // }
 
     // Re-throw application errors
     if (error instanceof AppError) {
@@ -1508,41 +1454,53 @@ const organizationSignupWithProfile = async (
     drivingLicense?: Express.Multer.File[];
   }
 ) => {
-  // Extract auth and organization data
   const { email, password, ...orgData } = payload;
 
-  // Check if user already exists
+  // 1. Check if user already exists
   const existingUser = await Auth.isUserExistsByEmail(email);
-
   if (existingUser) {
-    // Clean up uploaded files immediately if user exists to save space
-    const allFiles = [
-      ...(files?.logoImage || []),
-      ...(files?.coverImage || []),
-      ...(files?.drivingLicense || []),
-    ];
-
-    allFiles.forEach((file) => {
-      try {
-        if (file.path && fs.existsSync(file.path)) fs.unlinkSync(file.path);
-      } catch (err) {
-        console.error('Cleanup error:', err);
-      }
-    });
-
     throw new AppError(
       httpStatus.BAD_REQUEST,
       'User with this email already exists!'
     );
   }
 
-  // Extract file paths
-  const logoImage = files?.logoImage?.[0]?.path.replace(/\\/g, '/') || null;
-  const coverImage = files?.coverImage?.[0]?.path.replace(/\\/g, '/') || null;
-  const drivingLicenseURL =
-    files?.drivingLicense?.[0]?.path.replace(/\\/g, '/') || null;
+  // 2. Upload Files to S3
+  let logoImageUrl = null;
+  let coverImageUrl = null;
+  let drivingLicenseUrl = null;
 
-  // Generate OTP
+  if (files?.logoImage?.[0]) {
+    const upload = await uploadToS3({
+      buffer: files.logoImage[0].buffer,
+      key: `logo-${Date.now()}`,
+      contentType: files.logoImage[0].mimetype,
+      folder: 'organization/logos',
+    });
+    logoImageUrl = upload.url;
+  }
+
+  if (files?.coverImage?.[0]) {
+    const upload = await uploadToS3({
+      buffer: files.coverImage[0].buffer,
+      key: `cover-${Date.now()}`,
+      contentType: files.coverImage[0].mimetype,
+      folder: 'organization/covers',
+    });
+    coverImageUrl = upload.url;
+  }
+
+  if (files?.drivingLicense?.[0]) {
+    const upload = await uploadToS3({
+      buffer: files.drivingLicense[0].buffer,
+      key: `license-${Date.now()}`,
+      contentType: files.drivingLicense[0].mimetype,
+      folder: 'organization/documents',
+    });
+    drivingLicenseUrl = upload.url;
+  }
+
+  // 3. Generate OTP
   const otp = generateOtp();
   const now = new Date();
   const otpExpiry = new Date(
@@ -1554,7 +1512,7 @@ const organizationSignupWithProfile = async (
   try {
     session.startTransaction();
 
-    // 1. Create Auth record
+    // 4. Create Auth record
     const authPayload = {
       email,
       password,
@@ -1577,7 +1535,7 @@ const organizationSignupWithProfile = async (
       );
     }
 
-    // 2. Create Organization Profile
+    // 5. Create Organization Profile
     const organizationPayload = {
       auth: newAuth._id,
       name: orgData.name,
@@ -1592,14 +1550,13 @@ const organizationSignupWithProfile = async (
       registeredCharityName: orgData.registeredCharityName,
       dateOfEstablishment: orgData.dateOfEstablishment,
 
-      // Verification details
       tfnOrAbnNumber: orgData.tfnOrAbnNumber,
       acncNumber: orgData.acncNumber,
       zakatLicenseHolderNumber: orgData.zakatLicenseHolderNumber,
 
-      // Images/Docs
-      logoImage,
-      coverImage,
+      // Use S3 URLs
+      logoImage: logoImageUrl,
+      coverImage: coverImageUrl,
     };
 
     const [newOrganization] = await Organization.create([organizationPayload], {
@@ -1613,12 +1570,13 @@ const organizationSignupWithProfile = async (
       );
     }
 
+    // 6. Create Board Member
     const boardMemeberPayload = {
       organization: newOrganization?._id,
       boardMemberName: orgData.boardMemberName,
       boardMemberEmail: orgData.boardMemberEmail,
       boardMemberPhoneNumber: orgData.boardMemberPhoneNumber,
-      drivingLicenseURL,
+      drivingLicenseURL: drivingLicenseUrl, // Use S3 URL
       status: BoardMemberStatus.PENDING,
     };
 
@@ -1633,7 +1591,7 @@ const organizationSignupWithProfile = async (
       );
     }
 
-    // 3. Send OTP Email
+    // 7. Send OTP Email
     await sendOtpEmail({
       email,
       otp,
@@ -1654,25 +1612,10 @@ const organizationSignupWithProfile = async (
       },
     };
   } catch (error: any) {
-    console.log(error);
     await session.abortTransaction();
     await session.endSession();
 
-    // Clean up uploaded files on error
-    const allFiles = [
-      ...(files?.logoImage || []),
-      ...(files?.coverImage || []),
-      ...(files?.drivingLicense || []),
-    ];
-
-    allFiles.forEach((file) => {
-      try {
-        if (file.path && fs.existsSync(file.path)) fs.unlinkSync(file.path);
-      } catch (err) {
-        console.error('Cleanup error:', err);
-      }
-    });
-
+  
     if (error instanceof AppError) throw error;
     if (error.code === 11000)
       throw new AppError(httpStatus.BAD_REQUEST, 'Email already exists!');

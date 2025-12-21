@@ -41,6 +41,7 @@ router.get(
   validateRequest(rewardValidation.getAdminRewardsSchema),
   RewardController.getAdminRewards
 );
+
 // Admin: Get All Rewards
 router.get(
   '/admin/analytics',

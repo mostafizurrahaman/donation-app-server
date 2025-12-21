@@ -14,8 +14,8 @@ interface IConfig {
   paymentSetting: {
     platformFeePercent: number;
     gstPercentage: number;
-    stripeFeePercent: number; // ✅ NEW: Stripe % (e.g. 0.0175)
-    stripeFixedFee: number; // ✅ NEW: Stripe Fixed (e.g. 0.30)
+    stripeFeePercent: number;
+    stripeFixedFee: number;
     clearingPeriodDays: number;
   };
   jwt: {

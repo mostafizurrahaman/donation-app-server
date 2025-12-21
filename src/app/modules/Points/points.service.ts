@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // src/app/modules/Points/points.service.ts
 import { Types, ClientSession, SortOrder } from 'mongoose';
 
@@ -28,7 +29,7 @@ import Client from '../Client/client.model';
 // =======================
 export const createPointsTransaction = async (
   payload: ICreatePointsTransactionPayload,
-  externalSession?: ClientSession // ✅ Accept optional session
+  externalSession?: ClientSession
 ): Promise<IPointsTransactionResult> => {
   const session = externalSession || (await PointsTransaction.startSession());
   // Only start transaction if we created the session
@@ -283,6 +284,8 @@ export const getUserBalance = async (userId: Types.ObjectId | string) => {
     user: new Types.ObjectId(userId),
   }).populate<{ user: IPopulatedUser }>('user', 'name image');
 
+  console.log({ balance });
+
   if (!balance) {
     return await PointsBalance.create({
       user: new Types.ObjectId(userId),
@@ -325,7 +328,16 @@ export const getUserTransactions = async (
     sortOrder = 'desc',
   } = query;
 
-  const filter: any = { user: new Types.ObjectId(userId) };
+  const client = await Client.findById(userId);
+
+  if (!client) {
+    throw new AppError(httpStatus.NOT_FOUND, 'User not found!');
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const filter: any = {
+    user: new Types.ObjectId(client?._id),
+  };
   if (transactionType) filter.transactionType = transactionType;
   if (source) filter.source = source;
   if (startDate || endDate) {

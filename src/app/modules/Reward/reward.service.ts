@@ -12,14 +12,12 @@ import { RewardRedemption } from '../RewardRedeemtion/reward-redeemtion.model';
 import Business from '../Business/business.model';
 import { pointsServices } from '../Points/points.service';
 
-import { AppError } from '../../utils';
-import { getFileUrl, deleteFile } from '../../lib/upload';
+import { AppError, uploadToS3 } from '../../utils';
 
 import {
   ICreateRewardPayload,
   IUpdateRewardPayload,
   IRewardFilterQuery,
-  IRewardStatistics,
   IRewardAvailability,
   IParsedCodeFromCSV,
   IRewardDocument,
@@ -41,10 +39,10 @@ import {
   getDateRanges,
 } from '../../lib/filter-helper';
 import { createNotification } from '../Notification/notification.service';
-import { DONATION_TYPE } from '../Donation/donation.constant';
 import { NOTIFICATION_TYPE } from '../Notification/notification.constant';
 import { generateUniqueRWDPrefix } from './reward.utils';
 import { RewardCode } from '../RewardCode/reward-code.model';
+import { deleteFromS3, getS3KeyFromUrl } from '../../utils/s3.utils';
 
 // ==========================================
 // HELPER FUNCTIONS
@@ -187,12 +185,8 @@ const parseSingleCodesFile = async (
   }
 };
 
-// ==========================================
-// REWARD CRUD OPERATIONS
-// ==========================================
-
 /**
- * Main: Create Reward Service
+ * Main: Create Reward Service (Updated for S3)
  */
 const createReward = async (
   rewardData: ICreateRewardPayload,
@@ -204,27 +198,24 @@ const createReward = async (
   // 1. Validate Business Existence
   const business = await Business.findById(businessId);
   if (!business) {
-    if (imageFile) deleteFile(imageFile.path);
     throw new AppError(
       httpStatus.NOT_FOUND,
       REWARD_MESSAGES.BUSINESS_NOT_FOUND
     );
   }
 
-  // 2. Validate Reward Title Uniqueness (For this specific business)
+  // 2. Validate Reward Title Uniqueness
   const existingReward = await Reward.findOne({
     business: businessId,
     title: rewardData.title,
   });
   if (existingReward) {
-    if (imageFile) deleteFile(imageFile.path);
     throw new AppError(httpStatus.CONFLICT, REWARD_MESSAGES.ALREADY_EXISTS);
   }
 
-  // 3. Validate Date Logic (Expiry must be after Start)
+  // 3. Validate Date Logic
   if (rewardData.expiryDate && rewardData.startDate) {
     if (new Date(rewardData.expiryDate) <= new Date(rewardData.startDate)) {
-      if (imageFile) deleteFile(imageFile.path);
       throw new AppError(
         httpStatus.BAD_REQUEST,
         REWARD_MESSAGES.EXPIRY_BEFORE_START
@@ -232,26 +223,32 @@ const createReward = async (
     }
   }
 
-  // 4. Validate Redemption Methods match Reward Type
+  // 4. Validate Redemption Methods
   if (rewardData.type === 'in-store' && !rewardData.inStoreRedemptionMethods) {
-    if (imageFile) deleteFile(imageFile.path);
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      'In-store methods (QR/Static) are required for in-store rewards'
+      'In-store methods (QR/Static) are required'
     );
   }
 
   if (rewardData.type === 'online' && !rewardData.onlineRedemptionMethods) {
-    if (imageFile) deleteFile(imageFile.path);
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      'Online methods (Discount/GiftCard) are required for online rewards'
+      'Online methods (Discount/GiftCard) are required'
     );
   }
 
-  // 5. Handle Image Upload
+  // 5. Handle Image Upload to S3
+  let uploadedImageUrl = '';
   if (imageFile) {
-    rewardData.image = getFileUrl(imageFile);
+    const uploadResult = await uploadToS3({
+      buffer: imageFile.buffer,
+      key: `reward-${Date.now()}`,
+      contentType: imageFile.mimetype,
+      folder: 'rewards',
+    });
+    uploadedImageUrl = uploadResult.url;
+    rewardData.image = uploadedImageUrl;
   }
 
   const session = await mongoose.startSession();
@@ -279,7 +276,7 @@ const createReward = async (
 
     let codesToInsert = [];
 
-    // 8. Type-Specific Code Logic & Validation
+    // 8. Type-Specific Code Logic
     if (reward.type === 'in-store') {
       const codes = await generateInStoreCodes(
         reward?.codePrefix,
@@ -288,8 +285,7 @@ const createReward = async (
       codesToInsert = codes.map((code) => ({
         reward: reward._id,
         business: reward.business,
-        code, // RWDXXXX-YYYY
-        isDiscountCode: false,
+        code,
         isUsed: false,
       }));
     } else {
@@ -303,30 +299,29 @@ const createReward = async (
 
       const { codes: parsedCodes } = await parseCodesFiles(codesFiles);
 
-      // Validate: CSV must contain at least as many codes as the redemption limit
       if (parsedCodes.length < reward.redemptionLimit) {
         throw new AppError(
           httpStatus.BAD_REQUEST,
-          `Insufficient codes in CSV. Required: ${reward.redemptionLimit}, Found: ${parsedCodes.length}`
+          `Insufficient codes in CSV. Required: ${reward.redemptionLimit}`
         );
       }
 
-      // Validate: Check if any of these online codes already exist in the database (Global Uniqueness)
       const rawCodeStrings = parsedCodes.map((c) => c.code);
       const duplicateInDb = await RewardCode.findOne({
         code: { $in: rawCodeStrings },
       });
+
       if (duplicateInDb) {
         throw new AppError(
           httpStatus.CONFLICT,
-          'One or more codes in your file have already been used in another reward.'
+          'One or more codes already used in another reward.'
         );
       }
 
       codesToInsert = parsedCodes.slice(0, reward.redemptionLimit).map((c) => ({
         reward: reward._id,
         business: reward.business,
-        code: c.code, // No prefix for online
+        code: c.code,
         isGiftCard: c.isGiftCard,
         isDiscountCode: c.isDiscountCode,
         isUsed: false,
@@ -344,10 +339,13 @@ const createReward = async (
     return reward;
   } catch (error: any) {
     await session.abortTransaction();
-    // Cleanup uploaded reward image on failure
-    if (rewardData.image && rewardData.image.startsWith('public/')) {
-      deleteFile(rewardData.image);
+
+    // Optional: Cleanup S3 if DB transaction fails
+    if (uploadedImageUrl) {
+      const key = getS3KeyFromUrl(uploadedImageUrl);
+      if (key) await deleteFromS3(key).catch(() => null);
     }
+
     throw error;
   } finally {
     session.endSession();
@@ -382,25 +380,24 @@ const broadcastNewReward = async (reward: any) => {
 };
 
 /**
- * Update Reward Details and Inventory
+ * Update Reward Details and Inventory (Migrated to AWS S3)
  */
+
 const updateReward = async (
   rewardId: string,
   payload: IUpdateRewardPayload,
   userId: string,
   imageFile?: Express.Multer.File,
-  codesFiles?: Express.Multer.File[] // Used if increasing limit for online rewards
+  codesFiles?: Express.Multer.File[]
 ): Promise<IRewardDocument> => {
   // 1. Fetch current reward state
   const reward = await Reward.findById(rewardId);
   if (!reward) {
-    if (imageFile) deleteFile(imageFile.path);
     throw new AppError(httpStatus.NOT_FOUND, REWARD_MESSAGES.NOT_FOUND);
   }
 
   // 2. Validation: Prevent extending an already expired reward
   if (payload.expiryDate && reward.status === 'expired') {
-    if (imageFile) deleteFile(imageFile.path);
     throw new AppError(
       httpStatus.BAD_REQUEST,
       REWARD_MESSAGES.CANNOT_EXTEND_EXPIRED
@@ -412,7 +409,6 @@ const updateReward = async (
     const hoursSinceUpdate =
       (Date.now() - reward.lastLimitUpdate.getTime()) / (1000 * 60 * 60);
     if (hoursSinceUpdate < LIMIT_UPDATE_COOLDOWN_HOURS) {
-      if (imageFile) deleteFile(imageFile.path);
       throw new AppError(
         httpStatus.TOO_MANY_REQUESTS,
         REWARD_MESSAGES.UPDATE_COOLDOWN
@@ -420,15 +416,29 @@ const updateReward = async (
     }
   }
 
-  // 4. Handle Image Update
+  // 4. Handle S3 Image Update (Outside the DB Transaction)
   if (imageFile) {
-    if (reward.image && reward.image.startsWith('public/')) {
-      deleteFile(reward.image);
+    // A. Delete old image from S3 if it exists
+    if (reward.image) {
+      const oldKey = getS3KeyFromUrl(reward.image);
+      if (oldKey) {
+        await deleteFromS3(oldKey).catch((err) =>
+          console.error('Failed to delete old reward image from S3:', err)
+        );
+      }
     }
-    payload.image = getFileUrl(imageFile);
+
+    // B. Upload new image buffer to S3
+    const uploadResult = await uploadToS3({
+      buffer: imageFile.buffer,
+      key: `reward-${Date.now()}`,
+      contentType: imageFile.mimetype,
+      folder: 'rewards',
+    });
+    payload.image = uploadResult.url;
   }
 
-  // Start Transaction
+  // Start MongoDB Transaction
   const session = await mongoose.startSession();
   session.startTransaction();
 
@@ -438,15 +448,14 @@ const updateReward = async (
       const newLimit = payload.redemptionLimit;
       const currentLimit = reward.redemptionLimit;
 
-      // Validation: Cannot set limit below what has already been redeemed
       if (newLimit < reward.redeemedCount) {
         throw new AppError(
           httpStatus.BAD_REQUEST,
-          `${REWARD_MESSAGES.LIMIT_BELOW_REDEEMED}. Minimum: ${reward.redeemedCount}`
+          `${REWARD_MESSAGES.LIMIT_BELOW_REDEEMED}. Minimum required: ${reward.redeemedCount}`
         );
       }
 
-      // CASE: In-Store Limit Increase (Auto-generate codes with the RWD prefix)
+      // CASE: In-Store Limit Increase
       if (newLimit > currentLimit && reward.type === 'in-store') {
         const diff = newLimit - currentLimit;
         const codes = await generateInStoreCodes(reward.codePrefix, diff);
@@ -455,20 +464,18 @@ const updateReward = async (
           reward: reward._id,
           business: reward.business,
           code,
-          isDiscountCode: false,
-          isGiftCard: false,
           isUsed: false,
         }));
 
         await RewardCode.insertMany(newCodes, { session });
       }
 
-      // CASE: Online Limit Increase (Requires CSV File)
+      // CASE: Online Limit Increase (Processing CSV buffers)
       else if (newLimit > currentLimit && reward.type === 'online') {
         if (!codesFiles || codesFiles.length === 0) {
           throw new AppError(
             httpStatus.BAD_REQUEST,
-            'To increase the limit for an online reward, you must upload a CSV file with the new codes.'
+            'A CSV file with new codes is required to increase the limit for online rewards.'
           );
         }
 
@@ -478,25 +485,25 @@ const updateReward = async (
         if (parsedCodes.length < neededCount) {
           throw new AppError(
             httpStatus.BAD_REQUEST,
-            `File only contains ${parsedCodes.length} codes, but you need ${neededCount} to reach the new limit.`
+            `File only contains ${parsedCodes.length} codes, but ${neededCount} are required.`
           );
         }
 
-        // Global Uniqueness Check for new codes
         const codeStrings = parsedCodes.map((c) => c.code);
         const duplicate = await RewardCode.findOne({
           code: { $in: codeStrings },
-        });
-        if (duplicate)
+        }).session(session);
+        if (duplicate) {
           throw new AppError(
             httpStatus.CONFLICT,
-            `Code "${duplicate.code}" already exists in system.`
+            `Code "${duplicate.code}" already exists in the system.`
           );
+        }
 
         const codesToInsert = parsedCodes.slice(0, neededCount).map((c) => ({
           reward: reward._id,
           business: reward.business,
-          code: c.code, // No prefix for online
+          code: c.code,
           isGiftCard: c.isGiftCard,
           isDiscountCode: c.isDiscountCode,
           isUsed: false,
@@ -505,7 +512,7 @@ const updateReward = async (
         await RewardCode.insertMany(codesToInsert, { session });
       }
 
-      // Record update in history
+      // Record update history
       reward.limitUpdateHistory!.push({
         previousLimit: currentLimit,
         newLimit,
@@ -519,13 +526,13 @@ const updateReward = async (
       reward.lastLimitUpdate = new Date();
     }
 
-    // 6. Handle Featured -> Priority Mapping
+    // 6. Update Featured/Priority
     if (payload.featured !== undefined) {
       reward.featured = payload.featured;
       reward.priority = payload.featured ? 10 : 1;
     }
 
-    // 7. Update General Fields
+    // 7. Map General Fields
     if (payload.title) reward.title = payload.title;
     if (payload.description) reward.description = payload.description;
     if (payload.image) reward.image = payload.image;
@@ -534,35 +541,63 @@ const updateReward = async (
     if (payload.expiryDate) reward.expiryDate = payload.expiryDate;
     if (payload.isActive !== undefined) reward.isActive = payload.isActive;
 
-    // 8. Finalize Reward Status
+    // 8. Finalize Save and Status
     await reward.save({ session });
-    await reward.updateStatus(); // Sync status (active/sold-out/expired)
+    await reward.updateStatus();
 
+    // 9. Commit Transaction
     await session.commitTransaction();
-    return reward.populate('business', 'name category coverImage');
+
+    const updatedReward = await Reward.findById(reward._id)
+      .populate('business', 'name category coverImage locations')
+      .lean();
+
+    return updatedReward as unknown as IRewardDocument;
   } catch (error: any) {
+    // Abort on any failure
     await session.abortTransaction();
-    // Cleanup uploaded file if DB operation failed
-    if (payload.image) deleteFile(payload.image);
     throw error;
   } finally {
-    session.endSession();
+    // Cleanly close the session
+    await session.endSession();
   }
 };
 
+/**
+ * Update Reward Image only (Migrated to AWS S3)
+ */
 const updateRewardImage = async (
   rewardId: string,
   imageFile: Express.Multer.File
 ): Promise<IRewardDocument> => {
+  // 1. Check if reward exists
   const reward = await Reward.findById(rewardId);
   if (!reward) {
     throw new AppError(httpStatus.NOT_FOUND, REWARD_MESSAGES.NOT_FOUND);
   }
-  if (reward.image && reward.image.startsWith('/')) {
-    deleteFile(`public${reward.image}`);
+
+  // 2. Cleanup: Delete the old image from S3 if it exists
+  if (reward.image) {
+    const oldKey = getS3KeyFromUrl(reward.image);
+    if (oldKey) {
+      await deleteFromS3(oldKey).catch((err) =>
+        console.error('Failed to delete old reward image from S3:', err)
+      );
+    }
   }
-  reward.image = getFileUrl(imageFile);
+
+  const uploadResult = await uploadToS3({
+    buffer: imageFile.buffer,
+    key: `reward-${rewardId}-${Date.now()}`,
+    contentType: imageFile.mimetype,
+    folder: 'rewards',
+  });
+
+  // 4. Update the database with the new AWS S3 URL
+  reward.image = uploadResult.url;
   await reward.save();
+
+  // 5. Return the updated and populated document
   return reward.populate('business', 'name category coverImage');
 };
 
@@ -773,13 +808,24 @@ const deleteReward = async (rewardId: string): Promise<void> => {
   await reward.save();
 };
 
+/**
+ * Permanently delete reward record and its image from S3
+ */
 const archiveReward = async (rewardId: string): Promise<void> => {
   const reward = await Reward.findByIdAndDelete(rewardId);
+
   if (!reward) {
     throw new AppError(httpStatus.NOT_FOUND, REWARD_MESSAGES.NOT_FOUND);
   }
-  if (reward.image && reward.image.startsWith('/')) {
-    deleteFile(`public${reward.image}`);
+
+  if (reward.image) {
+    const s3Key = getS3KeyFromUrl(reward.image);
+
+    if (s3Key) {
+      await deleteFromS3(s3Key).catch((err) =>
+        console.error('Failed to delete archived reward image from S3:', err)
+      );
+    }
   }
 };
 
@@ -1020,8 +1066,6 @@ const getBusinessRewards = async (
   userId: string,
   query: Record<string, unknown>
 ) => {
-  console.log('Getting business rewards for user:', userId);
-
   const business = await Business.findOne({ auth: userId });
   if (!business)
     throw new AppError(httpStatus.NOT_FOUND, 'Business profile not found');
@@ -1338,7 +1382,6 @@ const getAdminRewardAnalytics = async () => {
 
 // Get Single Reward Details with Redeemtion and claimed:
 const getRewardDetailsForAdmin = async (rewardId: string) => {
-  console.log({ rewardId });
   const reward = await Reward.findById(rewardId).select(
     'name description inStoreRedemptionMethods  onlineRedemptionMethods image isActive status'
   );
