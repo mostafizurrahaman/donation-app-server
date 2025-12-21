@@ -2,6 +2,7 @@ import httpStatus from 'http-status';
 import jwt, { Secret, SignOptions } from 'jsonwebtoken';
 import config from '../config';
 import { AppError } from '../utils';
+import { TAuthStatus } from '../modules/Auth/auth.constant';
 
 type TTokenData = {
   id: string;
@@ -11,6 +12,7 @@ type TTokenData = {
   role: string;
   isProfile: boolean;
   isActive: boolean;
+  status: TAuthStatus;
 };
 
 export const createAccessToken = (payload: TTokenData): string => {

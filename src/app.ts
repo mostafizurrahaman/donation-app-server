@@ -63,6 +63,7 @@ app.use('/api/v1/webhook/donation', (req, res, next) => {
   });
 });
 
+// TODO: REMOVE LATER
 app.post('/api/v1/test-my-corn', async (req, res) => {
   await manualTriggerRoundUpProcessing();
 
@@ -73,23 +74,29 @@ app.post('/api/v1/test-my-corn', async (req, res) => {
     data: null,
   });
 });
-app.post('/api/v1/test-notification', auth(ROLE.ADMIN), async (req, res) => {
-  const userId = req.user._id.toString(); // Send it to yourself
 
-  // Call the dispatcher you built
-  await createNotification(
-    userId,
-    NOTIFICATION_TYPE.NEW_DONATION,
-    `Donation created successully`,
-    'test_id',
-    {
-      name: 'mostafizur rahaman',
-      email: 'test@gmail.com',
-    }
-  );
+// TODO: REMOVE LATER
+app.post(
+  '/api/v1/test-notification',
+  auth(ROLE.ADMIN, ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION),
+  async (req, res) => {
+    const userId = req.user._id.toString(); // Send it to yourself
 
-  res.json({ success: true, message: 'Notification triggered' });
-});
+    // Call the dispatcher you built
+    await createNotification(
+      userId,
+      NOTIFICATION_TYPE.NEW_DONATION,
+      `Donation created successully`,
+      'test_id',
+      {
+        name: 'mostafizur rahaman',
+        email: 'test@gmail.com',
+      }
+    );
+
+    res.json({ success: true, message: 'Notification triggered' });
+  }
+);
 
 // Add webhook routes after the raw body middleware
 app.use('/api/v1/webhook', webhookRoutes);

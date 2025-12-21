@@ -35,7 +35,11 @@ const onlineRedemptionMethodsSchema = z
 export const createRewardSchema = z.object({
   body: z
     .object({
-      businessId: z.string().min(1, 'Business ID is required'),
+      businessId: z
+        .string({
+          message: 'Business ID is reuired!',
+        })
+        .min(2, 'Business ID is required'),
       title: z
         .string()
         .min(1, 'Title is required')

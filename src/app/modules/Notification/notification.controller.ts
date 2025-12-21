@@ -29,7 +29,7 @@ const markAsSeen = asyncHandler(async (req: Request, res: Response) => {
 
 const getUnseenNotificationCount = asyncHandler(
   async (req: Request, res: Response) => {
-    const userId = req.params.id;
+    const userId = req.user?._id?.toString();
     const count = await notificationService.getAllUnseenNotificationCount(
       userId
     );

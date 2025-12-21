@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import httpStatus from 'http-status';
-import { AppError } from '../../utils';
+import { AppError, deleteFromS3, uploadToS3 } from '../../utils';
 import Organization from './organization.model';
 import Auth from '../Auth/auth.model';
 import { StripeService } from '../Stripe/stripe.service';
@@ -10,16 +10,13 @@ import {
 } from './organization.validation';
 import { ROLE, AUTH_STATUS } from '../Auth/auth.constant';
 import { IAuth } from '../Auth/auth.interface';
-import fs from 'fs';
 import { createAccessToken } from '../../lib';
-import {
-  searchableFields,
-  STRIPE_ACCOUNT_STATUS,
-} from './organization.constants';
+import { searchableFields } from './organization.constants';
 import QueryBuilder from '../../builders/QueryBuilder';
 import Cause from '../Causes/causes.model';
 import Donation from '../Donation/donation.model';
 import { StripeAccount } from '../OrganizationAccount/stripe-account.model';
+import { getS3KeyFromUrl } from '../../utils/s3.utils';
 
 /**
  * Start Stripe Connect onboarding for an organization
@@ -208,54 +205,59 @@ const refreshStripeConnectOnboarding = async (
   return { onboardingUrl };
 };
 
-const deleteOldImage = async (imagePath: string | undefined) => {
-  if (imagePath) {
-    try {
-      await fs.promises.unlink(imagePath);
-    } catch (error: unknown) {
-      // eslint-disable-next-line no-console
-      console.error('Error deleting old file:', error);
-    }
-  }
-};
-
 export const updateOrganizationImage = async (
   user: IAuth,
   file: Express.Multer.File | undefined,
   imageField: 'coverImage' | 'logoImage'
 ) => {
-  if (!file?.path) {
+  // 1. Validation: Since we use memoryStorage, check for the file object
+  if (!file) {
     throw new AppError(httpStatus.BAD_REQUEST, 'File is required!');
   }
 
-  // Find the organization
+  // 2. Find the organization
   const organization = await Organization.findOne({ auth: user?._id });
 
   if (!organization) {
-    await fs.promises.unlink(file?.path);
     throw new AppError(httpStatus.NOT_FOUND, 'Organization not found!');
   }
 
-  // Delete the old image if it exists
-  await deleteOldImage(organization?.[imageField]);
+  // 3. Cleanup: Delete the old image from S3 if it exists
+  const oldImageUrl = organization[imageField];
+  if (oldImageUrl) {
+    const oldKey = getS3KeyFromUrl(oldImageUrl);
+    if (oldKey) {
+      // Delete from S3 (fire and forget or await)
+      await deleteFromS3(oldKey).catch((err) =>
+        console.error('Failed to delete old organization image from S3:', err)
+      );
+    }
+  }
 
-  // Update the image field with the new file path
+  // 4. Upload new image to S3
+  const folderPath = `profiles/organizations`;
+  const fileName = `${user._id}-${Date.now()}`;
+
+  const uploadResult = await uploadToS3({
+    buffer: file.buffer,
+    key: fileName,
+    contentType: file.mimetype,
+    folder: folderPath,
+  });
+
   const updatedOrganization = await Organization.findOneAndUpdate(
     { auth: user?._id },
-    { [imageField]: file.path.replace(/\\/g, '/') }, // Ensure correct path format
+    { [imageField]: uploadResult.url },
     { new: true }
   ).select('name coverImage logoImage');
 
   if (!updatedOrganization) {
-    await fs.promises.unlink(file?.path); // Clean up if update fails
     throw new AppError(
       httpStatus.INTERNAL_SERVER_ERROR,
-      'Something went wrong!'
+      'Failed to update organization image in database'
     );
   }
 
-  // Prepare JWT payload with updated image
-  // Only return access token if coverImage is updated (since it's in JWT payload)
   if (imageField === 'coverImage') {
     const accessTokenPayload = {
       id: user?._id.toString(),
@@ -265,6 +267,7 @@ export const updateOrganizationImage = async (
       role: user?.role,
       isProfile: user?.isProfile,
       isActive: user?.isActive,
+      status: user?.status,
     };
 
     const accessToken = createAccessToken(accessTokenPayload);
@@ -272,7 +275,6 @@ export const updateOrganizationImage = async (
     return { accessToken, organization: updatedOrganization };
   }
 
-  // For logoImage, just return the updated organization
   return { organization: updatedOrganization };
 };
 

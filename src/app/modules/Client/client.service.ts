@@ -1,4 +1,4 @@
-import { AppError, deleteFile } from '../../utils';
+import { AppError } from '../../utils';
 import Donation from '../Donation/donation.model';
 import { RoundUpModel } from '../RoundUp/roundUp.model';
 import { RoundUpTransactionModel } from '../RoundUpTransaction/roundUpTransaction.model';
@@ -14,8 +14,12 @@ import {
 } from '../../lib/filter-helper';
 import Organization from '../Organization/organization.model';
 import { IScheduledDonation } from '../Donation/donation.interface';
-import { getFileUrl } from '../../lib/upload';
 import { IClient } from './client.interface';
+import {
+  deleteFromS3,
+  getS3KeyFromUrl,
+  uploadToS3,
+} from '../../utils/s3.utils';
 
 // 1. Roundup donation stats
 const getRoundupStats = async (userId: string) => {
@@ -712,22 +716,40 @@ const updateClientProfile = async (
   payload: Partial<IClient>,
   file?: Express.Multer.File
 ) => {
+  // 1. Find the existing client profile
   const client = await Client.findOne({ auth: userId });
 
   if (!client) {
-    if (file) deleteFile(file.path);
+    // Note: No need to delete local file here anymore because it's in memory buffer
     throw new AppError(httpStatus.NOT_FOUND, 'Client profile not found!');
   }
 
+  // 2. Handle Image Update if a file is provided
   if (file) {
     if (client.image && !client.image.includes('default')) {
-      deleteFile(`public${client.image}`);
+      const oldKey = getS3KeyFromUrl(client.image);
+      if (oldKey) {
+        // Fire and forget (delete in background)
+        deleteFromS3(oldKey).catch((err) =>
+          console.error('Failed to delete old client image from S3:', err)
+        );
+      }
     }
 
-    payload.image = getFileUrl(file);
+    // B. Upload new image buffer to S3
+    const fileName = `client-${userId}-${Date.now()}`;
+    const uploadResult = await uploadToS3({
+      buffer: file.buffer,
+      key: fileName,
+      contentType: file.mimetype,
+      folder: 'profiles/clients',
+    });
+
+    // C. Set the new S3 URL to the payload
+    payload.image = uploadResult.url;
   }
 
-  // Update Database
+  // 3. Update the Database
   const result = await Client.findOneAndUpdate(
     { auth: userId },
     { $set: payload },

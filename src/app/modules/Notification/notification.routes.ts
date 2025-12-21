@@ -18,7 +18,7 @@ router.patch(
 );
 
 router.get(
-  '/unseen-notification-count/:id',
+  '/unseen-notification-count',
   auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION, ROLE.ADMIN),
   notificationController.getUnseenNotificationCount
 );
