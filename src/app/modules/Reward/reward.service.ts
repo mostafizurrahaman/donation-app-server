@@ -258,6 +258,14 @@ const createReward = async (
     // 6. Auto-generate Unique RWD Prefix
     const autoPrefix = await generateUniqueRWDPrefix();
     rewardData.codePrefix = autoPrefix;
+    console.log({
+      ...rewardData,
+      business: businessId,
+      pointsCost: STATIC_POINTS_COST,
+      remainingCount: rewardData.redemptionLimit,
+      redeemedCount: 0,
+      isActive: true,
+    });
 
     // 7. Create the Reward Configuration
     const [reward] = await Reward.create(
@@ -351,6 +359,8 @@ const createReward = async (
     session.endSession();
   }
 };
+
+
 /**
  * Helper: Broadcast to all clients
  */

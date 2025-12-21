@@ -58,7 +58,6 @@ const verifyRedemptionSchema = z.object({
 // Get user claimed rewards schema
 const getUserClaimedRewardsSchema = z.object({
   query: z.object({
-    includeExpired: z.enum(['true', 'false']).optional(),
     status: z
       .enum([...REDEMPTION_STATUS_VALUES] as [string, ...string[]])
       .optional(),

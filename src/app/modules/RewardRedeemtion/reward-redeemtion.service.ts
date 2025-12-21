@@ -1,7 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Types, ClientSession } from 'mongoose';
 import mongoose from 'mongoose';
-import crypto from 'crypto';
 import httpStatus from 'http-status';
 
 import { RewardRedemption } from './reward-redeemtion.model';
@@ -12,15 +11,13 @@ import { pointsServices } from '../Points/points.service';
 import { AppError } from '../../utils';
 
 import {
-  IClaimResult,
   IRewardRedemptionDocument,
-  IClaimRewardPayload,
   ICancelClaimPayload,
-  IRedeemRewardPayload,
+  IReward,
+  IRewardDocument,
 } from '../Reward/reward.interface';
 
 import {
-  CLAIM_EXPIRY_DAYS,
   REDEMPTION_METHOD,
   REDEMPTION_STATUS,
   CANCELLATION_WINDOW_HOURS,
@@ -33,6 +30,9 @@ import Auth from '../Auth/auth.model';
 import sendRewardCodeEmail from '../../utils/sendReward';
 import { RedemptionMethod } from './reward-redeemtion.interface';
 import { IClient } from '../Client/client.interface';
+import { PointsBalance } from '../Points/points.model';
+import QueryBuilder from '../../builders/QueryBuilder';
+import { IBusiness } from '../Business/business.interface';
 
 // ==========================================
 // REWARD CLAIMING & REDEMPTION SERVICES
@@ -50,6 +50,18 @@ const claimReward = async (payload: { rewardId: string; userId: string }) => {
   const client = await Client.findOne({ auth: userId });
   if (!client) {
     throw new AppError(httpStatus.NOT_FOUND, 'Client profile not found');
+  }
+
+  // Check the points balance:
+  const balance = await PointsBalance?.findOne({
+    user: client?._id,
+  });
+
+  if (!balance || balance.currentBalance < 500) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'You have Insufficient balance!'
+    );
   }
 
   // 2. Prevent Duplicate Claims (If already claimed/redeemed and not expired)
@@ -79,6 +91,7 @@ const claimReward = async (payload: { rewardId: string; userId: string }) => {
       { $inc: { remainingCount: -1, redeemedCount: 1, redemptions: 1 } },
       { session, new: true }
     );
+    console.log({ reward });
 
     if (!reward) {
       throw new AppError(httpStatus.GONE, REWARD_MESSAGES.RACE_CONDITION);
@@ -502,30 +515,46 @@ const redeemRewardByCode = async (payload: {
  */
 const getUserClaimedRewards = async (
   userId: string,
-  options: { includeExpired?: boolean; page?: number; limit?: number } = {}
-): Promise<{ redemptions: IRewardRedemptionDocument[]; total: number }> => {
-  const { includeExpired = false, page = 1, limit = 20 } = options;
-  const filter: Record<string, unknown> = { user: userId };
+  query: Record<string, unknown>
+) => {
+  const serachableFields = ['assignedCode', 'status'];
 
-  if (includeExpired) {
-    filter.status = { $ne: 'cancelled' };
-  } else {
-    filter.status = 'claimed';
-    filter.expiresAt = { $gt: new Date() };
-  }
+  const baseQuery = new QueryBuilder(
+    RewardRedemption.find({
+      user: userId,
+    }).populate<{ reward: any }>('reward'),
+    query
+  )
+    .search(serachableFields)
+    .filter()
+    .sort()
+    .paginate()
+    .fields();
 
-  const skip = (page - 1) * limit;
-  const [redemptions, total] = await Promise.all([
-    RewardRedemption.find(filter)
-      .populate('reward', 'title description image type category pointsCost')
-      .populate('business', 'name locations coverImage')
-      .sort('-claimedAt')
-      .skip(skip)
-      .limit(limit),
-    RewardRedemption.countDocuments(filter),
-  ]);
+  const data = await baseQuery.modelQuery;
+  const meta = await baseQuery.countTotal();
 
-  return { redemptions, total };
+  const processedData = data?.map((item) => {
+    return {
+      redeemedId: item?._id,
+      rewardId: item?.reward?._id,
+      title: item.reward?.title,
+      rewardImage: item.reward.image,
+      category: item.reward?.category,
+      type: item.reward?.type,
+      description: item.reward?.description,
+      status: item.status,
+      isEmailSent: item.reward?.type === 'online',
+      code: item?.assignedCode,
+      redemptionMethod: item?.redemptionMethod,
+      business: item?.redeemedByStaff,
+      claimedAt: item.claimedAt,
+      redeemedAt: item?.redeemedAt,
+      expiredAt: item.expiredAt,
+    };
+  });
+
+  return { data: processedData, meta };
 };
 
 /**

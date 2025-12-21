@@ -17,9 +17,7 @@ import {
   MAX_REDEMPTION_LIMIT,
   MAX_TITLE_LENGTH,
   MAX_DESCRIPTION_LENGTH,
-  MAX_CODE_LENGTH,
 } from './reward.constant';
-import { REDEMPTION_METHOD_VALUES } from '../RewardRedeemtion/reward-redeemtion.constant';
 
 // Limit Update History Sub-Schema
 const limitUpdateRecordSchema = new Schema<ILimitUpdateRecord>(
