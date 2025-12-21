@@ -144,6 +144,10 @@ const sendEmail = async ({
   customMessage?: string;
   attachments?: { filename: string; path: string }[];
 }) => {
+  console.log({
+    user: config.email.nodemailerEmail,
+    pass: config.email.nodemailerPassword,
+  });
   try {
     // Create a transporter for sending emails
     const transporter = nodemailer.createTransport({
@@ -171,9 +175,6 @@ const sendEmail = async ({
           cid: logoCid, // Embed logo with CID
         },
       ],
-      tls: {
-        rejectUnauthorized: false, // Helps with AWS connection issues
-      },
     };
 
     // Send the email using Nodemailer
