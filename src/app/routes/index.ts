@@ -21,6 +21,7 @@ import { PayoutRoutes } from '../modules/Payout/payout.route';
 import { clientRoutes } from '../modules/Client/client.route';
 import { boardMemberRoutes } from '../modules/BoardMember/board-member.router';
 import { RewardRedemptionRoutes } from '../modules/RewardRedeemtion/reward-redeemtion.routes';
+import { notificationRoutes } from '../modules/Notification/notification.routes';
 
 const router = Router();
 
@@ -42,10 +43,10 @@ const moduleRoutes = [
     path: '/business',
     route: BusinessRoutes,
   },
-  // {
-  //   path: '/notification',
-  //   route: notificationRoutes,
-  // },
+  {
+    path: '/notification',
+    route: notificationRoutes,
+  },
 
   {
     path: '/donation',
