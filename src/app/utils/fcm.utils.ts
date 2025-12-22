@@ -11,8 +11,12 @@ export const sendPushNotification = async (
   data: Record<string, string> = {}
 ) => {
   try {
+    console.log({userId});
     // 1. Get all tokens for this user
     const userTokens = await FcmToken.find({ user: userId });
+
+    console.log(userTokens);
+
     if (userTokens.length === 0) return;
 
     const tokens = userTokens.map((t) => t.token);

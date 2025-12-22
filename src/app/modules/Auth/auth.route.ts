@@ -170,6 +170,7 @@ router.route('/organization-signup').post(
 
 router.patch(
   '/update-fcm',
+  auth(ROLE.CLIENT, ROLE.ORGANIZATION, ROLE.BUSINESS, ROLE.ADMIN),
   validateRequest(AuthValidation.updateFcmToken),
   AuthController.updateFcmToken
 );

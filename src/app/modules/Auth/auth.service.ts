@@ -208,6 +208,27 @@ const verifySignupOtpIntoDB = async (email: string, otp: string) => {
   };
 };
 
+const updateFcmToken = async (
+  userId: string,
+  token: string,
+  deviceType: string
+) => {
+  const fcmToken = await FcmToken.findOneAndUpdate(
+    {
+      user: userId,
+      deviceType,
+    },
+    {
+      token,
+      deviceType,
+    },
+    {
+      new: true,
+      upsert: true,
+    }
+  );
+  return fcmToken;
+};
 // 4. signinIntoDB
 const signinIntoDB = async (payload: {
   email: string;
@@ -263,8 +284,8 @@ const signinIntoDB = async (payload: {
   }
 
   if (payload.fcmToken && payload.deviceType) {
-    await AuthService.updateFcmToken(
-      user.id,
+    const res = await AuthService.updateFcmToken(
+      user?._id?.toString(),
       payload.fcmToken,
       payload.deviceType
     );
@@ -1695,18 +1716,6 @@ const organizationSignupWithProfile = async (
       error?.message || 'Failed to create organization account!'
     );
   }
-};
-
-const updateFcmToken = async (
-  userId: string,
-  token: string,
-  deviceType: string
-) => {
-  return await FcmToken.findOneAndUpdate(
-    { token },
-    { user: userId, deviceType },
-    { upsert: true, new: true }
-  );
 };
 
 const setup2FA = async (userId: string) => {

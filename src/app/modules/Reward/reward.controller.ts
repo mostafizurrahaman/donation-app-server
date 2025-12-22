@@ -35,6 +35,20 @@ const createReward = asyncHandler(async (req: Request, res: Response) => {
   });
 });
 
+const createOnlineRewardController = async (req: Request, res: Response) => {
+  const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+  const imageFile = files['rewardImage']?.[0];
+  const codesFiles = files['codesFiles']; // Array of files
+
+  const result = await rewardService.createOnlineReward(
+    req.body,
+    imageFile,
+    codesFiles
+  );
+
+  res.status(201).json({ success: true, data: result });
+};
+
 /**
  * Update a reward
  */
@@ -380,4 +394,5 @@ export const RewardController = {
   toggleRewardStatus,
   getAdminRewardsAnalytics,
   getRewardDetailsForAdmin,
+  createOnlineRewardController,
 };

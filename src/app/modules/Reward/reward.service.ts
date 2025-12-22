@@ -258,14 +258,6 @@ const createReward = async (
     // 6. Auto-generate Unique RWD Prefix
     const autoPrefix = await generateUniqueRWDPrefix();
     rewardData.codePrefix = autoPrefix;
-    console.log({
-      ...rewardData,
-      business: businessId,
-      pointsCost: STATIC_POINTS_COST,
-      remainingCount: rewardData.redemptionLimit,
-      redeemedCount: 0,
-      isActive: true,
-    });
 
     // 7. Create the Reward Configuration
     const [reward] = await Reward.create(
@@ -360,6 +352,141 @@ const createReward = async (
   }
 };
 
+/**
+ * Create Online Reward Service
+ * Dynamically sets redemptionLimit based on the number of codes in the uploaded files.
+ */
+const createOnlineReward = async (
+  rewardData: Omit<ICreateRewardPayload, 'redemptionLimit'>, // Limit comes from file, not payload
+  imageFile?: Express.Multer.File,
+  codesFiles?: Express.Multer.File[]
+): Promise<IRewardDocument> => {
+  const businessId = new Types.ObjectId(rewardData.businessId as string);
+
+  // 1. Validate Business Existence
+  const business = await Business.findById(businessId);
+  if (!business) {
+    throw new AppError(
+      httpStatus.NOT_FOUND,
+      REWARD_MESSAGES.BUSINESS_NOT_FOUND
+    );
+  }
+
+  // 2. Validate Reward Title Uniqueness
+  const existingReward = await Reward.findOne({
+    business: businessId,
+    title: rewardData.title,
+  });
+  if (existingReward) {
+    throw new AppError(httpStatus.CONFLICT, REWARD_MESSAGES.ALREADY_EXISTS);
+  }
+
+  // 3. Ensure Code Files are provided
+  if (!codesFiles || codesFiles.length === 0) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'You must upload a CSV/Excel file containing the reward codes.'
+    );
+  }
+
+  // 4. Parse Codes First to determine the limit
+  const { codes: parsedCodes } = await parseCodesFiles(codesFiles);
+  console.log({ parsedCodes });
+
+  if (!parsedCodes || parsedCodes.length === 0) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'The uploaded files contain no valid codes.'
+    );
+  }
+
+  // Calculate the limit from the file
+  const calculatedRedemptionLimit = parsedCodes.length ?? 0;
+  console.log({ calculatedRedemptionLimit });
+
+  // 5. Check for global code duplicates in Database
+  const rawCodeStrings = parsedCodes.map((c) => c.code);
+  const duplicateInDb = await RewardCode.findOne({
+    code: { $in: rawCodeStrings },
+  });
+
+  if (duplicateInDb) {
+    throw new AppError(
+      httpStatus.CONFLICT,
+      `One or more codes (e.g., ${duplicateInDb.code}) are already in use in another reward.`
+    );
+  }
+
+  // 6. Handle Image Upload to S3
+  let uploadedImageUrl = '';
+  if (imageFile) {
+    const uploadResult = await uploadToS3({
+      buffer: imageFile.buffer,
+      key: `reward-online-${Date.now()}`,
+      contentType: imageFile.mimetype,
+      folder: 'rewards',
+    });
+    uploadedImageUrl = uploadResult.url;
+  }
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    // 7. Auto-generate Unique RWD Prefix
+    const autoPrefix = await generateUniqueRWDPrefix();
+
+    // 8. Create the Reward Configuration
+    // We use the calculatedRedemptionLimit here
+    const [reward] = await Reward.create(
+      [
+        {
+          ...rewardData,
+          type: 'online',
+          image: uploadedImageUrl,
+          codePrefix: autoPrefix,
+          redemptionLimit: calculatedRedemptionLimit, // From file count
+          remainingCount: calculatedRedemptionLimit, // Same as limit initially
+          redeemedCount: 0,
+          pointsCost: STATIC_POINTS_COST,
+          isActive: true,
+        },
+      ],
+      { session }
+    );
+
+    // 9. Prepare and Bulk Insert Reward Codes
+    const codesToInsert = parsedCodes.map((c) => ({
+      reward: reward._id,
+      business: reward.business,
+      code: c.code,
+      isGiftCard: c.isGiftCard,
+      isDiscountCode: c.isDiscountCode,
+      isUsed: false,
+    }));
+
+    await RewardCode.insertMany(codesToInsert, { session });
+
+    await session.commitTransaction();
+
+    // 10. Broadcast notification
+    broadcastNewReward(reward);
+
+    return reward;
+  } catch (error: any) {
+    await session.abortTransaction();
+
+    // Cleanup S3 if DB transaction fails
+    if (uploadedImageUrl) {
+      const key = getS3KeyFromUrl(uploadedImageUrl);
+      if (key) await deleteFromS3(key).catch(() => null);
+    }
+
+    throw error;
+  } finally {
+    session.endSession();
+  }
+};
 
 /**
  * Helper: Broadcast to all clients
@@ -1445,4 +1572,5 @@ export const rewardService = {
   toggleRewardStatus,
   getAdminRewardAnalytics,
   getRewardDetailsForAdmin,
+  createOnlineReward,
 };

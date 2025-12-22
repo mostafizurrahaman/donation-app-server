@@ -30,6 +30,10 @@ const notificationSchema = new Schema<INotification>(
       type: String,
       default: null,
     },
+    meta: {
+      type: Schema.Types.Mixed,
+      default: {},
+    },
   },
 
   { timestamps: true, versionKey: false }

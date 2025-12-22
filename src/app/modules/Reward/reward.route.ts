@@ -131,6 +131,17 @@ router.post(
   RewardController.createReward
 );
 
+router.post(
+  '/online',
+  auth(ROLE.BUSINESS, ROLE.ADMIN),
+  upload.fields([
+    { name: 'rewardImage', maxCount: 1 },
+    { name: 'codesFiles', maxCount: 10 },
+  ]),
+  validateRequestFromFormData(rewardValidation.createRewardSchema),
+  RewardController.createOnlineRewardController
+);
+
 router.patch(
   '/:id/status',
   auth(ROLE.BUSINESS, ROLE.ADMIN),

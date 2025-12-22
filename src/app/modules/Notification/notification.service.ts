@@ -89,13 +89,16 @@ const createNotification = async (
         message,
         title,
         redirectId: relatedId,
+        meta: {
+          ...data,
+        },
       },
     ],
     { session }
   );
 
   // 2. Trigger Push (Fire and forget)
- await sendPushNotification(receiverId, title, message, {
+  await sendPushNotification(receiverId, title, message, {
     ...data,
     type,
     redirectId: relatedId || '',

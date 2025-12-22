@@ -11,12 +11,14 @@ export const NOTIFICATION_TYPE = {
   BADGE_UNLOCKED: 'badge_unlocked', // Trigger: Badge Logic
   REWARD_CLAIMED: 'reward_claimed', // Trigger: Point deduction
   CLAIM_EXPIRING: 'claim_expiring', // Trigger: 5-min maintenance job
+  REPLY_MESSAGE: 'reply_message',
 
   // --- ORGANIZATION (CHARITY) ---
   NEW_DONATION: 'new_donation_received', // Trigger: PaymentIntent Succeeded
   PAYOUT_COMPLETED: 'payout_completed', // Trigger: Payout Job / Webhook
   PAYOUT_FAILED: 'payout_failed', // Trigger: Payout Job / Webhook
   STRIPE_RESTRICTED: 'stripe_restricted', // Trigger: account.updated webhook (KYC due)
+  NEW_MESSAGE: 'new_message',
 
   // --- BUSINESS (REWARD PARTNER) ---
   REWARD_REDEEMED: 'reward_redeemed', // Trigger: Customer scanned QR
