@@ -173,4 +173,34 @@ router.patch(
   validateRequest(AuthValidation.updateFcmToken),
   AuthController.updateFcmToken
 );
+
+router.post(
+  '/2fa/setup',
+  auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION, ROLE.ADMIN),
+  AuthController.setup2FA
+);
+
+// Verify and Enable 2FA (The first verification to turn it on)
+router.post(
+  '/2fa/enable',
+  auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION, ROLE.ADMIN),
+  validateRequest(AuthValidation.verifyAndEnable2FASchema),
+  AuthController.verifyAndEnable2FA
+);
+
+// Finalize Login for users who have 2FA enabled (Public route)
+router.post(
+  '/2fa/verify-login',
+  validateRequest(AuthValidation.verify2FALoginSchema),
+  AuthController.verify2FALogin
+);
+
+// Disable 2FA (Requires token verification)
+router.post(
+  '/2fa/disable',
+  validateRequest(AuthValidation.disabled2FASchema),
+  auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION, ROLE.ADMIN),
+  AuthController.disable2FA
+);
+
 export const AuthRoutes = router;

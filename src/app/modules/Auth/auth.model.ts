@@ -42,6 +42,19 @@ const authSchema = new Schema<IAuth, IAuthModel>(
       default: false,
     },
 
+    twoFactorSecret: {
+      type: String,
+      select: 0,
+    },
+    isTwoFactorEnabled: {
+      type: Boolean,
+      default: false,
+    },
+    twoFactorBackupCodes: {
+      type: [String],
+      select: 0,
+    },
+
     role: {
       type: String,
       enum: Object.values(ROLE),

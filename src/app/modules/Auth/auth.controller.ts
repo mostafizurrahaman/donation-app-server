@@ -263,6 +263,51 @@ const updateFcmToken = asyncHandler(async (req, res) => {
   });
 });
 
+const setup2FA = asyncHandler(async (req, res) => {
+  const result = await AuthService.setup2FA(req.user._id.toString());
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: '2FA setup initiated. Scan the QR code.',
+    data: result,
+  });
+});
+
+const verifyAndEnable2FA = asyncHandler(async (req, res) => {
+  const result = await AuthService.verifyAndEnable2FA(
+    req.user._id.toString(),
+    req.body.token
+  );
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: '2FA enabled successfully!',
+    data: result,
+  });
+});
+
+const verify2FALogin = asyncHandler(async (req, res) => {
+  const result = await AuthService.verify2FALogin(
+    req.body.email,
+    req.body.token
+  );
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Login successful!',
+    data: result,
+  });
+});
+
+const disable2FA = asyncHandler(async (req, res) => {
+  const result = await AuthService.disable2FA(
+    req.user._id.toString(),
+    req.body.token
+  );
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: '2FA disabled successfully!',
+    data: result,
+  });
+});
+
 export const AuthController = {
   createAuth,
   sendSignupOtpAgain,
@@ -283,4 +328,8 @@ export const AuthController = {
   businessSignupWithProfile,
   organizationSignupWithProfile,
   updateFcmToken,
+  setup2FA,
+  verifyAndEnable2FA,
+  verify2FALogin,
+  disable2FA,
 };

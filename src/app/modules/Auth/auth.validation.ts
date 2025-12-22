@@ -600,6 +600,32 @@ const updateFcmToken = z.object({
   }),
 });
 
+const setup2FASchema = z.object({
+  body: z.object({}),
+});
+
+const verifyAndEnable2FASchema = z.object({
+  body: z.object({
+    token: z.string().min(6).max(6),
+  }),
+});
+
+const verify2FALoginSchema = z.object({
+  body: z.object({
+    email: z
+      .string({
+        message: 'Email is required',
+      })
+      .email({ message: 'Provide an valid email!' }),
+    token: z.string().min(6).max(6),
+  }),
+});
+const disabled2FASchema = z.object({
+  body: z.object({
+    token: z.string().min(6).max(6),
+  }),
+});
+
 export type TProfilePayload = z.infer<typeof createProfileSchema.shape.body>;
 
 export const AuthValidation = {
@@ -619,4 +645,9 @@ export const AuthValidation = {
   businessSignupWithProfileSchema,
   organizationSignupWithProfileSchema,
   updateFcmToken,
+
+  setup2FASchema,
+  verifyAndEnable2FASchema,
+  verify2FALoginSchema,
+  disabled2FASchema,
 };

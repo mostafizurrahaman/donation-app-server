@@ -25,7 +25,9 @@ import { BoardMemberStatus } from '../BoardMember/board-member.constant';
 import { BoardMemeber } from '../BoardMember/board-member.model';
 import { FcmToken } from '../FcmToken/fcmToken.model';
 import SuperAdmin from '../superAdmin/superAdmin.model';
-
+import speakeasy from 'speakeasy';
+import QRCode from 'qrcode';
+import crypto from 'crypto';
 const OTP_EXPIRY_MINUTES =
   Number.parseInt(config.jwt.otpSecretExpiresIn as string, 10) || 5;
 
@@ -214,7 +216,9 @@ const signinIntoDB = async (payload: {
   deviceType: string;
 }) => {
   // const user = await Auth.findOne({ email: payload.email }).select('+password');
-  const user = await Auth.isUserExistsByEmail(payload.email);
+  const user = await Auth.findOne({ email: payload.email }).select(
+    '+password +twoFactorSecret'
+  );
 
   if (!user) {
     throw new AppError(httpStatus.NOT_FOUND, 'User does not exist!');
@@ -266,6 +270,14 @@ const signinIntoDB = async (payload: {
     );
   }
 
+  if (user.isTwoFactorEnabled) {
+    return {
+      twoFactorRequired: true,
+      email: user.email,
+      message: 'Please enter your 2FA code to continue',
+    };
+  }
+
   // Prepare user data for token generation
   const accessTokenPayload = {
     id: user._id.toString(),
@@ -289,6 +301,7 @@ const signinIntoDB = async (payload: {
   return {
     accessToken,
     refreshToken,
+    twoFactorRequired: false,
   };
 };
 
@@ -1696,6 +1709,109 @@ const updateFcmToken = async (
   );
 };
 
+const setup2FA = async (userId: string) => {
+  const user = await Auth.findById(userId);
+  if (!user) throw new AppError(httpStatus.NOT_FOUND, 'User not found');
+
+  const secret = speakeasy.generateSecret({
+    name: `CrescentChange:${user.email}`,
+  });
+
+  // Store secret temporarily (don't enable yet)
+  user.twoFactorSecret = secret.base32;
+  await user.save();
+
+  const qrCodeUrl = await QRCode.toDataURL(secret.otpauth_url!);
+
+  return {
+    qrCodeUrl,
+    secret: secret.base32,
+  };
+};
+
+const verifyAndEnable2FA = async (userId: string, token: string) => {
+  const user = await Auth.findById(userId).select('+twoFactorSecret');
+  if (!user || !user.twoFactorSecret) {
+    throw new AppError(httpStatus.BAD_REQUEST, '2FA setup not initiated');
+  }
+
+  const verified = speakeasy.totp.verify({
+    secret: user.twoFactorSecret,
+    encoding: 'base32',
+    token,
+  });
+
+  if (!verified) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'Invalid 2FA token');
+  }
+
+  user.isTwoFactorEnabled = true;
+  // Generate backup codes
+  const backupCodes = Array.from({ length: 5 }, () => {
+    return crypto.randomBytes(4).toString('hex').toUpperCase();
+  });
+  user.twoFactorBackupCodes = backupCodes;
+
+  await user.save();
+
+  return { backupCodes };
+};
+
+const verify2FALogin = async (email: string, token: string) => {
+  const user = await Auth.findOne({ email }).select('+twoFactorSecret');
+  if (!user || !user.twoFactorSecret) {
+    throw new AppError(httpStatus.UNAUTHORIZED, 'Authentication failed');
+  }
+
+  const verified = speakeasy.totp.verify({
+    secret: user.twoFactorSecret,
+    encoding: 'base32',
+    token,
+  });
+
+  if (!verified) {
+    throw new AppError(httpStatus.UNAUTHORIZED, 'Invalid 2FA token');
+  }
+
+  // Generate real tokens
+  const accessTokenPayload = {
+    id: user._id.toString(),
+    name: 'User',
+    image: defaultUserImage,
+    email: user.email,
+    role: user.role,
+    isProfile: user?.isProfile,
+    isActive: user?.isActive,
+    status: user.status,
+  };
+
+  return {
+    accessToken: createAccessToken(accessTokenPayload),
+    refreshToken: createRefreshToken({ email: user.email }),
+  };
+};
+
+const disable2FA = async (userId: string, token: string) => {
+  const user = await Auth.findById(userId).select('+twoFactorSecret');
+  if (!user) throw new AppError(httpStatus.NOT_FOUND, 'User not found');
+
+  const verified = speakeasy.totp.verify({
+    secret: user.twoFactorSecret!,
+    encoding: 'base32',
+    token,
+  });
+
+  if (!verified)
+    throw new AppError(httpStatus.BAD_REQUEST, 'Invalid 2FA token');
+
+  user.isTwoFactorEnabled = false;
+  user.twoFactorSecret = undefined;
+  user.twoFactorBackupCodes = [];
+  await user.save();
+
+  return { success: true };
+};
+
 export const AuthService = {
   createAuthIntoDB,
   sendSignupOtpAgain,
@@ -1716,4 +1832,8 @@ export const AuthService = {
   businessSignupWithProfile,
   organizationSignupWithProfile,
   updateFcmToken,
+  setup2FA,
+  disable2FA,
+  verify2FALogin,
+  verifyAndEnable2FA,
 };

@@ -12,6 +12,10 @@ export interface IAuth extends Document {
   otpExpiry: Date;
   isVerifiedByOTP: boolean;
 
+  twoFactorSecret?: string;
+  isTwoFactorEnabled: boolean;
+  twoFactorBackupCodes: string[];
+
   isProfile: boolean;
 
   role: TRole;

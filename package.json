@@ -61,6 +61,7 @@
     "pdfkit": "^0.17.2",
     "plaid": "^21.0.0",
     "qrcode": "^1.5.4",
+    "speakeasy": "^2.0.0",
     "stripe": "^20.1.0",
     "zod": "^4.1.12"
   },
@@ -77,6 +78,7 @@
     "@types/nodemailer": "^7.0.4",
     "@types/otp-generator": "^4.0.2",
     "@types/pdfkit": "^0.17.3",
+    "@types/speakeasy": "^2.0.10",
     "eslint": "^9.38.0",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^16.4.0",
