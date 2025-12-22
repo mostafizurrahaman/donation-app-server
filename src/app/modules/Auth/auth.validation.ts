@@ -592,11 +592,13 @@ const businessSignupWithProfileSchema = z.object({
 });
 
 const updateFcmToken = z.object({
-  fcmToken: z.string({
-    error: 'fcmToken is required!',
-  }),
-  deviceType: z.enum(['android', 'ios', 'web'], {
-    error: 'Invalid deviceType! DeviceType should be android, ios or web!',
+  body: z.object({
+    fcmToken: z.string({
+      error: 'fcmToken is required!',
+    }),
+    deviceType: z.enum(['android', 'ios', 'web'], {
+      error: 'Invalid deviceType! DeviceType should be android, ios or web!',
+    }),
   }),
 });
 

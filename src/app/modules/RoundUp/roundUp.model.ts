@@ -47,7 +47,6 @@ const RoundUpSchema = new Schema(
       index: true,
     },
 
-    // ✅ NEW: Fee preference
     coverFees: {
       type: Boolean,
       default: false, 

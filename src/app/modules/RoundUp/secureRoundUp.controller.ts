@@ -3,7 +3,7 @@ import { sendResponse } from '../../utils/ResponseHandler';
 import { catchAsync } from '../../errors';
 import { roundUpService } from './roundUp.service';
 import { manualTriggerRoundUpProcessing } from '../../jobs/roundUpTransactions.job';
-
+import httpStatus from 'http-status';
 // Controller functions that handle HTTP requests/responses and call service functions
 const savePlaidConsent = catchAsync(async (req: Request, res: Response) => {
   const userId = req.user.id;
@@ -46,6 +46,31 @@ const syncTransactions = catchAsync(async (req: Request, res: Response) => {
     success: result.success,
     message: result.message,
     data: result.data,
+  });
+});
+
+const updateRoundUp = catchAsync(async (req: Request, res: Response) => {
+  const userId = req.user.id;
+  const { id } = req.params;
+  const result = await roundUpService.updateRoundUp(userId, id, req.body);
+
+  return sendResponse(res, 200, {
+    success: true,
+    message: 'Round-up updated successfully',
+    data: result,
+  });
+});
+
+const cancelRoundUp = catchAsync(async (req: Request, res: Response) => {
+  const userId = req.user.id;
+  const { id } = req.params;
+  const { reason } = req.body;
+  const result = await roundUpService.cancelRoundUp(userId, id, reason);
+
+  return sendResponse(res, 200, {
+    success: true,
+    message: 'Round-up cancelled successfully',
+    data: result,
   });
 });
 
@@ -110,6 +135,18 @@ const getUserDashboard = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+const getActiveRoundup = catchAsync(async (req: Request, res: Response) => {
+  const userId = req.user._id;
+
+  const result = await roundUpService.getActiveRoundup(userId?.toString());
+
+  return sendResponse(res, httpStatus.OK, {
+    success: true,
+    message: 'Round config fetched successfully!',
+    data: result,
+  });
+});
+
 export const roundUpController = {
   savePlaidConsent,
   revokeConsent,
@@ -118,4 +155,7 @@ export const roundUpController = {
   resumeRoundUp,
   switchCharity,
   getUserDashboard,
+  updateRoundUp,
+  cancelRoundUp,
+  getActiveRoundup,
 };

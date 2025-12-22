@@ -1,4 +1,3 @@
-
 import { RoundUpModel } from './roundUp.model';
 
 import { OrganizationModel } from '../Organization/organization.model';
@@ -13,7 +12,12 @@ import { AppError } from '../../utils';
 import httpStatus from 'http-status';
 import Auth from '../Auth/auth.model';
 import PaymentMethod from '../PaymentMethod/paymentMethod.model';
-
+import Client from '../Client/client.model';
+import { AUTH_STATUS, ROLE } from '../Auth/auth.constant';
+import { IBankConnection } from '../BankConnection/bankConnection.interface';
+import { IPaymentMethod } from '../PaymentMethod/paymentMethod.interface';
+import { IORGANIZATION } from '../Organization/organization.interface';
+import { ICause } from '../Causes/causes.interface';
 
 const savePlaidConsent = async (
   userId: string,
@@ -437,6 +441,173 @@ const getUserDashboard = async (userId: string) => {
   };
 };
 
+const getActiveRoundup = async (userId: string) => {
+  const user = await Auth.findOne({
+    _id: userId,
+    isActive: true,
+    status: AUTH_STATUS.VERIFIED,
+    role: ROLE.CLIENT,
+  });
+
+  if (!user) {
+    throw new AppError(httpStatus.NOT_FOUND, 'User not found!');
+  }
+
+  const roundupConfig = await RoundUpModel.findOne({
+    isActive: true,
+    enabled: true,
+    status: {
+      $in: ['pending', 'processing'],
+    },
+  })
+    .populate<{ bankConnection: IBankConnection }>(
+      'bankConnection',
+      '_id accountId accountType institutionName isActive institutionId'
+    )
+    .populate<{ paymentMethod: IPaymentMethod }>(
+      'paymentMethod',
+      '_id stripePaymentMethodId cardBrand paymentMethod cardLast4 cardExpMonth cardExpYear'
+    )
+    .populate<{ organization: IORGANIZATION }>(
+      'organization',
+      'name registeredCharityName  logoImage coverImage'
+    )
+    .populate<{ cause: ICause }>('cause', 'name category status');
+
+  if (!roundupConfig) {
+    throw new AppError(httpStatus.NOT_FOUND, 'No Round Config exists');
+  }
+
+  return {
+    // Base fields
+    _id: roundupConfig._id,
+    user: roundupConfig.user,
+    coverFees: roundupConfig.coverFees,
+    monthlyThreshold: roundupConfig.monthlyThreshold,
+    specialMessage: roundupConfig.specialMessage,
+    status: roundupConfig.status,
+    isActive: roundupConfig.isActive,
+
+    // Organization
+    organizationId: roundupConfig.organization?._id,
+    organizationName: roundupConfig.organization?.name,
+    organizationLogo: roundupConfig.organization?.logoImage,
+    organizationCover: roundupConfig.organization?.coverImage,
+    registeredCharityName: roundupConfig.organization?.registeredCharityName,
+
+    // Cause
+    causeId: roundupConfig.cause?._id,
+    causeName: roundupConfig.cause?.name,
+    causeCategory: roundupConfig.cause?.category,
+    causeStatus: roundupConfig.cause?.status,
+
+    //  Bank
+    bankConnectionId: (roundupConfig.bankConnection as any)?._id,
+    bankAccountId: roundupConfig.bankConnection?.accountId,
+    bankAccountType: roundupConfig.bankConnection?.accountType,
+    institutionName: roundupConfig.bankConnection?.institutionName,
+    institutionId: roundupConfig.bankConnection?.institutionId,
+    bankIsActive: roundupConfig.bankConnection?.isActive,
+
+    //  Payment
+    paymentMethodId: (roundupConfig.paymentMethod as any)?._id,
+    stripePaymentMethodId: roundupConfig.paymentMethod?.stripePaymentMethodId,
+    cardBrand: roundupConfig.paymentMethod?.cardBrand,
+    cardLast4: roundupConfig.paymentMethod?.cardLast4,
+    cardExpMonth: roundupConfig.paymentMethod?.cardExpMonth,
+    cardExpYear: roundupConfig.paymentMethod?.cardExpYear,
+  };
+};
+
+const updateRoundUp = async (
+  userId: string,
+  roundUpId: string,
+  payload: { monthlyThreshold?: number | 'no-limit'; specialMessage?: string }
+) => {
+  const roundUpConfig = await RoundUpModel.findOne({
+    _id: roundUpId,
+    user: userId,
+    isActive: true,
+  });
+
+  if (!roundUpConfig) {
+    throw new AppError(
+      httpStatus.NOT_FOUND,
+      'Round-up configuration not found'
+    );
+  }
+
+  // 1. Update Threshold with Validation
+  if (payload.monthlyThreshold !== undefined) {
+    if (
+      payload.monthlyThreshold !== 'no-limit' &&
+      payload.monthlyThreshold < roundUpConfig.currentMonthTotal
+    ) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        `New threshold ($${
+          payload.monthlyThreshold
+        }) cannot be less than the current accumulated amount ($${roundUpConfig.currentMonthTotal.toFixed(
+          2
+        )})`
+      );
+    }
+    roundUpConfig.monthlyThreshold = payload.monthlyThreshold;
+  }
+
+  // 2. Update Message
+  if (payload.specialMessage !== undefined) {
+    roundUpConfig.specialMessage = payload.specialMessage;
+  }
+
+  // 3. Replicate the logic of 'checkAndUpdateThresholdStatus' manually
+  // This updates the status in the local object WITHOUT calling the model's .save()
+  if (
+    roundUpConfig.monthlyThreshold !== 'no-limit' &&
+    typeof roundUpConfig.monthlyThreshold === 'number'
+  ) {
+    const isThresholdMet =
+      roundUpConfig.currentMonthTotal >= roundUpConfig.monthlyThreshold;
+
+    if (isThresholdMet && roundUpConfig.status === 'pending') {
+      roundUpConfig.status = 'processing';
+    }
+  }
+
+  // 4. Perform the ONLY save call
+  // This persists the Threshold, Message, AND Status change at once.
+  await roundUpConfig.save();
+
+  return roundUpConfig;
+};
+
+const cancelRoundUp = async (
+  userId: string,
+  roundUpId: string,
+  reason?: string
+) => {
+  const roundUpConfig = await RoundUpModel.findOne({
+    _id: roundUpId,
+    user: userId,
+    isActive: true,
+  });
+
+  if (!roundUpConfig) {
+    throw new AppError(
+      httpStatus.NOT_FOUND,
+      'Round-up configuration not found'
+    );
+  }
+
+  await roundUpConfig.cancelRoundUp(reason || 'Cancelled by user');
+
+  roundUpConfig.isActive = false;
+  roundUpConfig.enabled = false;
+  await roundUpConfig.save();
+
+  return { success: true };
+};
+
 export const roundUpService = {
   savePlaidConsent,
   revokeConsent,
@@ -444,4 +615,7 @@ export const roundUpService = {
   resumeRoundUp,
   switchCharity,
   getUserDashboard,
+  updateRoundUp,
+  cancelRoundUp,
+  getActiveRoundup,
 };

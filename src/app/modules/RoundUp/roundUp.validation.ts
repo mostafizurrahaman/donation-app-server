@@ -73,6 +73,28 @@ export const testRoundUpProcessingCronValidation = z.object({
   }),
 });
 
+export const updateRoundUpSchema = z.object({
+  params: z.object({
+    id: z.string().min(1, 'RoundUp ID is required'),
+  }),
+  body: z.object({
+    monthlyThreshold: monthlyThresholdSchema.optional(),
+    specialMessage: z
+      .string()
+      .max(250, 'Special message must not exceed 250 characters')
+      .optional(),
+  }),
+});
+
+export const cancelRoundUpSchema = z.object({
+  params: z.object({
+    id: z.string().min(1, 'RoundUp ID is required'),
+  }),
+  body: z.object({
+    reason: z.string().optional(),
+  }),
+});
+
 export type SavePlaidConsentInput = z.infer<
   typeof savePlaidConsentValidation
 >['body'];

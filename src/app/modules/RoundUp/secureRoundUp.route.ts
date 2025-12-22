@@ -9,6 +9,8 @@ import {
   bankConnectionIdParamValidation,
   resumeRoundUpValidation,
   testRoundUpProcessingCronValidation,
+  updateRoundUpSchema,
+  cancelRoundUpSchema,
 } from './roundUp.validation';
 import { roundUpController } from './secureRoundUp.controller';
 import { auth } from '../../middlewares';
@@ -60,7 +62,27 @@ router.post(
 // Get user dashboard
 router.get('/dashboard', auth(ROLE.CLIENT), roundUpController.getUserDashboard);
 
-// ADMIN ENDPOINTS (ADMIN role required)
+router.get(
+  '/get-by-user',
+  auth(ROLE.CLIENT),
+  roundUpController.getActiveRoundup
+);
+
+// Update specific fields (Amount/Message)
+router.patch(
+  '/:id',
+  auth(ROLE.CLIENT),
+  validateRequest(updateRoundUpSchema),
+  roundUpController.updateRoundUp
+);
+
+// Cancel the RoundUp
+router.post(
+  '/:id/cancel',
+  auth(ROLE.CLIENT),
+  validateRequest(cancelRoundUpSchema),
+  roundUpController.cancelRoundUp
+);
 
 // Manual test endpoint for RoundUp processing cron
 router.post(
