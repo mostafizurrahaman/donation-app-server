@@ -362,9 +362,9 @@ const createOnlineReward = async (
   codesFiles?: Express.Multer.File[]
 ): Promise<IRewardDocument> => {
   const businessId = new Types.ObjectId(rewardData.businessId as string);
-
   // 1. Validate Business Existence
   const business = await Business.findById(businessId);
+
   if (!business) {
     throw new AppError(
       httpStatus.NOT_FOUND,
@@ -374,7 +374,7 @@ const createOnlineReward = async (
 
   // 2. Validate Reward Title Uniqueness
   const existingReward = await Reward.findOne({
-    business: businessId,
+    business: business?._id,
     title: rewardData.title,
   });
   if (existingReward) {
@@ -391,7 +391,6 @@ const createOnlineReward = async (
 
   // 4. Parse Codes First to determine the limit
   const { codes: parsedCodes } = await parseCodesFiles(codesFiles);
-  console.log({ parsedCodes });
 
   if (!parsedCodes || parsedCodes.length === 0) {
     throw new AppError(
@@ -402,7 +401,6 @@ const createOnlineReward = async (
 
   // Calculate the limit from the file
   const calculatedRedemptionLimit = parsedCodes.length ?? 0;
-  console.log({ calculatedRedemptionLimit });
 
   // 5. Check for global code duplicates in Database
   const rawCodeStrings = parsedCodes.map((c) => c.code);
@@ -434,19 +432,19 @@ const createOnlineReward = async (
 
   try {
     // 7. Auto-generate Unique RWD Prefix
-    const autoPrefix = await generateUniqueRWDPrefix();
+    const autoPrefix: string = await generateUniqueRWDPrefix();
 
     // 8. Create the Reward Configuration
-    // We use the calculatedRedemptionLimit here
     const [reward] = await Reward.create(
       [
         {
           ...rewardData,
+          business: businessId,
           type: 'online',
           image: uploadedImageUrl,
           codePrefix: autoPrefix,
-          redemptionLimit: calculatedRedemptionLimit, // From file count
-          remainingCount: calculatedRedemptionLimit, // Same as limit initially
+          redemptionLimit: calculatedRedemptionLimit,
+          remainingCount: calculatedRedemptionLimit,
           redeemedCount: 0,
           pointsCost: STATIC_POINTS_COST,
           isActive: true,
@@ -458,7 +456,7 @@ const createOnlineReward = async (
     // 9. Prepare and Bulk Insert Reward Codes
     const codesToInsert = parsedCodes.map((c) => ({
       reward: reward._id,
-      business: reward.business,
+      business: business?._id,
       code: c.code,
       isGiftCard: c.isGiftCard,
       isDiscountCode: c.isDiscountCode,

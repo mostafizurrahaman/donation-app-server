@@ -169,5 +169,4 @@ const config: IConfig = {
   },
 };
 
-console.log(config.firebase);
 export default config;
