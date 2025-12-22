@@ -342,6 +342,16 @@ const createProfileSchema = z.object({
           });
         }
       }
+
+      if (data.role === ROLE.ADMIN) {
+        if (!data.name) {
+          ctx.addIssue({
+            path: ['name'],
+            code: z.ZodIssueCode.custom,
+            message: 'Name is required!',
+          });
+        }
+      }
     }),
 });
 

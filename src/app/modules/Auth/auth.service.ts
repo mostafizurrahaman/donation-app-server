@@ -24,6 +24,7 @@ import jwt, { JwtPayload, SignOptions } from 'jsonwebtoken';
 import { BoardMemberStatus } from '../BoardMember/board-member.constant';
 import { BoardMemeber } from '../BoardMember/board-member.model';
 import { FcmToken } from '../FcmToken/fcmToken.model';
+import SuperAdmin from '../superAdmin/superAdmin.model';
 
 const OTP_EXPIRY_MINUTES =
   Number.parseInt(config.jwt.otpSecretExpiresIn as string, 10) || 5;
@@ -332,6 +333,7 @@ const createProfileIntoDB = async (
   } = payload;
 
   // Start a MongoDB session for transaction
+  console.log(payload);
   const session = await startSession();
 
   try {
@@ -517,6 +519,54 @@ const createProfileIntoDB = async (
           id: user._id.toString(),
           name: organization.name,
           image: organization.coverImage || '',
+          email: user.email,
+          role: user.role,
+          isProfile: true,
+          isActive: user.isActive,
+          status: user.status,
+        }),
+      };
+    } else if (role === ROLE.ADMIN) {
+      const isExistAdmin = await SuperAdmin.findOne({ auth: user._id });
+
+      if (isExistAdmin)
+        throw new AppError(httpStatus.BAD_REQUEST, 'Profile already exists');
+
+      let imageUrl = null;
+      if (files?.adminImage?.[0]) {
+        // Adjust field name in upload.fields if necessary
+        const upload = await uploadToS3({
+          buffer: files.adminImage[0].buffer,
+          key: `admin-${user._id}-${Date.now()}`,
+          contentType: files.adminImage[0].mimetype,
+          folder: 'profiles/super-admins',
+        });
+        imageUrl = upload.url;
+      }
+
+      const [adminProfile] = await SuperAdmin.create(
+        [
+          {
+            auth: user._id,
+            name,
+            address,
+            phoneNumber,
+            state,
+            profileImage: imageUrl,
+          },
+        ],
+        { session }
+      );
+
+      await Auth.findByIdAndUpdate(user._id, { isProfile: true }, { session });
+      await session.commitTransaction();
+      await session.endSession();
+
+      return {
+        accessToken: createAccessToken({
+          id: user._id.toString(),
+          name: adminProfile.name,
+          image: adminProfile.profileImage || '',
           email: user.email,
           role: user.role,
           isProfile: true,
@@ -998,7 +1048,15 @@ const fetchProfileFromDB = async (user: IAuth) => {
 
     // return { ...organization?.toObject(), preference };
   } else if (user?.role === ROLE.ADMIN) {
-    return user;
+    const admin = await SuperAdmin.findOne({
+      auth: user._id,
+    }).populate([
+      {
+        path: 'auth',
+        select: 'email role isProfile',
+      },
+    ]);
+    return admin;
   }
 };
 
@@ -1615,7 +1673,6 @@ const organizationSignupWithProfile = async (
     await session.abortTransaction();
     await session.endSession();
 
-  
     if (error instanceof AppError) throw error;
     if (error.code === 11000)
       throw new AppError(httpStatus.BAD_REQUEST, 'Email already exists!');

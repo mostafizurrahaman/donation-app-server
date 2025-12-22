@@ -22,6 +22,7 @@ import { clientRoutes } from '../modules/Client/client.route';
 import { boardMemberRoutes } from '../modules/BoardMember/board-member.router';
 import { RewardRedemptionRoutes } from '../modules/RewardRedeemtion/reward-redeemtion.routes';
 import { notificationRoutes } from '../modules/Notification/notification.routes';
+import { SuperAdminRoutes } from '../modules/superAdmin/superAdmin.routes';
 
 const router = Router();
 
@@ -120,6 +121,10 @@ const moduleRoutes = [
   {
     path: '/payout',
     route: PayoutRoutes,
+  },
+  {
+    path: '/super-admin',
+    route: SuperAdminRoutes,
   },
 ];
 

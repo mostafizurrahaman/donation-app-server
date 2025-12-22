@@ -38,12 +38,13 @@ router
 
 // 5. createProfile
 router.route('/create-Profile').post(
-  auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION),
+  auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION, ROLE.ADMIN),
   upload.fields([
     { name: 'clientImage', maxCount: 1 },
     { name: 'businessImage', maxCount: 1 },
     { name: 'organizationImage', maxCount: 1 },
     { name: 'drivingLincenseURL', maxCount: 1 },
+    { name: 'adminImage', maxCount: 1 },
   ]),
   validateRequestFromFormData(AuthValidation.createProfileSchema),
   AuthController.createProfile
