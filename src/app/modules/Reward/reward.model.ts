@@ -301,15 +301,19 @@ rewardSchema.methods.returnCode = async function (code: string): Promise<void> {
 rewardSchema.methods.checkAvailability = function (): boolean {
   const now = new Date();
 
+  // 1. Check if the reward is manually disabled
   if (!this.isActive) return false;
-  if (this.startDate > now) return false;
-  if (this.expiryDate && this.expiryDate < now) return false;
-  if (this.remainingCount <= 0) return false;
 
-  if (this.type === 'online' && this.codes.length > 0) {
-    const availableCode = this.codes.find((code: IRewardCode) => !code.isUsed);
-    if (!availableCode) return false;
-  }
+  // 2. Check if the start date has been reached
+  if (this.startDate > now) return false;
+
+  // 3. Check if the reward has expired
+  if (this.expiryDate && this.expiryDate < now) return false;
+
+  // 4. Check if there is stock remaining
+  // This replaces the need to check the separate 'RewardCode' collection
+  // because 'remainingCount' is the source of truth for available inventory.
+  if (this.remainingCount <= 0) return false;
 
   return true;
 };
