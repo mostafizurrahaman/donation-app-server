@@ -26,6 +26,8 @@ app.use(
       'http://localhost:3003',
       'http://localhost:5173',
       'http://localhost:5174',
+      'http://13.55.115.124:5173',
+      'http://13.55.115.124:5174',
       'https://crescent-dashboard-eta.vercel.app',
     ],
   })
