@@ -1042,7 +1042,7 @@ const fetchProfileFromDB = async (user: IAuth) => {
     const client = await Client.findOne({ auth: user._id }).populate([
       {
         path: 'auth',
-        select: 'email role isProfile',
+        select: 'email role isProfile isTwoFactorEnabled',
       },
     ]);
     // .lean();
@@ -1055,7 +1055,7 @@ const fetchProfileFromDB = async (user: IAuth) => {
     const business = await Business.findOne({ auth: user._id }).populate([
       {
         path: 'auth',
-        select: 'email role isProfile',
+        select: 'email role isProfile isTwoFactorEnabled',
       },
     ]);
     console.log({ business });
@@ -1074,7 +1074,7 @@ const fetchProfileFromDB = async (user: IAuth) => {
     }).populate([
       {
         path: 'auth',
-        select: 'email role isProfile',
+        select: 'email role isProfile isTwoFactorEnabled',
       },
     ]);
 
@@ -1087,7 +1087,7 @@ const fetchProfileFromDB = async (user: IAuth) => {
     }).populate([
       {
         path: 'auth',
-        select: 'email role isProfile',
+        select: 'email role isProfile isTwoFactorEnabled',
       },
     ]);
     return admin;
