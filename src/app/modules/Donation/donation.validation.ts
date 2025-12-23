@@ -103,7 +103,11 @@ const getOrganizationDonationsSchema = z.object({
       .optional(),
 
     donationType: z
-      .enum(['one-time', 'recurring', 'round-up', 'all'])
+      .enum(['one-time', 'recurring', 'round-up', 'roundup', 'all'])
+      .transform((val) => {
+        if (val === 'roundup') return 'round-up';
+        return val;
+      })
       .optional(),
   }),
 });

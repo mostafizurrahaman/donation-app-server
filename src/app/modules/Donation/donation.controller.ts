@@ -125,6 +125,10 @@ const getOrganizationDonations = asyncHandler(
     // Get query parameters
     const query = req.query as Record<string, unknown>;
 
+    if (query.donationType && query.donationType === 'roundup') {
+      query.donationType = 'round-up';
+    }
+
     const organization = await OrganizationModel.findById(organizationId);
 
     if (!organization) {
