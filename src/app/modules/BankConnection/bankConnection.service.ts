@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   PlaidApi,
   TransactionsGetRequest,
@@ -7,9 +9,6 @@ import {
   CountryCode,
   Products,
   DepositoryAccountSubtype,
-  SandboxItemFireWebhookRequest,
-  SandboxItemFireWebhookRequestWebhookCodeEnum,
-  WebhookType,
 } from 'plaid';
 import { BankConnectionModel } from './bankConnection.model';
 import {
@@ -26,6 +25,7 @@ import { RoundUpModel } from '../RoundUp/roundUp.model';
 import QueryBuilder from '../../builders/QueryBuilder';
 import { createNotification } from '../Notification/notification.service';
 import { NOTIFICATION_TYPE } from '../Notification/notification.constant';
+import { roundUpTransactionService } from '../RoundUpTransaction/roundUpTransaction.service';
 
 // Initialize Plaid client
 const plaidApi = plaidClient.client as PlaidApi;
@@ -172,7 +172,6 @@ async function exchangePublicTokenForAccessToken(
 }
 
 // Sync transactions using Plaid's recommended incremental sync
-// UPDATED FUNCTION
 async function syncTransactions(
   bankConnectionId: string,
   cursor?: string, // No longer required from frontend; used as a fallback for the first sync
@@ -382,7 +381,7 @@ async function handleWebhook(
               bankConnection?._id!.toString()
             );
             console.log(`✅ Bank disconnected notification sent!`);
-          } catch (error) {
+          } catch (error: any) {
             console.log(`✅ Bank disconnected notification show error!`);
           }
         }
@@ -547,6 +546,41 @@ async function hasActiveBankConnection(userId: string): Promise<boolean> {
   return !!connection;
 }
 
+const handleTransactionsWebhook = async (itemId: string) => {
+  // 1. Find the connection by Plaid Item ID
+  const connection = await BankConnectionModel.findOne({ itemId });
+  if (!connection) {
+    console.error(`Plaid Item ID ${itemId} not found in database.`);
+    return;
+  }
+
+  // 2. Fetch changes from Plaid using the cursor
+  // Note: This calls your existing sync logic which hits Plaid's /transactions/sync
+  const syncData = await syncTransactions(
+    connection.itemId,
+    connection.lastSyncCursor
+  );
+
+  // 3. Process ADDED transactions for Round-Ups
+  if (syncData.added && syncData.added.length > 0) {
+    await roundUpTransactionService.processTransactionsFromPlaid(
+      connection.user.toString(),
+      connection._id.toString(),
+      syncData.added
+    );
+  }
+
+  // 4. Update the cursor in the database so we don't fetch these again
+  connection.lastSyncCursor = syncData.nextCursor;
+  await connection.save();
+
+  return {
+    added: syncData.added.length,
+    removed: syncData.removed.length,
+    modified: syncData.modified.length,
+  };
+};
+
 export const bankConnectionServices = {
   generateLinkToken,
   exchangePublicTokenForAccessToken,
@@ -560,6 +594,7 @@ export const bankConnectionServices = {
   updateBankConnection,
   hasActiveBankConnection,
   getUserBankAccountsWithRoundUpStatus,
+  handleTransactionsWebhook,
 };
 
 export default bankConnectionServices;

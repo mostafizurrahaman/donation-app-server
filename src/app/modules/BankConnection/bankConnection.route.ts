@@ -1,19 +1,18 @@
 import { Router } from 'express';
 import { validateRequest } from '../../middlewares/validateRequest';
-import {
-  createBankConnectionValidation,
-  linkTokenRequestValidation,
-  syncTransactionsValidation,
-  updateBankConnectionValidation,
-} from './bankConnection.validation';
+import { updateBankConnectionValidation } from './bankConnection.validation';
 import { bankConnectionController } from './bankConnection.controller';
 import { auth } from '../../middlewares';
 import { ROLE } from '../Auth/auth.constant';
 
 const router = Router();
 
-// Plaid webhook (no auth required) - MUST be defined BEFORE auth middleware
-router.post('/webhook', bankConnectionController.handleWebhook);
+/**
+ * @route   POST /api/v1/bank-connection/plaid-webhook
+ * @desc    Public endpoint for Plaid to send transaction updates
+ * @access  Public (Plaid Servers Only)
+ */
+router.post('/plaid-webhook', bankConnectionController.plaidWebhookHandler);
 
 // Generate Plaid Link token
 router.post(
