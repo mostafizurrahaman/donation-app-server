@@ -17,6 +17,7 @@ import Cause from '../Causes/causes.model';
 import Donation from '../Donation/donation.model';
 import { StripeAccount } from '../OrganizationAccount/stripe-account.model';
 import { getS3KeyFromUrl } from '../../utils/s3.utils';
+import { CAUSE_STATUS_TYPE } from '../Causes/causes.constant';
 
 /**
  * Start Stripe Connect onboarding for an organization
@@ -569,6 +570,12 @@ const getOrganizationDetailsById = async (organizationId: string) => {
     },
   ]);
 
+  // supported causes:
+  const causes = await Cause.find({
+    organization: organization?._id,
+    status: CAUSE_STATUS_TYPE.VERIFIED,
+  }).select('name category status description');
+
   const organizationStats = organizationDonationStats[0];
 
   const totalDonation = organizationStats?.totalDonations?.[0]?.count || 0;
@@ -581,6 +588,7 @@ const getOrganizationDetailsById = async (organizationId: string) => {
     totalDonation,
     totalDonationAmount,
     recentDonors,
+    causes,
   };
 };
 
