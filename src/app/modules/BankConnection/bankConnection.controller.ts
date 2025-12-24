@@ -7,6 +7,7 @@ import { IPlaidLinkTokenRequest } from './bankConnection.interface';
 import { sendResponse } from '../../utils/ResponseHandler';
 import { catchAsync } from '../../errors';
 import { asyncHandler } from '../../utils';
+import { basiqService } from './basiq.service';
 
 // Generate Plaid Link token
 const generateLinkToken = catchAsync(async (req: Request, res: Response) => {
@@ -334,6 +335,25 @@ const plaidWebhookHandler = asyncHandler(
   }
 );
 
+const connectBasiqBankAccount = asyncHandler(async (req, res) => {
+  const userId = req.user._id.toString();
+
+  // 1. Ensure user exists in Basiq
+  const basiqUserId = await basiqService.getOrCreateBasiqUser(userId);
+
+  // 2. Generate the login URL
+  const authLink = await basiqService.generateBasiqAuthLink(basiqUserId);
+
+  // 3. Return to frontend
+  sendResponse(res, httpStatus.OK, {
+    success: true,
+    message: 'Basiq Auth Link generated successfully',
+    data: {
+      url: authLink, // Frontend will do: window.location.href = data.url
+    },
+  });
+});
+
 export const bankConnectionController = {
   generateLinkToken,
   createBankConnection,
@@ -345,4 +365,5 @@ export const bankConnectionController = {
   updateBankConnection,
   revokeConsent,
   plaidWebhookHandler,
+  connectBasiqBankAccount,
 };

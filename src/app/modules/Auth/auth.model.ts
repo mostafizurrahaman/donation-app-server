@@ -15,6 +15,11 @@ const authSchema = new Schema<IAuth, IAuthModel>(
       unique: [true, 'This email is already used!'],
       trim: true,
     },
+    basiqUserId: {
+      type: String,
+      required: true,
+      unique: true,
+    },
     password: {
       type: String,
       required: true,

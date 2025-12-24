@@ -89,7 +89,6 @@ router.post('/plaid/create', auth(ROLE.CLIENT), async (req, res) => {
         date_transacted: today,
         date_posted: today,
         iso_currency_code: 'CAD',
-        
       })),
     };
 
@@ -143,6 +142,13 @@ router.get(
   '/accounts',
   auth(ROLE.CLIENT),
   bankConnectionController.getUserBankAccounts
+);
+
+// Basiq connect:
+router.post(
+  '/connect-basiq',
+  auth(ROLE.CLIENT),
+  bankConnectionController.connectBasiqBankAccount
 );
 
 // Sync transactions

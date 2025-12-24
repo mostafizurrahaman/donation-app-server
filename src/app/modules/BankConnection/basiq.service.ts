@@ -22,6 +22,7 @@ export const getBasiqActionToken = async (): Promise<string> => {
 
     return data.access_token;
   } catch (error: any) {
+    console.log(error.data.data);
     console.error('BASIQ_TOKEN_ERROR:', error.res?.data || error.message);
     throw new Error('Failed to retrieve Basiq access token');
   }
@@ -55,7 +56,7 @@ export const getOrCreateBasiqUser = async (userId: string): Promise<string> => {
     throw new AppError(httpStatus.NOT_FOUND, 'User not found in system');
   }
 
-  const client = await Client.findOne({ uath: user?._id });
+  const client = await Client.findOne({ auth: user?._id });
 
   if (!client) {
     throw new AppError(
@@ -72,6 +73,8 @@ export const getOrCreateBasiqUser = async (userId: string): Promise<string> => {
   try {
     const basiq = await getBasiqClient();
 
+    console.log({ mobile: client.phoneNumber });
+
     const { data } = await basiq.createUser({
       email: user.email,
       businessName: client?.name,
@@ -81,7 +84,7 @@ export const getOrCreateBasiqUser = async (userId: string): Promise<string> => {
         addressLine1: client?.address || '',
       },
       mobile: client?.phoneNumber || '',
-      businessIdNo: client?._id?.toString(),
+      // businessIdNo: client?._id?.toString(),
     });
 
     const newBasiqUserId = data.id;
@@ -93,6 +96,7 @@ export const getOrCreateBasiqUser = async (userId: string): Promise<string> => {
 
     return newBasiqUserId;
   } catch (error: any) {
+    console.log(error.data.data);
     // Handle SDK specific errors
     const errorMessage = error.res?.data?.errors?.[0]?.detail || error.message;
     console.error('BASIQ_USER_CREATE_ERROR:', errorMessage);
@@ -102,4 +106,40 @@ export const getOrCreateBasiqUser = async (userId: string): Promise<string> => {
       `Basiq User Creation Failed: ${errorMessage}`
     );
   }
+};
+
+/**
+ * Generates a unique URL for the user to connect their bank.
+ * @param basiqUserId - The ID returned from createUser
+ * @returns The Auth Link URL
+ */
+export const generateBasiqAuthLink = async (
+  basiqUserId: string
+): Promise<string> => {
+  try {
+    const basiq = await getBasiqClient();
+
+    const { data } = await basiq.postAuthLink({
+      userId: basiqUserId,
+    });
+
+    return data.links?.public!;
+  } catch (error: any) {
+    console.log(error.data.data);
+    console.log(error.message);
+    const errorMessage = error.res?.data?.errors?.[0]?.detail || error.message;
+    console.error('BASIQ_AUTH_LINK_ERROR:', errorMessage);
+
+    throw new AppError(
+      httpStatus.INTERNAL_SERVER_ERROR,
+      `Failed to generate bank login link: ${errorMessage}`
+    );
+  }
+};
+
+export const basiqService = {
+  generateBasiqAuthLink,
+  getOrCreateBasiqUser,
+  getBasiqClient,
+  getBasiqActionToken,
 };
