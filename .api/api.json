@@ -1,0 +1,11 @@
+{
+  "version": "1.0",
+  "apis": [
+    {
+      "identifier": "basiq",
+      "source": "@basiq/v3.0#6q19815z0mfg5x64a",
+      "integrity": "sha512-NkV4ZI/7KhxORyd9p/RL5dNs+73wNCm9FOzwFQ2P73k/g/iEEnF/xfpRHydRoL+xF0uK8/ggKOI30MiH9u2lEw==",
+      "installerVersion": "6.1.3"
+    }
+  ]
+}

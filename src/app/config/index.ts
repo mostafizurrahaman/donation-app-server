@@ -160,6 +160,10 @@ const config: IConfig = {
     webhookKey: process.env.PLAID_WEBHOOK_KEY || '',
     redirectUri: process.env.PLAID_REDIRECT_URI!,
   },
+  basiq: {
+    apiKey: process.env.BASIQ_API_KEY || '',
+    baseUrl: process.env.BASIQ_BASE_URL || 'https://au-api.basiq.io',
+  },
   encryptionKey: process.env.ENCRYPTION_KEY || '',
   awsConfig: {
     region: process.env.AWS_REGION || 'us-east-1',

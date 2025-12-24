@@ -219,7 +219,7 @@ const getDonationById = async (donationId: string): Promise<IDonation> => {
   }
 
   const donation = await Donation.findById(donationId)
-    .populate('donor', '_id name auth address state postalCode image')
+    .populate('donor', '_id name auth address state postalCode image ')
     .populate('organization', 'name')
     .populate('cause', 'name description');
 

@@ -38,6 +38,7 @@
     "deploy": "yarn build && vercel && vercel --prod"
   },
   "dependencies": {
+    "@api/basiq": "file:.api/apis/basiq",
     "@aws-sdk/client-s3": "^3.937.0",
     "@aws-sdk/s3-request-presigner": "^3.937.0",
     "@types/qrcode": "^1.5.6",
