@@ -219,9 +219,10 @@ const getDonationById = async (donationId: string): Promise<IDonation> => {
   }
 
   const donation = await Donation.findById(donationId)
-    .populate('donor', '_id name auth address state postalCode image')
+    .populate('donor', '_id name auth address state postalCode image ')
     .populate('organization', 'name')
-    .populate('cause', 'name description');
+    .populate('cause', 'name description')
+    .populate('receiptId', '_id receiptNumber pdfKey pdfUrl');
 
   if (!donation) {
     throw new AppError(httpStatus.NOT_FOUND, 'Donation not found!');
@@ -576,7 +577,7 @@ const retryFailedPayment = async (
   );
 
   // Platform Fee = Platform Revenue + GST + Stripe Fee
-  const applicationFee = financials.platformFeeWithStripe
+  const applicationFee = financials.platformFeeWithStripe;
 
   // Create a new payment intent for retry (Destination Charge)
   const paymentIntent = await StripeService.createPaymentIntentWithMethod({
