@@ -26,6 +26,7 @@ import QueryBuilder from '../../builders/QueryBuilder';
 import { createNotification } from '../Notification/notification.service';
 import { NOTIFICATION_TYPE } from '../Notification/notification.constant';
 import { roundUpTransactionService } from '../RoundUpTransaction/roundUpTransaction.service';
+import config from '../../config';
 
 // Initialize Plaid client
 const plaidApi = plaidClient.client as PlaidApi;
@@ -44,7 +45,7 @@ async function generateLinkToken(
       products: [Products.Transactions],
       country_codes: [CountryCode.Us],
       language: 'en',
-      webhook: process.env.PLAID_WEBHOOK_URL,
+      webhook: config.plaid.webhookUrl,
       account_filters: {
         depository: {
           account_subtypes: [
@@ -124,6 +125,7 @@ async function exchangePublicTokenForAccessToken(
     const accountsResponse = await plaidApi.accountsGet({
       access_token: accessToken,
     });
+    console.log({ accessToken });
 
     // Find the selected account (would be passed from frontend)
     const selectedAccount = accountsResponse.data.accounts[0]; // Simplified, should match selected account_id
@@ -547,6 +549,9 @@ async function hasActiveBankConnection(userId: string): Promise<boolean> {
 }
 
 const handleTransactionsWebhook = async (itemId: string) => {
+  console.log({
+    itemId,
+  });
   // 1. Find the connection by Plaid Item ID
   const connection = await BankConnectionModel.findOne({ itemId });
   if (!connection) {
@@ -557,21 +562,24 @@ const handleTransactionsWebhook = async (itemId: string) => {
   // 2. Fetch changes from Plaid using the cursor
   // Note: This calls your existing sync logic which hits Plaid's /transactions/sync
   const syncData = await syncTransactions(
-    connection.itemId,
+    connection._id!.toString(),
     connection.lastSyncCursor
   );
+
+  console.log({ syncData });
 
   // 3. Process ADDED transactions for Round-Ups
   if (syncData.added && syncData.added.length > 0) {
     await roundUpTransactionService.processTransactionsFromPlaid(
       connection.user.toString(),
-      connection._id.toString(),
+      connection._id!.toString(),
       syncData.added
     );
   }
 
   // 4. Update the cursor in the database so we don't fetch these again
   connection.lastSyncCursor = syncData.nextCursor;
+  console.log({ lastCursor: connection.lastSyncCursor });
   await connection.save();
 
   return {

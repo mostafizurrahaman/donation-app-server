@@ -59,7 +59,7 @@
     "nodemailer": "^7.0.10",
     "otp-generator": "^4.0.1",
     "pdfkit": "^0.17.2",
-    "plaid": "^21.0.0",
+    "plaid": "^40.0.0",
     "qrcode": "^1.5.4",
     "speakeasy": "^2.0.0",
     "stripe": "^20.1.0",

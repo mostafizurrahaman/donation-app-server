@@ -284,6 +284,7 @@ const processTransactionsFromPlaid = async (
       bankConnection: bankConnectionId,
       isActive: true,
       enabled: true,
+      status: 'pending',
     });
 
     if (!roundUpConfig) {

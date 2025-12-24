@@ -49,7 +49,7 @@ const RoundUpSchema = new Schema(
 
     coverFees: {
       type: Boolean,
-      default: false, 
+      default: false,
     },
 
     monthlyThreshold: {
@@ -214,11 +214,11 @@ RoundUpSchema.methods.completeDonationCycle = async function (
   this.lastSuccessfulDonation = new Date();
   await this.save();
 
-  // Reset to pending for next cycle after a short delay
-  setTimeout(async () => {
-    this.status = 'pending';
-    await this.save();
-  }, 1000);
+  // // Reset to pending for next cycle after a short delay
+  // setTimeout(async () => {
+  //   this.status = 'pending';
+  //   await this.save();
+  // }, 1000);
 };
 
 // Method to cancel round-up (user initiated or bank connection lost)
