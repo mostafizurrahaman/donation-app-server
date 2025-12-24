@@ -117,6 +117,7 @@ const triggerDonation = async (
     if (!cause || cause.status !== CAUSE_STATUS_TYPE.VERIFIED) {
       throw new AppError(httpStatus.BAD_REQUEST, 'Cause not valid.');
     }
+    const idempotencyKey = `roundup_auto_${roundUpConfig._id}_${Date.now()}`;
 
     const donor = await Client.findOne({ auth: roundUpConfig.user });
     if (!donor?._id)
@@ -147,6 +148,7 @@ const triggerDonation = async (
       roundUpId: roundUpConfig._id,
       roundUpTransactionIds: pendingTransactions.map((t) => t._id),
       receiptGenerated: false,
+      idempotencyKey,
       metadata: {
         userId: String(roundUpConfig.user),
         roundUpId: String(roundUpConfig._id),
@@ -255,6 +257,7 @@ const triggerDonation = async (
       donationId: String(donation._id),
     };
   } catch (error) {
+    console.log({ error });
     // Final safety catch: revert config total
     roundUpConfig.currentMonthTotal = previousMonthTotal;
     await roundUpConfig.save();
