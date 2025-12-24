@@ -84,6 +84,10 @@ interface IConfig {
     secretAccessKey: string;
     s3BucketName: string;
   };
+  basiq: {
+    apiKey: string;
+    baseUrl: string;
+  };
 }
 
 const config: IConfig = {

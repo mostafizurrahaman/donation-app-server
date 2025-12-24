@@ -1,6 +1,7 @@
 import mongoose, { Schema, Document } from 'mongoose';
 import { IBankConnection } from './bankConnection.interface';
 import plaidService from './bankConnection.service';
+import { bankConnectiionProviderValues } from './bankConnection.constant';
 
 export interface IBankConnectionDocument extends IBankConnection, Document {}
 
@@ -10,6 +11,11 @@ const BankConnectionSchema = new Schema(
       type: Schema.Types.ObjectId,
       required: true,
       ref: 'Auth',
+    },
+    provider: {
+      type: String,
+      required: true,
+      enum: bankConnectiionProviderValues,
     },
     itemId: {
       type: String,

@@ -2,8 +2,10 @@ import { CountryCode, DepositoryAccountSubtype } from 'plaid';
 
 export interface IBankConnection {
   user: string;
-  itemId: string;
-  accessToken: string;
+
+  provider: 'plaid' | 'basiq'; // Add this to differentiate logic
+  itemId: string; // For Basiq, this will store the 'Connection ID'
+  accessToken?: string; // Only Plaid uses this
   accountId: string;
   accountName: string;
   accountType: string;
