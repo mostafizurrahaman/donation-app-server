@@ -23,6 +23,7 @@ import { boardMemberRoutes } from '../modules/BoardMember/board-member.router';
 import { RewardRedemptionRoutes } from '../modules/RewardRedeemtion/reward-redeemtion.routes';
 import { notificationRoutes } from '../modules/Notification/notification.routes';
 import { SuperAdminRoutes } from '../modules/superAdmin/superAdmin.routes';
+import { contentRouter } from '../modules/content/content.routes';
 
 const router = Router();
 
@@ -125,6 +126,10 @@ const moduleRoutes = [
   {
     path: '/super-admin',
     route: SuperAdminRoutes,
+  },
+  {
+    path: '/content',
+    route: contentRouter,
   },
 ];
 
