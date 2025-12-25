@@ -7,6 +7,7 @@ import app from './app';
 import config from './app/config';
 import seedAdmin from './app/seed';
 import { initializeJobs } from './app/jobs';
+import { ensureBasiqWebhookRegistered } from './app/modules/BankConnection/basiq.service';
 
 let server: Server | null = null;
 
@@ -20,12 +21,17 @@ async function bootstrap() {
     // Seed initial admin if not already present
     await seedAdmin();
 
+    // ensure Basiq webhook registered:
+    ensureBasiqWebhookRegistered(config.serverUrl);
+
     // Initialize background jobs (cron jobs)
     initializeJobs();
 
     // Start the HTTP server
     const port = config.port;
-    console.log(`Debug: Config port is ${port}, process.env.PORT is ${process.env.PORT}`);
+    console.log(
+      `Debug: Config port is ${port}, process.env.PORT is ${process.env.PORT}`
+    );
     server = http.createServer(app);
 
     server.listen(port, () => {

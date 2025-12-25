@@ -42,28 +42,24 @@ app.use(morgan('dev'));
 app.use('/public', express.static('public'));
 
 // Apply raw body middleware BEFORE body parsing for webhooks
-app.use('/api/v1/webhook/donation', (req, res, next) => {
-  let rawBody = '';
-
-  req.on('data', (chunk) => {
-    rawBody += chunk;
-  });
-
-  req.on('end', () => {
-    req.rawBody = rawBody;
-    // Parse JSON for processing but keep raw for signature verification
-    try {
-      req.body = JSON.parse(rawBody);
-    } catch (e) {
-      req.body = {};
-    }
-    next();
-  });
-
-  req.on('error', (err) => {
-    next(err);
-  });
-});
+app.use(
+  ['/api/v1/webhook/donation', '/api/v1/webhook/basiq'],
+  (req, res, next) => {
+    let rawBody = '';
+    req.on('data', (chunk) => {
+      rawBody += chunk;
+    });
+    req.on('end', () => {
+      req.rawBody = rawBody;
+      try {
+        req.body = JSON.parse(rawBody);
+      } catch (e) {
+        req.body = {};
+      }
+      next();
+    });
+  }
+);
 
 // TODO: REMOVE LATER
 app.post('/api/v1/test-my-corn', async (req, res) => {

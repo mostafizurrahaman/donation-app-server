@@ -11,6 +11,7 @@ interface IConfig {
   host: string;
   dbUrl: string;
   clientUrl: string;
+  serverUrl: string;
   paymentSetting: {
     platformFeePercent: number;
     gstPercentage: number;
@@ -96,6 +97,7 @@ const config: IConfig = {
   host: process.env.HOST || 'localhost',
   dbUrl: process.env.DB_URL || 'mongodb://localhost:27017/crescent_change',
   clientUrl: process.env.CLIENT_URL || 'http://localhost:3000',
+  serverUrl: process.env.SERVER_URL || '',
   paymentSetting: {
     platformFeePercent: Number(process.env.PLATFORM_FEE_PERCENTAGE), // 5%
     gstPercentage: Number(process.env.GST_PERCENTAGE), // 10% GST in Australia

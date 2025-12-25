@@ -15,6 +15,7 @@ import config from '../../config';
 import { decryptData, plaidClient } from '../../config/plaid';
 import { BankConnectionModel } from './bankConnection.model';
 import { AppError } from '../../utils';
+import { handleBasiqWebhook } from './basiq.webhook';
 
 const router = Router();
 
@@ -34,7 +35,7 @@ router.post('/plaid/test', auth(ROLE.CLIENT), async (req, res) => {
     throw new Error(`Bank connection not found!`);
   }
   const request: SandboxItemFireWebhookRequest = {
-    access_token: decryptData(bankConnection.accessToken),
+    access_token: decryptData(bankConnection.accessToken!),
     webhook_type: WebhookType.Transactions,
     webhook_code:
       SandboxItemFireWebhookRequestWebhookCodeEnum.SyncUpdatesAvailable,
@@ -64,7 +65,7 @@ router.post('/plaid/create', auth(ROLE.CLIENT), async (req, res) => {
 
     if (!bankConnection) return res.status(404).send('No connection found');
 
-    const accessToken = decryptData(bankConnection.accessToken);
+    const accessToken = decryptData(bankConnection.accessToken!);
     const today = '2025-12-24'; // Must be today or recent
 
     const transactionsData = [
@@ -150,6 +151,8 @@ router.post(
   auth(ROLE.CLIENT),
   bankConnectionController.connectBasiqBankAccount
 );
+
+router.post('/basiq-webhook', handleBasiqWebhook);
 
 // Sync transactions
 router.post(

@@ -186,7 +186,7 @@ async function syncTransactions(
       throw new Error('Bank connection not found or inactive');
     }
 
-    const accessToken = decryptData(bankConnection.accessToken);
+    const accessToken = decryptData(bankConnection.accessToken!);
 
     // Use the cursor stored in the database from the previous sync.
     // If no cursor exists, use undefined for first-time sync (not empty string)
@@ -259,7 +259,7 @@ async function getTransactions(
       throw new Error('Bank connection not found or inactive');
     }
 
-    const accessToken = decryptData(bankConnection.accessToken);
+    const accessToken = decryptData(bankConnection.accessToken!);
 
     const request: TransactionsGetRequest = {
       access_token: accessToken,

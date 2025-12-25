@@ -676,6 +676,19 @@ const updateReward = async (
     if (payload.expiryDate) reward.expiryDate = payload.expiryDate;
     if (payload.isActive !== undefined) reward.isActive = payload.isActive;
 
+    if (reward?.type === 'in-store' && payload?.inStoreRedemptionMethods) {
+      reward.inStoreRedemptionMethods = {
+        qrCode: payload?.inStoreRedemptionMethods.qrCode!,
+        nfcTap: payload?.inStoreRedemptionMethods.nfcTap!,
+        staticCode: payload?.inStoreRedemptionMethods.staticCode!,
+      };
+    }
+    if (reward?.type === 'online' && payload?.onlineRedemptionMethods) {
+      reward.onlineRedemptionMethods = {
+        giftCard: payload?.onlineRedemptionMethods.giftCard!,
+        discountCode: payload?.onlineRedemptionMethods.discountCode!,
+      };
+    }
     // 8. Finalize Save and Status
     await reward.save({ session });
     await reward.updateStatus();
