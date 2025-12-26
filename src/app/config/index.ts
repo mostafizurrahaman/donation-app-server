@@ -68,6 +68,10 @@ interface IConfig {
     onboardingRefreshUrl: string;
     onboardingReturnUrl: string;
     connectClientId: string;
+    orgMonthlyPriceId: string;
+    orgYearlyPriceId: string;
+    bizMonthlyPriceId: string;
+    bizYearlyPriceId: string;
   };
   plaid: {
     clientId: string;
@@ -151,6 +155,11 @@ const config: IConfig = {
     onboardingRefreshUrl: process.env.STRIPE_ONBOARDING_REFRESH_URL || '',
     onboardingReturnUrl: process.env.STRIPE_ONBOARDING_RETURN_URL || '',
     connectClientId: process.env.STRIPE_CONNECT_CLIENT_ID || '',
+    // price ids:
+    orgMonthlyPriceId: process.env.STRIPE_ORG_MONTHLY_PRICE_ID || '',
+    orgYearlyPriceId: process.env.STRIPE_ORG_YEARLY_PRICE_ID || '',
+    bizMonthlyPriceId: process.env.STRIPE_BIZ_MONTHLY_PRICE_ID || '',
+    bizYearlyPriceId: process.env.STRIPE_BIZ_YEARLY_PRICE_ID || '',
   },
   plaid: {
     clientId: process.env.PLAID_CLIENT_ID || '',

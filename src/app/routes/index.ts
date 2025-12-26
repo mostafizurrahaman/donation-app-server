@@ -24,6 +24,7 @@ import { RewardRedemptionRoutes } from '../modules/RewardRedeemtion/reward-redee
 import { notificationRoutes } from '../modules/Notification/notification.routes';
 import { SuperAdminRoutes } from '../modules/superAdmin/superAdmin.routes';
 import { contentRouter } from '../modules/content/content.routes';
+import { SubscriptionRoutes } from '../modules/Subscription/subscription.routes';
 
 const router = Router();
 
@@ -130,6 +131,10 @@ const moduleRoutes = [
   {
     path: '/content',
     route: contentRouter,
+  },
+  {
+    path: '/subscription',
+    route: SubscriptionRoutes,
   },
 ];
 

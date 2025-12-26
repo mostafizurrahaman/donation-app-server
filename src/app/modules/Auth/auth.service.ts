@@ -3,6 +3,7 @@ import fs from 'fs';
 import httpStatus from 'http-status';
 import { startSession } from 'mongoose';
 import config from '../../config';
+
 import {
   createAccessToken,
   createRefreshToken,
@@ -28,6 +29,13 @@ import SuperAdmin from '../superAdmin/superAdmin.model';
 import speakeasy from 'speakeasy';
 import QRCode from 'qrcode';
 import crypto from 'crypto';
+import { addMonths } from 'date-fns';
+import {
+  PLAN_TYPE,
+  SUBSCRIPTION_STATUS,
+} from '../Subscription/subscription.constant';
+import { Subscription } from '../Subscription/subscription.model';
+import { SubscriptionHistory } from '../subscriptionHistory/subscriptionHistory.model';
 const OTP_EXPIRY_MINUTES =
   Number.parseInt(config.jwt.otpSecretExpiresIn as string, 10) || 5;
 
@@ -1381,7 +1389,10 @@ const businessSignupWithProfile = async (
   }
 ) => {
   // Extract auth and business data
+
   const { email, password, ...businessData } = payload;
+
+  console.log({ payload, files });
 
   // Check if user already exists
   const existingUser = await Auth.isUserExistsByEmail(email);
@@ -1492,6 +1503,41 @@ const businessSignupWithProfile = async (
         'Welcome to our platform! Please verify your business account with this OTP.',
     });
 
+    if (ROLE.BUSINESS === newAuth.role) {
+      const trialEndDate = addMonths(new Date(), 6);
+
+      const [newSub] = await Subscription.create(
+        [
+          {
+            user: newAuth._id,
+            planType: PLAN_TYPE.TRIAL,
+            status: SUBSCRIPTION_STATUS.TRIALING,
+            currentPeriodStart: new Date(),
+            currentPeriodEnd: trialEndDate,
+          },
+        ],
+        { session }
+      );
+
+      await SubscriptionHistory.create(
+        [
+          {
+            user: newAuth._id,
+            subscription: newSub._id,
+            stripeInvoiceId: `TRAIL-${new Date().getTime()}-${crypto
+              .randomBytes(6)
+              .toString('hex')}`,
+            amount: 0,
+            status: 'succeeded',
+            billingReason: 'trial_start',
+            planType: 'trial',
+            transactionDate: new Date(),
+          },
+        ],
+        { session }
+      );
+    }
+
     // Commit transaction
     await session.commitTransaction();
     await session.endSession();
@@ -1508,6 +1554,7 @@ const businessSignupWithProfile = async (
       },
     };
   } catch (error: any) {
+    console.log(error);
     // Rollback transaction
     await session.abortTransaction();
     await session.endSession();
@@ -1691,6 +1738,40 @@ const organizationSignupWithProfile = async (
       customMessage:
         'Welcome! Please verify your organization account to proceed.',
     });
+
+    // 7. Database lable trail subscription for organization role
+    if (newAuth.role === ROLE.ORGANIZATION) {
+      const trialEndDate = addMonths(new Date(), 6);
+
+      const [newSub] = await Subscription.create(
+        [
+          {
+            user: newAuth._id,
+            planType: PLAN_TYPE.TRIAL,
+            status: SUBSCRIPTION_STATUS.TRIALING,
+            currentPeriodStart: new Date(),
+            currentPeriodEnd: trialEndDate,
+          },
+        ],
+        { session }
+      );
+
+      await SubscriptionHistory.create(
+        [
+          {
+            user: newAuth._id,
+            subscription: newSub._id,
+            stripeInvoiceId: 'trial_initiation',
+            amount: 0,
+            status: 'succeeded',
+            billingReason: 'trial_start',
+            planType: 'trial',
+            transactionDate: new Date(),
+          },
+        ],
+        { session }
+      );
+    }
 
     await session.commitTransaction();
     await session.endSession();

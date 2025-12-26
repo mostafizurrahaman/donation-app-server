@@ -26,6 +26,13 @@ import { NOTIFICATION_TYPE } from '../Notification/notification.constant';
 import { IORGANIZATION } from '../Organization/organization.interface';
 import { IClient } from '../Client/client.interface';
 import { ICause } from '../Causes/causes.interface';
+import { Subscription } from '../Subscription/subscription.model';
+import { SubscriptionHistory } from '../subscriptionHistory/subscriptionHistory.model';
+import {
+  PLAN_TYPE,
+  SUBSCRIPTION_STATUS,
+} from '../Subscription/subscription.constant';
+import { stripe } from '../../lib/stripeHelper';
 
 // ========================================
 // SCHEDULED DONATION: Success Handler
@@ -886,6 +893,135 @@ const handleAccountUpdated = async (stripeAccountData: Stripe.Account) => {
   }
 };
 
+/**
+ * Handle Subscription Created/Updated/Deleted
+ * Use Stripe.Subscription for the parameter type
+ */
+const handleSubscriptionSync = async (stripeSub: Stripe.Subscription) => {
+  const userId = stripeSub.metadata?.userId;
+
+  console.log({ stripeSub });
+
+  if (!userId) {
+    console.error(
+      `[STRIPE ERROR] No userId in metadata for sub: ${stripeSub.id}`
+    );
+    return;
+  }
+
+  // price id is inside items.data array
+  const stripeSubItem = stripeSub.items.data[0];
+  const stripeSubPlan = stripeSubItem.plan;
+
+  // Update logic
+  await Subscription.findOneAndUpdate(
+    { user: new Types.ObjectId(userId) },
+    {
+      $set: {
+        stripeSubscriptionId: stripeSub.id,
+        stripeCustomerId: stripeSub.customer as string,
+        stripePriceId: stripeSubPlan.id,
+        status: stripeSub.status,
+        currentPeriodStart: new Date(stripeSubItem.current_period_start * 1000),
+        currentPeriodEnd: new Date(stripeSubItem.current_period_end * 1000),
+        cancelAtPeriodEnd:
+          stripeSub.cancel_at_period_end ?? stripeSub.cancel_at ?? false,
+      },
+    },
+    { upsert: true, new: true }
+  );
+};
+
+const handleInvoicePaid = async (invoice: Stripe.Invoice) => {
+  const subscriptionDetails = invoice.parent?.subscription_details;
+  const stripeSubscriptionId = subscriptionDetails?.subscription;
+  const userId = subscriptionDetails?.metadata?.userId;
+
+  if (!stripeSubscriptionId) {
+    console.error(
+      `[STRIPE ERROR] No subscription ID found in invoice: ${invoice.id}`
+    );
+    return;
+  }
+
+  // Find the Mongoose record using the alias to avoid confusion with Stripe.Subscription
+  const sub = await Subscription.findOne({
+    stripeSubscriptionId,
+    user: userId,
+  });
+  if (!sub) {
+    console.warn(
+      `[WEBHOOK WARN] Subscription ${stripeSubscriptionId} not found in DB`
+    );
+    return;
+  }
+
+  // Create Ledger Entry
+  await SubscriptionHistory.create({
+    user: sub.user,
+    subscription: sub._id,
+    stripeInvoiceId: invoice.id,
+    stripePaymentIntentId: '',
+    amount: (invoice.amount_paid || 0) / 100,
+    currency: invoice.currency,
+    status: 'succeeded',
+    billingReason: invoice.billing_reason || 'subscription_cycle',
+    planType: sub.planType,
+    invoiceUrl: invoice.hosted_invoice_url || '',
+    transactionDate: new Date(),
+  });
+
+  // Update Main Subscription Dates from the actual Invoice period
+  if (invoice.lines?.data[0]?.period) {
+    sub.status = SUBSCRIPTION_STATUS.ACTIVE;
+    sub.currentPeriodStart = new Date(
+      invoice.lines.data[0].period.start * 1000
+    );
+    sub.currentPeriodEnd = new Date(invoice.lines.data[0].period.end * 1000);
+    await sub.save();
+  }
+};
+
+/**
+ * Handle Failed Subscription Payment
+ * Standard: invoice.payment_failed
+ */
+const handleInvoiceFailed = async (invoice: Stripe.Invoice) => {
+  const subscriptionDetails = invoice.parent?.subscription_details;
+  const stripeSubscriptionId = subscriptionDetails?.subscription;
+  const userId = subscriptionDetails?.metadata?.userId;
+
+  if (!stripeSubscriptionId) {
+    console.error(
+      `[STRIPE ERROR] No subscription ID found in invoice: ${invoice.id}`
+    );
+    return;
+  }
+
+  if (!stripeSubscriptionId) return;
+
+  const sub = await Subscription.findOne({
+    stripeSubscriptionId,
+    user: userId,
+  });
+  if (!sub) return;
+
+  await SubscriptionHistory.create({
+    user: sub.user,
+    subscription: sub._id,
+    stripeInvoiceId: invoice.id,
+    amount: (invoice.amount_due || 0) / 100,
+    currency: invoice.currency,
+    status: 'failed',
+    billingReason: invoice.billing_reason || 'subscription_cycle',
+    planType: sub.planType,
+    transactionDate: new Date(),
+  });
+
+  sub.status = SUBSCRIPTION_STATUS.PAST_DUE;
+  await sub.save();
+};
+
 // ========================================
 // MAIN WEBHOOK HANDLER
 // ========================================
@@ -943,7 +1079,19 @@ const handleStripeWebhook = async (
       case 'account.updated':
         await handleAccountUpdated(event.data.object as Stripe.Account);
         break;
-
+      case 'customer.subscription.created':
+      case 'customer.subscription.updated':
+      case 'customer.subscription.deleted':
+        await handleSubscriptionSync(event.data.object as Stripe.Subscription);
+        break;
+      case 'invoice.payment_succeeded':
+        // This triggers the SubscriptionHistory creation we built in the previous step
+        await handleInvoicePaid(event.data.object as Stripe.Invoice);
+        break;
+      case 'invoice.payment_failed':
+        // This triggers the SubscriptionHistory creation we built in the previous step
+        await handleInvoiceFailed(event.data.object as Stripe.Invoice);
+        break;
       default:
         console.log(`ℹ️ Unhandled event type: ${event.type}`);
     }
