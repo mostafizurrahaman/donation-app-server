@@ -292,7 +292,7 @@ const signinIntoDB = async (payload: {
   }
 
   if (payload.fcmToken && payload.deviceType) {
-    const res = await AuthService.updateFcmToken(
+     await AuthService.updateFcmToken(
       user?._id?.toString(),
       payload.fcmToken,
       payload.deviceType
@@ -1761,7 +1761,9 @@ const organizationSignupWithProfile = async (
           {
             user: newAuth._id,
             subscription: newSub._id,
-            stripeInvoiceId: 'trial_initiation',
+            stripeInvoiceId: `TRAIL-${new Date().getTime()}-${crypto
+              .randomBytes(6)
+              .toString('hex')}`,
             amount: 0,
             status: 'succeeded',
             billingReason: 'trial_start',

@@ -32,11 +32,12 @@ const createSubscriptionSession = async (
         : config.stripe.bizYearlyPriceId;
   }
 
-  if (!priceId)
+  if (!priceId) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
       'Pricing not configured for your role'
     );
+  }
 
   // 2. Check remaining local trial days to pass to Stripe
   const localSub = await Subscription.findOne({ user: userId });

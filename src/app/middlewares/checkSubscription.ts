@@ -7,37 +7,46 @@ import { SUBSCRIPTION_STATUS } from '../modules/Subscription/subscription.consta
 /**
  * Gatekeeper to ensure the User (Biz/Org) has an active trial or paid plan
  */
-export const checkSubscription = asyncHandler(async (req, res, next) => {
-  const user = req.user;
+export const checkSubscription = () => {
+  return asyncHandler(async (req, res, next) => {
+    const user = req.user;
+    console.log(user);
+    console.log('checkSubscription Middleware Invoked for User:', user._id);
 
-  // Exempt Admin and Clients (Donors)
-  if (user.role === ROLE.ADMIN || user.role === ROLE.CLIENT) return next();
+    // Exempt Admin and Clients (Donors)
+    if (user.role === ROLE.ADMIN || user.role === ROLE.CLIENT) return next();
 
-  const sub = await Subscription.findOne({ user: user._id });
+    const sub = await Subscription.findOne({ user: user._id });
 
-  // 1. Check if record exists
-  if (!sub) {
-    throw new AppError(
-      httpStatus.PAYMENT_REQUIRED,
-      'No subscription or trial found.'
-    );
-  }
+    console.log('Subscription Check:', sub);
 
-  // 2. Check if Status is Active or Trialing
-  const isStatusValid = [
-    SUBSCRIPTION_STATUS.ACTIVE,
-    SUBSCRIPTION_STATUS.TRIALING,
-  ].includes(sub.status as 'active' | 'trialing');
+    // 1. Check if record exists
+    if (!sub) {
+      throw new AppError(
+        httpStatus.PAYMENT_REQUIRED,
+        'No subscription or trial found.'
+      );
+    }
 
-  // 3. Check if current date is within the allowed period
-  const isPeriodValid = new Date() < new Date(sub.currentPeriodEnd);
+    // 2. Check if Status is Active or Trialing
+    const isStatusValid = [
+      SUBSCRIPTION_STATUS.ACTIVE,
+      SUBSCRIPTION_STATUS.TRIALING,
+    ].includes(sub.status as 'active' | 'trialing');
+    console.log('Subscription Check:', { isStatusValid });
 
-  if (!isStatusValid || !isPeriodValid) {
-    throw new AppError(
-      httpStatus.PAYMENT_REQUIRED,
-      'Your 6-month trial or paid subscription has expired. Please subscribe to continue.'
-    );
-  }
+    // 3. Check if current date is within the allowed period
+    const isPeriodValid = new Date() < new Date(sub.currentPeriodEnd);
 
-  next();
-});
+    console.log('Subscription Check:', { isPeriodValid });
+
+    if (!isStatusValid || !isPeriodValid) {
+      throw new AppError(
+        httpStatus.PAYMENT_REQUIRED,
+        'Your 6-month trial or paid subscription has expired. Please subscribe to continue.'
+      );
+    }
+
+    next();
+  });
+};

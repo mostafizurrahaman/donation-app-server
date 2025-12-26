@@ -4,6 +4,7 @@ import { ROLE } from '../Auth/auth.constant';
 import { validateRequest } from '../../middlewares/validateRequest';
 import { RewardRedemptionController } from './reward-redeemtion.controller';
 import { rewardRedemptionValidation } from './reward-redeemtion.validation';
+import { checkSubscription } from '../../middlewares/checkSubscription';
 
 const router = express.Router();
 
@@ -15,6 +16,7 @@ const router = express.Router();
 router.post(
   '/redeem',
   auth(ROLE.BUSINESS, ROLE.ADMIN),
+  checkSubscription(),
   validateRequest(rewardRedemptionValidation.redeemRewardSchema),
   RewardRedemptionController.redeemReward
 );
@@ -27,7 +29,7 @@ router.post(
   RewardRedemptionController.claimReward
 );
 
-// Get currently logged-in user's claimed rewards 
+// Get currently logged-in user's claimed rewards
 router.get(
   '/my/claimed',
   auth(ROLE.CLIENT),
@@ -47,6 +49,7 @@ router.get(
 router.post(
   '/:redemptionId/cancel',
   auth(ROLE.CLIENT),
+
   validateRequest(rewardRedemptionValidation.cancelClaimedRewardSchema),
   RewardRedemptionController.cancelClaimedReward
 );
@@ -59,6 +62,7 @@ router.post(
 router.post(
   '/verify',
   auth(ROLE.BUSINESS, ROLE.ADMIN),
+  checkSubscription(),
   validateRequest(rewardRedemptionValidation.verifyRedemptionSchema),
   RewardRedemptionController.verifyRedemption
 );

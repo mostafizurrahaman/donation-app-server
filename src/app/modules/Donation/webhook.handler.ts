@@ -1085,11 +1085,9 @@ const handleStripeWebhook = async (
         await handleSubscriptionSync(event.data.object as Stripe.Subscription);
         break;
       case 'invoice.payment_succeeded':
-        // This triggers the SubscriptionHistory creation we built in the previous step
         await handleInvoicePaid(event.data.object as Stripe.Invoice);
         break;
       case 'invoice.payment_failed':
-        // This triggers the SubscriptionHistory creation we built in the previous step
         await handleInvoiceFailed(event.data.object as Stripe.Invoice);
         break;
       default:
