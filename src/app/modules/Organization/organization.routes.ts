@@ -43,6 +43,7 @@ router.get(
 router.get(
   '/:id',
   auth(ROLE.CLIENT, ROLE.ORGANIZATION),
+
   OrganizationController.getOrganizationDetails
 );
 

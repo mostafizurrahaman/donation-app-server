@@ -18,6 +18,7 @@ import Donation from '../Donation/donation.model';
 import { StripeAccount } from '../OrganizationAccount/stripe-account.model';
 import { getS3KeyFromUrl } from '../../utils/s3.utils';
 import { CAUSE_STATUS_TYPE } from '../Causes/causes.constant';
+import { SubscriptionService } from '../Subscription/subscription.service';
 
 /**
  * Start Stripe Connect onboarding for an organization
@@ -517,6 +518,10 @@ const getOrganizationDetailsById = async (organizationId: string) => {
     throw new AppError(httpStatus.NOT_FOUND, 'Organization not found!');
   }
 
+  const hasSubscription = await SubscriptionService.checkHasSubscription(
+    organization._id.toString()
+  );
+
   const organizationDonationStats = await Donation.aggregate([
     {
       $match: {
@@ -589,6 +594,9 @@ const getOrganizationDetailsById = async (organizationId: string) => {
     totalDonationAmount,
     recentDonors,
     causes,
+    isOnetime: true,
+    isRecurring: hasSubscription,
+    isRoundup: hasSubscription,
   };
 };
 

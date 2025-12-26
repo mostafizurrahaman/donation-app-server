@@ -44,7 +44,7 @@ router.get(
 router.patch(
   '/update-profile',
   auth(ROLE.BUSINESS),
-  checkSubscription(),
+
   upload.fields([
     { name: 'coverImage', maxCount: 1 },
     { name: 'logoImage', maxCount: 1 },

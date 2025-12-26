@@ -105,8 +105,24 @@ const validateOrganizationAccess = async (orgId: string) => {
   }
 };
 
+const checkHasSubscription = async (orgId: string) => {
+  const org = await OrganizationModel.findById(orgId);
+  if (!org) throw new AppError(httpStatus.NOT_FOUND, 'Org not found');
+
+  const sub = await Subscription.findOne({ user: org.auth });
+  const hasSubscription =
+    sub &&
+    [SUBSCRIPTION_STATUS.ACTIVE, SUBSCRIPTION_STATUS.TRIALING].includes(
+      sub.status as 'active' | 'trialing'
+    ) &&
+    new Date() < sub.currentPeriodEnd;
+
+  return !!hasSubscription;
+};
+
 export const SubscriptionService = {
   createSubscriptionSession,
   getMySubscription,
   validateOrganizationAccess,
+  checkHasSubscription,
 };
