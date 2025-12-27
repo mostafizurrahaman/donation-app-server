@@ -35,14 +35,14 @@ router.patch(
 // Get all carites:
 router.get(
   '/get-all',
-  auth(ROLE.CLIENT, ROLE.BUSINESS),
+  auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.GUEST),
   validateRequest(OrganizationValidation.getAllOrganizationsSchema),
   OrganizationController.getAllOrganization
 );
 
 router.get(
   '/:id',
-  auth(ROLE.CLIENT, ROLE.ORGANIZATION),
+  auth(ROLE.CLIENT, ROLE.ORGANIZATION, ROLE.GUEST),
 
   OrganizationController.getOrganizationDetails
 );
@@ -70,4 +70,3 @@ router.post(
 );
 
 export const OrganizationRoutes = router;
- 

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import fs from 'fs';
 import httpStatus from 'http-status';
-import { startSession } from 'mongoose';
+import mongoose, { startSession } from 'mongoose';
 import config from '../../config';
 
 import {
@@ -1051,12 +1051,8 @@ const fetchProfileFromDB = async (user: IAuth) => {
         select: 'email role isProfile isTwoFactorEnabled',
       },
     ]);
-    // .lean();
 
     return client;
-
-    // return { ...client,  preference};
-    // return { ...client?.toObject(), preference };
   } else if (user?.role === ROLE.BUSINESS) {
     const business = await Business.findOne({ auth: user._id }).populate([
       {
@@ -1101,8 +1097,6 @@ const fetchProfileFromDB = async (user: IAuth) => {
       organization?._id!?.toString()
     );
 
-    // return organization;
-
     return { ...organization?.toObject(), isSubscribed };
   } else if (user?.role === ROLE.ADMIN) {
     const admin = await SuperAdmin.findOne({
@@ -1114,6 +1108,15 @@ const fetchProfileFromDB = async (user: IAuth) => {
       },
     ]);
     return admin;
+  } else if (user?.role === ROLE.GUEST) {
+    const guest = await Client.findOne({
+      auth: user._id,
+    }).populate({
+      path: 'auth',
+      select: 'email role isProfile',
+    });
+
+    return guest;
   }
 };
 
@@ -1918,6 +1921,111 @@ const disable2FA = async (userId: string, token: string) => {
 
   return { success: true };
 };
+const guestLogin = async () => {
+  const session = await Auth.startSession();
+  session.startTransaction();
+
+  try {
+    const guestId = `guest_${Date.now()}_${Math.random()
+      .toString(36)
+      .substring(7)}`;
+
+    const guestAuth = await Auth.create(
+      [
+        {
+          email: `${guestId}@crescent.guest`,
+          role: ROLE.GUEST,
+          isGuest: true,
+          status: AUTH_STATUS.VERIFIED,
+          isActive: true,
+          isVerifiedByOTP: true,
+          password: guestId,
+          otp: '000000',
+          otpExpiry: new Date(Date.now() + 1000 * 60 * 60),
+        },
+      ],
+      { session }
+    );
+
+    await Client.create(
+      [
+        {
+          auth: guestAuth[0]._id,
+          name: 'Guest User',
+          address: 'N/A',
+          state: 'N/A',
+          postalCode: 'N/A',
+        },
+      ],
+      { session }
+    );
+
+    // Commit the transaction
+    await session.commitTransaction();
+    session.endSession();
+
+    const accessTokenPayload = {
+      id: guestAuth[0]._id.toString(),
+      name: 'Guest',
+      image: config.defaultUserImage,
+      email: guestAuth[0].email,
+      role: ROLE.GUEST,
+      isProfile: true,
+      isActive: true,
+      status: AUTH_STATUS.VERIFIED,
+    };
+
+    return {
+      accessToken: createAccessToken(accessTokenPayload),
+      refreshToken: createRefreshToken({ email: guestAuth[0].email }),
+    };
+  } catch (error) {
+    // Abort transaction on error
+    await session.abortTransaction();
+    session.endSession();
+    throw error;
+  }
+};
+
+export const guestRemove = async (guestId: string) => {
+  if (!guestId) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'Guest ID is required');
+  }
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    // Find guest user
+    const guestAuth = await Auth.findOne({
+      _id: guestId,
+      isGuest: true,
+    }).session(session);
+    if (!guestAuth) {
+      throw new Error('Guest user not found');
+    }
+
+    // Delete related Client document
+    const guest = await Client.deleteOne({ auth: guestAuth._id }).session(
+      session
+    );
+
+    // Delete Auth document
+    await Auth.deleteOne({ _id: guestAuth._id }).session(session);
+
+    await session.commitTransaction();
+    session.endSession();
+
+    return guest;
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    throw new AppError(
+      httpStatus.INTERNAL_SERVER_ERROR,
+      'Failed to delete guest user'
+    );
+  }
+};
 
 export const AuthService = {
   createAuthIntoDB,
@@ -1943,4 +2051,6 @@ export const AuthService = {
   disable2FA,
   verify2FALogin,
   verifyAndEnable2FA,
+  guestLogin,
+  guestRemove,
 };

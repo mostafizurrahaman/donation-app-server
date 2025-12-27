@@ -15,7 +15,7 @@ export interface IAuth extends Document {
   twoFactorSecret?: string;
   isTwoFactorEnabled: boolean;
   twoFactorBackupCodes: string[];
-
+  isGuest: boolean;
   isProfile: boolean;
 
   role: TRole;

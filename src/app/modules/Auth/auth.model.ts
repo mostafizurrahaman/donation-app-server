@@ -13,15 +13,20 @@ const authSchema = new Schema<IAuth, IAuthModel>(
       type: String,
       required: [true, 'Email is required!'],
       unique: [true, 'This email is already used!'],
+      sparse: true,
       trim: true,
     },
     password: {
       type: String,
-      required: true,
+      required: false,
       select: 0,
     },
     passwordChangedAt: {
       type: Date,
+    },
+    isGuest: {
+      type: Boolean,
+      default: false,
     },
 
     isProfile: {

@@ -108,7 +108,7 @@ router
 router
   .route('/profile')
   .get(
-    auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION, ROLE.ADMIN),
+    auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION, ROLE.ADMIN, ROLE.GUEST),
     AuthController.fetchProfile
   );
 
@@ -133,7 +133,7 @@ router
 router
   .route('/access-token')
   .get(
-    auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION, ROLE.ADMIN),
+    auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION, ROLE.ADMIN, ROLE.GUEST),
     validateRequest(AuthValidation.getNewAccessTokenSchema),
     AuthController.getNewAccessToken
   );
@@ -203,5 +203,8 @@ router.post(
   auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION, ROLE.ADMIN),
   AuthController.disable2FA
 );
+
+router.post('/guest-login', AuthController.guestLogin);
+router.post('/guest-remove', AuthController.guestRemove);
 
 export const AuthRoutes = router;
