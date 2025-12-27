@@ -20,6 +20,7 @@ const BadgeTierSchema = new Schema<IBadgeTierConfig>(
   {
     tier: { type: String, enum: BADGE_TIER_VALUES, required: true },
     name: { type: String, required: true },
+    icon: { type: String, required: true },
     requiredCount: { type: Number, default: 0 },
     requiredAmount: { type: Number, default: 0 },
   },

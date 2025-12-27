@@ -6,7 +6,9 @@ import { asyncHandler, sendResponse } from '../../utils';
 import { ExtendedRequest } from '../../types';
 
 const createBadge = asyncHandler(async (req: Request, res: Response) => {
-  const result = await badgeService.createBadge(req.body, req.file);
+  const files = req.files as Record<string, Express.Multer.File[]>;
+  const result = await badgeService.createBadge(req.body, files);
+
   sendResponse(res, {
     statusCode: httpStatus.CREATED,
     message: BADGE_MESSAGES.CREATED,
@@ -15,11 +17,9 @@ const createBadge = asyncHandler(async (req: Request, res: Response) => {
 });
 
 const updateBadge = asyncHandler(async (req: Request, res: Response) => {
-  const result = await badgeService.updateBadge(
-    req.params.id,
-    req.body,
-    req.file
-  );
+  const files = req.files as Record<string, Express.Multer.File[]>;
+  const result = await badgeService.updateBadge(req.params.id, req.body, files);
+
   sendResponse(res, {
     statusCode: httpStatus.OK,
     message: BADGE_MESSAGES.UPDATED,

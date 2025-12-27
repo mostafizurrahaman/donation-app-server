@@ -51,8 +51,9 @@ const badgeTierSchema = z
   .object({
     tier: z.enum(BADGE_TIER_VALUES as [string, ...string[]]),
     name: z.string().min(1, 'Tier name is required'),
-    requiredCount: z.number().min(0).default(0).optional(),
-    requiredAmount: z.number().min(0).default(0).optional(),
+    icon: z.string().optional(),
+    requiredCount: z.number().min(0).optional(),
+    requiredAmount: z.number().min(0).optional(),
   })
   .refine(
     (data) => {

@@ -21,6 +21,8 @@ const fileFilter = (
     'image/gif',
     'image/webp',
   ];
+
+  const allowed3DTypes = ['model/gltf-binary'];
   const allowedVideoTypes = [
     'video/mp4',
     'video/avi',
@@ -39,6 +41,7 @@ const fileFilter = (
     ...allowedVideoTypes,
     ...allowedDocTypes,
     ...allowedExcelTypes,
+    ...allowed3DTypes,
   ];
 
   if (allAllowedTypes.includes(file.mimetype)) {
@@ -47,7 +50,7 @@ const fileFilter = (
     callback(
       new AppError(
         httpStatus.BAD_REQUEST,
-        'Only images, videos, PDFs, and Excel/CSV files are allowed'
+        'Only images, GLB, videos, PDFs, and Excel/CSV files are allowed'
       )
     );
   }

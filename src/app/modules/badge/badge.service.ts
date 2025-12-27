@@ -34,67 +34,106 @@ import { deleteFromS3, getS3KeyFromUrl } from '../../utils/s3.utils';
 
 const createBadge = async (
   payload: ICreateBadgePayload,
-  file?: Express.Multer.File
+  files?: Record<string, Express.Multer.File[]>
 ) => {
   const existing = await Badge.findOne({ name: payload.name });
-  if (existing) {
+  if (existing)
     throw new AppError(httpStatus.CONFLICT, BADGE_MESSAGES.ALREADY_EXISTS);
-  }
 
-  // Handle Icon Upload to S3
-  if (file) {
+  // 1. Upload Main Icon (GLB)
+  if (files?.mainIcon?.[0]) {
     const uploadResult = await uploadToS3({
-      buffer: file.buffer,
-      key: `badge-${Date.now()}`,
-      contentType: file.mimetype,
-      folder: 'badges',
+      buffer: files.mainIcon[0].buffer,
+      key: `badge-main-${Date.now()}`,
+      contentType: 'model/gltf-binary',
+      folder: 'badges/main',
     });
     payload.icon = uploadResult.url;
-  } else if (!payload.icon) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'Badge icon is required');
+  } else {
+    throw new AppError(httpStatus.BAD_REQUEST, 'Main badge icon is required');
   }
 
-  const isSingleTier = payload.tiers.length === 1;
-  return await Badge.create({ ...payload, isSingleTier });
+  // 2. Upload Tier Icons (GLB)
+  const tiers = payload.tiers;
+
+  for (const tierConfig of tiers) {
+    const fieldName = `tier_${tierConfig.tier}`;
+    const file = files?.[fieldName]?.[0];
+
+    if (file) {
+      const uploadResult = await uploadToS3({
+        buffer: file.buffer,
+        key: `badge-tier-${tierConfig.tier}-${Date.now()}`,
+        contentType: 'model/gltf-binary',
+        folder: 'badges/tiers',
+      });
+      tierConfig.icon = uploadResult.url;
+    } else {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        `Icon for tier ${tierConfig.tier} is missing`
+      );
+    }
+  }
+
+  const isSingleTier = tiers.length === 1;
+  return await Badge.create({ ...payload, tiers, isSingleTier });
 };
 
 const updateBadge = async (
   id: string,
   payload: IUpdateBadgePayload,
-  file?: Express.Multer.File
+  files?: Record<string, Express.Multer.File[]>
 ) => {
   const badge = await Badge.findById(id);
-  if (!badge) {
+  if (!badge)
     throw new AppError(httpStatus.NOT_FOUND, BADGE_MESSAGES.NOT_FOUND);
-  }
 
-  // Handle Image Update in S3
-  if (file) {
-    // 1. Delete old icon from S3 if it exists
+  // 1. Update Main Icon if provided
+  if (files?.mainIcon?.[0]) {
     if (badge.icon) {
       const oldKey = getS3KeyFromUrl(badge.icon);
-      if (oldKey) {
-        // Fire and forget deletion
-        deleteFromS3(oldKey).catch((err) =>
-          console.error('Failed to delete old badge icon from S3:', err)
-        );
-      }
+      if (oldKey) await deleteFromS3(oldKey).catch(() => null);
     }
-
-    // 2. Upload new icon buffer to S3
     const uploadResult = await uploadToS3({
-      buffer: file.buffer,
-      key: `badge-${Date.now()}`,
-      contentType: file.mimetype,
-      folder: 'badges',
+      buffer: files.mainIcon[0].buffer,
+      key: `badge-main-upd-${Date.now()}`,
+      contentType: 'model/gltf-binary',
+      folder: 'badges/main',
     });
     payload.icon = uploadResult.url;
   }
 
-  if (payload.name && payload.name !== badge.name) {
-    const existing = await Badge.findOne({ name: payload.name });
-    if (existing) {
-      throw new AppError(httpStatus.CONFLICT, BADGE_MESSAGES.ALREADY_EXISTS);
+  // 2. Update Tiers and their Icons
+  if (payload.tiers) {
+    for (const tierConfig of payload.tiers) {
+      const fieldName = `tier_${tierConfig.tier}`;
+      const file = files?.[fieldName]?.[0];
+
+      if (file) {
+        // Delete old tier icon if it existed
+        const existingTier = badge.tiers.find(
+          (t) => t.tier === tierConfig.tier
+        );
+        if (existingTier?.icon) {
+          const oldKey = getS3KeyFromUrl(existingTier.icon);
+          if (oldKey) await deleteFromS3(oldKey).catch(() => null);
+        }
+
+        const uploadResult = await uploadToS3({
+          buffer: file.buffer,
+          key: `badge-tier-upd-${tierConfig.tier}-${Date.now()}`,
+          contentType: 'model/gltf-binary',
+          folder: 'badges/tiers',
+        });
+        tierConfig.icon = uploadResult.url;
+      } else {
+        // Keep existing icon if no new file uploaded for this tier
+        const existingTier = badge.tiers.find(
+          (t) => t.tier === tierConfig.tier
+        );
+        if (existingTier) tierConfig.icon = existingTier.icon;
+      }
     }
   }
 
@@ -135,14 +174,19 @@ const deleteBadge = async (id: string) => {
 
 // --- USER PROGRESS ---
 
+/**
+ * Retrieves all badges and calculates user-specific progress.
+ * Correctly handles RequiredCount: 0 or RequiredAmount: 0 as "Inactive" requirements.
+ */
 const getAllBadgesWithProgress = async (
   userId: string,
   query: Record<string, unknown>
 ) => {
+  // 1. Resolve Client
   const client = await Client.findOne({ auth: userId });
   if (!client) throw new AppError(httpStatus.NOT_FOUND, 'Client not found');
 
-  // 1. Optimized Fetching using QueryBuilder for Badges
+  // 2. Fetch Badges (using QueryBuilder for pagination/search/filters)
   const badgeQuery = new QueryBuilder(Badge.find({ isActive: true }), query)
     .search(['name', 'description'])
     .filter()
@@ -153,7 +197,7 @@ const getAllBadgesWithProgress = async (
   const badges = await badgeQuery.modelQuery.lean();
   const meta = await badgeQuery.countTotal();
 
-  // 2. Fetch UserBadges ONLY for the badges in the current result set
+  // 3. Fetch User Progress for these specific badges
   const badgeIds = badges.map((b: any) => b._id);
   const userBadges = await UserBadge.find({
     user: client._id,
@@ -164,68 +208,117 @@ const getAllBadgesWithProgress = async (
     userBadges.map((ub: any) => [ub.badge.toString(), ub])
   );
 
-  // 3. Map Results
+  // 4. Map and Calculate Progress
   const result = badges.map((badge: any) => {
     const userBadge = userBadgeMap.get(badge._id.toString()) as any;
 
+    // Determine the current tier name
     const currentTierName =
-      userBadge?.currentTier ||
-      (badge.isSingleTier ? BADGE_TIER.ONE_TIER : BADGE_TIER.COLOUR);
-    const isUnlocked = !!userBadge;
+      userBadge?.currentTier || (badge.isSingleTier ? 'one-tier' : 'colour');
+    const isCompleted = userBadge?.isCompleted || false;
 
-    // Determine next tier
-    let nextTier: IBadgeTierConfig | undefined;
-    if (!badge.isSingleTier) {
-      const idx = TIER_ORDER_PROGRESSION.indexOf(currentTierName);
-      if (idx !== -1 && idx < TIER_ORDER_PROGRESSION.length - 1) {
-        const nextTierName = TIER_ORDER_PROGRESSION[idx + 1];
+    // Identify the Next Target Tier
+    let nextTier: any = undefined;
+    if (!isCompleted) {
+      if (badge.isSingleTier) {
+        nextTier = badge.tiers[0];
+      } else {
+        const currentIdx = TIER_ORDER_PROGRESSION.indexOf(currentTierName);
+        const nextTierName = TIER_ORDER_PROGRESSION[currentIdx + 1];
         nextTier = badge.tiers.find((t: any) => t.tier === nextTierName);
       }
     }
 
-    // Calculate Percentage based on active requirement (ignore 0)
+    // --- LOGIC ENGINE START ---
     let progressPercentage = 0;
-    const count = userBadge?.progressCount || 0;
-    const amount = userBadge?.progressAmount || 0;
-
-    // Determine which requirement is driving the badge (count or amount)
-    // If requirement is 0, it's ignored in percentage calculation
-    const requiredTotal =
-      (nextTier?.requiredCount || 0) > 0
-        ? nextTier!.requiredCount
-        : nextTier?.requiredAmount || 0;
-
-    const currentProgress = (nextTier?.requiredCount || 0) > 0 ? count : amount;
-
-    if (nextTier && requiredTotal > 0) {
-      progressPercentage = Math.min(
-        100,
-        Math.round((currentProgress / requiredTotal) * 100)
-      );
-    } else if (userBadge?.isCompleted) {
-      progressPercentage = 100;
-    }
-
-    // Calculate Remaining
     let remainingForNextTier = 0;
-    if (nextTier) {
-      if (nextTier.requiredCount > 0) {
-        remainingForNextTier = Math.max(0, nextTier.requiredCount - count);
-      } else if (nextTier.requiredAmount && nextTier.requiredAmount > 0) {
-        remainingForNextTier = Math.max(0, nextTier.requiredAmount - amount);
+    let unit: 'donations' | 'amount' = 'donations';
+
+    if (isCompleted) {
+      progressPercentage = 100;
+    } else if (nextTier) {
+      const countReq = nextTier.requiredCount || 0;
+      const amountReq = nextTier.requiredAmount || 0;
+      const curCount = userBadge?.progressCount || 0;
+      const curAmount = userBadge?.progressAmount || 0;
+
+      // Identify Active Requirements (ignore if 0)
+      const isCountActive = countReq > 0;
+      const isAmountActive = amountReq > 0;
+
+      // Calculate individual percentages for active requirements
+      const countPct = isCountActive
+        ? Math.min(100, (curCount / countReq) * 100)
+        : null;
+      const amountPct = isAmountActive
+        ? Math.min(100, (curAmount / amountReq) * 100)
+        : null;
+
+      if (isCountActive && isAmountActive) {
+        // CASE: Both Count and Amount are required
+        if (badge.conditionLogic === 'or') {
+          // OR: Take the best performing metric
+          progressPercentage = Math.max(countPct || 0, amountPct || 0);
+
+          // UI Helper: Show remaining for the one that is closest to finishing
+          if (countPct! >= amountPct!) {
+            remainingForNextTier = Math.max(0, countReq - curCount);
+            unit = 'donations';
+          } else {
+            remainingForNextTier = Math.max(0, amountReq - curAmount);
+            unit = 'amount';
+          }
+        } else {
+          // AND: The bottleneck is the lowest percentage
+          progressPercentage = Math.min(countPct!, amountPct!);
+
+          // UI Helper: Show remaining for the one lagging behind
+          if (countPct! <= amountPct!) {
+            remainingForNextTier = Math.max(0, countReq - curCount);
+            unit = 'donations';
+          } else {
+            remainingForNextTier = Math.max(0, amountReq - curAmount);
+            unit = 'amount';
+          }
+        }
+      } else if (isCountActive) {
+        // CASE: Only Count matters (Amount is 0)
+        progressPercentage = countPct!;
+        remainingForNextTier = Math.max(0, countReq - curCount);
+        unit = 'donations';
+      } else if (isAmountActive) {
+        // CASE: Only Amount matters (Count is 0)
+        progressPercentage = amountPct!;
+        remainingForNextTier = Math.max(0, amountReq - curAmount);
+        unit = 'amount';
+      } else {
+        // Fallback for misconfigured badges (both 0)
+        progressPercentage = 0;
       }
     }
 
     return {
-      badge,
-      userBadge, // Returning basic object, history separate
-      isUnlocked,
+      badgeId: badge._id,
+      name: badge.name,
+      icon: badge.icon,
+      description: badge.description,
+      type: badge.unlockType,
+      isUnlocked: !!userBadge,
+      isCompleted,
       currentTier: currentTierName,
-      nextTier,
-      progressCount: count,
-      progressAmount: amount,
-      progressPercentage,
-      remainingForNextTier,
+      progress: {
+        percentage: Math.floor(progressPercentage),
+        remaining: parseFloat(remainingForNextTier.toFixed(2)),
+        unit: unit,
+        nextTierName: nextTier?.name || 'Max Level',
+      },
+      // Send raw data for custom UI needs
+      rawProgress: {
+        count: userBadge?.progressCount || 0,
+        amount: userBadge?.progressAmount || 0,
+        requiredCount: nextTier?.requiredCount || 0,
+        requiredAmount: nextTier?.requiredAmount || 0,
+      },
     };
   });
 
@@ -712,71 +805,115 @@ const calculateConsecutiveMonths = async (
 
   return consecutiveCount;
 };
-const checkTierUpgrade = async (userBadge: any, badge: any) => {
+/**
+ * Core Engine: Checks if current progress qualifies for a tier upgrade.
+ * Handles AND/OR logic and ignores requirements set to 0.
+ */
+const checkTierUpgrade = async (userBadge: any, badge: any): Promise<void> => {
+  // 1. If already at the max level, stop.
   if (userBadge.isCompleted) return;
 
   const currentTier = userBadge.currentTier;
-
-  // Find next tier in progression
   let nextTierName = '';
-  const idx = TIER_ORDER_PROGRESSION.indexOf(currentTier);
-  if (idx !== -1 && idx < TIER_ORDER_PROGRESSION.length - 1) {
-    nextTierName = TIER_ORDER_PROGRESSION[idx + 1];
-  } else if (badge.isSingleTier && !userBadge.isCompleted) {
-    nextTierName = BADGE_TIER.ONE_TIER;
+
+  // 2. Determine the name of the next tier to check
+  if (badge.isSingleTier) {
+    // For single tier badges, the only target is 'one-tier'
+    if (currentTier === 'one-tier') return;
+    nextTierName = 'one-tier';
+  } else {
+    // For multi-tier, follow the progression: colour -> bronze -> silver -> gold
+    const tierOrder = ['colour', 'bronze', 'silver', 'gold'];
+    const currentIdx = tierOrder.indexOf(currentTier);
+
+    if (currentIdx !== -1 && currentIdx < tierOrder.length - 1) {
+      nextTierName = tierOrder[currentIdx + 1];
+    }
   }
 
+  // If no higher tier exists, stop.
   if (!nextTierName) return;
 
+  // 3. Get the configuration for the target tier
   const targetTierConfig = badge.tiers.find(
     (t: any) => t.tier === nextTierName
   );
   if (!targetTierConfig) return;
 
-  // Check Logic (AND vs OR)
-  let passed = false;
-  const logic = badge.conditionLogic || 'or';
-
-  // LOGIC FIX: Ignore requirements that are 0 (not set)
+  // 4. Requirement Definitions
   const countReq = targetTierConfig.requiredCount || 0;
   const amountReq = targetTierConfig.requiredAmount || 0;
 
-  const hasCountRequirement = countReq > 0;
-  const hasAmountRequirement = amountReq > 0;
+  // Identify which requirements the Admin actually set (> 0)
+  const isCountActive = countReq > 0;
+  const isAmountActive = amountReq > 0;
 
-  // Check actual progress against config
-  const countMet = hasCountRequirement && userBadge.progressCount >= countReq;
-  const amountMet =
-    hasAmountRequirement && userBadge.progressAmount >= amountReq;
+  // 5. Evaluate if requirements are met
+  const countConditionMet = isCountActive
+    ? userBadge.progressCount >= countReq
+    : false;
+  const amountConditionMet = isAmountActive
+    ? userBadge.progressAmount >= amountReq
+    : false;
 
-  if (logic === 'or') {
-    // If OR: At least one requirement must be Active AND Met
-    // If both active, either can unlock.
-    passed = countMet || amountMet;
+  let canUpgrade = false;
+
+  // 6. Logic Switch (AND / OR)
+  if (isCountActive && isAmountActive) {
+    if (badge.conditionLogic === 'or') {
+      // ANY one of the active requirements is met
+      canUpgrade = countConditionMet || amountConditionMet;
+    } else {
+      // BOTH active requirements must be met
+      canUpgrade = countConditionMet && amountConditionMet;
+    }
+  } else if (isCountActive) {
+    // Only Count was set by Admin, ignore Amount
+    canUpgrade = countConditionMet;
+  } else if (isAmountActive) {
+    // Only Amount was set by Admin, ignore Count
+    canUpgrade = amountConditionMet;
   } else {
-    // If AND: All Active requirements must be Met
-    const isCountSatisfied = !hasCountRequirement || countMet;
-    const isAmountSatisfied = !hasAmountRequirement || amountMet;
-    passed = isCountSatisfied && isAmountSatisfied;
+    // Fallback: If both are 0, it's an auto-upgrade (Admin error safeguard)
+    canUpgrade = true;
   }
 
-  if (passed) {
-    // UPGRADE!
+  // 7. Execute Upgrade if eligible
+  if (canUpgrade) {
     userBadge.currentTier = nextTierName;
     userBadge.tiersUnlocked.push({
       tier: nextTierName,
       unlockedAt: new Date(),
     });
 
-    try {
-      // 1. Fetch the client to get the Auth ID (required by Notification Model)
-      const client = await Client.findById(userBadge.user);
+    // 8. Update History Record
+    // Mark the latest history entry with the tier it achieved
+    const latestHistory = await UserBadgeHistory.findOne({
+      userBadge: userBadge._id,
+    }).sort({ createdAt: -1 });
 
+    if (latestHistory) {
+      latestHistory.tierAchieved = nextTierName;
+      await latestHistory.save();
+    }
+
+    // 9. Completion Check
+    // If we just hit 'gold' or it's a single-tier badge, mark as finished
+    if (nextTierName === 'gold' || badge.isSingleTier) {
+      userBadge.isCompleted = true;
+    }
+
+    // Save the progress
+    await userBadge.save();
+
+    // 10. Send In-App Notification
+    try {
+      const client = await Client.findById(userBadge.user);
       if (client && client.auth) {
         await createNotification(
-          client.auth.toString(), // Receiver Auth ID
+          client.auth.toString(),
           NOTIFICATION_TYPE.BADGE_UNLOCKED,
-          `Congratulations! You've unlocked the ${nextTierName} tier for the "${badge.name}" badge!`,
+          `Congratulations! You've unlocked the ${targetTierConfig.name} tier for the "${badge.name}" badge!`,
           badge._id.toString(),
           {
             tier: nextTierName,
@@ -786,28 +923,16 @@ const checkTierUpgrade = async (userBadge: any, badge: any) => {
         );
       }
     } catch (error) {
-      console.error('Failed to send badge notification:', error);
+      console.error('Badge Notification Error:', error);
     }
 
-    const latestHistory = await UserBadgeHistory.findOne({
-      userBadge: userBadge._id,
-    }).sort({ createdAt: -1 });
-    if (latestHistory) {
-      latestHistory.tierAchieved = nextTierName;
-      await latestHistory.save();
-    }
-
-    if (nextTierName === BADGE_TIER.GOLD || badge.isSingleTier) {
-      userBadge.isCompleted = true;
-    }
-
-    await userBadge.save();
-
-    // Recursive check
+    // 11. RECURSION
+    // Check again immediately. This allows a user to jump from
+    // "Colour" -> "Bronze" -> "Silver" in a single donation if they
+    // meet the higher requirements.
     await checkTierUpgrade(userBadge, badge);
   }
 };
-
 export const badgeService = {
   createBadge,
   updateBadge,
