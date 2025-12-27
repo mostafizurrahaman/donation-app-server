@@ -36,6 +36,7 @@ import {
 } from '../Subscription/subscription.constant';
 import { Subscription } from '../Subscription/subscription.model';
 import { SubscriptionHistory } from '../subscriptionHistory/subscriptionHistory.model';
+import { SubscriptionService } from '../Subscription/subscription.service';
 const OTP_EXPIRY_MINUTES =
   Number.parseInt(config.jwt.otpSecretExpiresIn as string, 10) || 5;
 
@@ -292,7 +293,7 @@ const signinIntoDB = async (payload: {
   }
 
   if (payload.fcmToken && payload.deviceType) {
-     await AuthService.updateFcmToken(
+    await AuthService.updateFcmToken(
       user?._id?.toString(),
       payload.fcmToken,
       payload.deviceType
@@ -1043,9 +1044,6 @@ const resetPasswordIntoDB = async (
 
 // 12. fetchProfileFromDB
 const fetchProfileFromDB = async (user: IAuth) => {
-  console.log({
-    user,
-  });
   if (user?.role === ROLE.CLIENT) {
     const client = await Client.findOne({ auth: user._id }).populate([
       {
@@ -1066,15 +1064,19 @@ const fetchProfileFromDB = async (user: IAuth) => {
         select: 'email role isProfile isTwoFactorEnabled',
       },
     ]);
-    console.log({ business });
 
     // return business;
     const businessProfile = business?.toObject();
+
+    const isSubscribed = await SubscriptionService.checkHasSubscription(
+      business?._id!?.toString()
+    );
 
     return {
       ...businessProfile,
       coverImage: businessProfile?.coverImage || null,
       logoImage: businessProfile?.logoImage || null,
+      isSubscribed,
     };
   } else if (user?.role === ROLE.ORGANIZATION) {
     const organization = await Organization.findOne({

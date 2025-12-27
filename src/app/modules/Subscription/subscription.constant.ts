@@ -14,6 +14,10 @@ export const PLAN_TYPE = {
   TRIAL: 'trial',
 } as const;
 
+export const subscriptionStatusValues = Object.values(SUBSCRIPTION_STATUS);
+
+const searchableFields = ['planType', 'status'];
+
 export type TSubscriptionStatus =
   (typeof SUBSCRIPTION_STATUS)[keyof typeof SUBSCRIPTION_STATUS];
 export type TPlanType = (typeof PLAN_TYPE)[keyof typeof PLAN_TYPE];

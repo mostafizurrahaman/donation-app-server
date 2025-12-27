@@ -18,4 +18,22 @@ router.post(
   SubscriptionController.createSession
 );
 
+router.get(
+  '/payment-stats',
+  auth(ROLE.ADMIN),
+  SubscriptionController.getAdminSubscriptionAndPaymentsStats
+);
+router.get(
+  '/payments',
+  auth(ROLE.ADMIN),
+
+  SubscriptionController.getAdminSubscriptionAndPayments
+);
+
+router.get(
+  '/overview',
+  auth(ROLE.ADMIN),
+  SubscriptionController.getSubscriptionOverviewController
+);
+
 export const SubscriptionRoutes = router;

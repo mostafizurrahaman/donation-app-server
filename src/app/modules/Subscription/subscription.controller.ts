@@ -30,8 +30,44 @@ const getMySubscription = asyncHandler(
     });
   }
 );
+const getAdminSubscriptionAndPaymentsStats = asyncHandler(
+  async (req: ExtendedRequest, res: Response) => {
+    const result =
+      await SubscriptionService.getAdminSubscriptionAndPaymentsStats();
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      message: 'Subscription analytics retrieved successfully!',
+      data: result,
+    });
+  }
+);
+const getAdminSubscriptionAndPayments = asyncHandler(
+  async (req: ExtendedRequest, res: Response) => {
+    const result = await SubscriptionService.getAdminSubscriptionAndPayments(
+      req.query
+    );
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      message: 'Subscriptions retrieved successfully!',
+      data: result.data,
+      meta: result.meta,
+    });
+  }
+);
+const getSubscriptionOverviewController = asyncHandler(async (req, res) => {
+  const data = await SubscriptionService.getSubscriptionOverview();
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Subscription overview retrieved successfully',
+    data,
+  });
+});
 
 export const SubscriptionController = {
   createSession,
   getMySubscription,
+  getAdminSubscriptionAndPaymentsStats,
+  getAdminSubscriptionAndPayments,
+  getSubscriptionOverviewController,
 };
