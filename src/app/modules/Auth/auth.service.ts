@@ -1068,9 +1068,18 @@ const fetchProfileFromDB = async (user: IAuth) => {
     // return business;
     const businessProfile = business?.toObject();
 
-    const isSubscribed = await SubscriptionService.checkHasSubscription(
-      business?._id!?.toString()
-    );
+    const sub = await Subscription.findOne({
+      user: user?._id,
+      status: {
+        $in: [SUBSCRIPTION_STATUS.ACTIVE, SUBSCRIPTION_STATUS.TRIALING],
+      },
+    }).sort({ currentPeriodEnd: -1 });
+
+    if (!sub || !sub.currentPeriodEnd) {
+      return false;
+    }
+
+    const isSubscribed = new Date() < new Date(sub.currentPeriodEnd);
 
     return {
       ...businessProfile,
@@ -1088,9 +1097,13 @@ const fetchProfileFromDB = async (user: IAuth) => {
       },
     ]);
 
-    return organization;
+    const isSubscribed = await SubscriptionService.checkHasSubscription(
+      organization?._id!?.toString()
+    );
 
-    // return { ...organization?.toObject(), preference };
+    // return organization;
+
+    return { ...organization?.toObject(), isSubscribed };
   } else if (user?.role === ROLE.ADMIN) {
     const admin = await SuperAdmin.findOne({
       auth: user._id,
