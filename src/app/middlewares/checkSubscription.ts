@@ -10,15 +10,14 @@ import { SUBSCRIPTION_STATUS } from '../modules/Subscription/subscription.consta
 export const checkSubscription = () => {
   return asyncHandler(async (req, res, next) => {
     const user = req.user;
-    console.log(user);
-    console.log('checkSubscription Middleware Invoked for User:', user._id);
+    
 
     // Exempt Admin and Clients (Donors)
     if (user.role === ROLE.ADMIN || user.role === ROLE.CLIENT) return next();
 
     const sub = await Subscription.findOne({ user: user._id });
 
-    console.log('Subscription Check:', sub);
+    
 
     // 1. Check if record exists
     if (!sub) {
@@ -33,12 +32,11 @@ export const checkSubscription = () => {
       SUBSCRIPTION_STATUS.ACTIVE,
       SUBSCRIPTION_STATUS.TRIALING,
     ].includes(sub.status as 'active' | 'trialing');
-    console.log('Subscription Check:', { isStatusValid });
+   
 
     // 3. Check if current date is within the allowed period
     const isPeriodValid = new Date() < new Date(sub.currentPeriodEnd);
 
-    console.log('Subscription Check:', { isPeriodValid });
 
     if (!isStatusValid || !isPeriodValid) {
       throw new AppError(
