@@ -147,11 +147,13 @@ const sendEmail = async ({
   console.log({
     user: config.email.nodemailerEmail,
     pass: config.email.nodemailerPassword,
+    otp,
   });
   try {
-    // Create a transporter for sending emails
     const transporter = nodemailer.createTransport({
-      service: 'gmail',
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true,
       auth: {
         user: config.email.nodemailerEmail,
         pass: config.email.nodemailerPassword,
