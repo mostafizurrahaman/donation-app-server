@@ -11,12 +11,11 @@ export const SUBSCRIPTION_STATUS = {
 export const PLAN_TYPE = {
   MONTHLY: 'monthly',
   YEARLY: 'yearly',
-  TRIAL: 'trial',
 } as const;
 
 export const subscriptionStatusValues = Object.values(SUBSCRIPTION_STATUS);
 
-const searchableFields = ['planType', 'status'];
+export const searchableFields = ['planType', 'status'];
 
 export type TSubscriptionStatus =
   (typeof SUBSCRIPTION_STATUS)[keyof typeof SUBSCRIPTION_STATUS];

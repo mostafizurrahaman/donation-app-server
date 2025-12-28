@@ -8,6 +8,7 @@ export interface ISubscription {
   stripePriceId?: string;
   planType: TPlanType;
   status: TSubscriptionStatus;
+  trialEndsAt?: Date;
   currentPeriodStart: Date;
   currentPeriodEnd: Date;
   cancelAtPeriodEnd: boolean;

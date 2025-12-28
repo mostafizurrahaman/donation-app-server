@@ -31,6 +31,7 @@ import { SubscriptionHistory } from '../subscriptionHistory/subscriptionHistory.
 import {
   PLAN_TYPE,
   SUBSCRIPTION_STATUS,
+  TPlanType,
 } from '../Subscription/subscription.constant';
 import { stripe } from '../../lib/stripeHelper';
 
@@ -899,6 +900,9 @@ const handleAccountUpdated = async (stripeAccountData: Stripe.Account) => {
  */
 const handleSubscriptionSync = async (stripeSub: Stripe.Subscription) => {
   const userId = stripeSub.metadata?.userId;
+  const planType = stripeSub.metadata?.planType as TPlanType;
+
+  if (!userId) return;
 
   console.log({ stripeSub });
 
@@ -922,6 +926,10 @@ const handleSubscriptionSync = async (stripeSub: Stripe.Subscription) => {
         stripeCustomerId: stripeSub.customer as string,
         stripePriceId: stripeSubPlan.id,
         status: stripeSub.status,
+        planType: planType || PLAN_TYPE.MONTHLY,
+        trialEndsAt: stripeSub.trial_end
+          ? new Date(stripeSub.trial_end * 1000)
+          : null,
         currentPeriodStart: new Date(stripeSubItem.current_period_start * 1000),
         currentPeriodEnd: new Date(stripeSubItem.current_period_end * 1000),
         cancelAtPeriodEnd:

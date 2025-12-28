@@ -1528,7 +1528,7 @@ const businessSignupWithProfile = async (
         [
           {
             user: newAuth._id,
-            planType: PLAN_TYPE.TRIAL,
+            planType: PLAN_TYPE.MONTHLY,
             status: SUBSCRIPTION_STATUS.TRIALING,
             currentPeriodStart: new Date(),
             currentPeriodEnd: trialEndDate,
@@ -1548,7 +1548,7 @@ const businessSignupWithProfile = async (
             amount: 0,
             status: 'succeeded',
             billingReason: 'trial_start',
-            planType: 'trial',
+            planType: PLAN_TYPE.MONTHLY,
             transactionDate: new Date(),
           },
         ],
@@ -1765,8 +1765,9 @@ const organizationSignupWithProfile = async (
         [
           {
             user: newAuth._id,
-            planType: PLAN_TYPE.TRIAL,
+            planType: PLAN_TYPE.MONTHLY,
             status: SUBSCRIPTION_STATUS.TRIALING,
+            trialEndsAt: trialEndDate,
             currentPeriodStart: new Date(),
             currentPeriodEnd: trialEndDate,
           },
@@ -1785,7 +1786,7 @@ const organizationSignupWithProfile = async (
             amount: 0,
             status: 'succeeded',
             billingReason: 'trial_start',
-            planType: 'trial',
+            planType: PLAN_TYPE.MONTHLY,
             transactionDate: new Date(),
           },
         ],

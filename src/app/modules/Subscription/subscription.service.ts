@@ -8,11 +8,10 @@ import { stripe } from '../../lib/stripeHelper';
 import { Subscription } from './subscription.model';
 import Auth from '../Auth/auth.model';
 import { SUBSCRIPTION_STATUS } from './subscription.constant';
-import { ROLE, roleValues } from '../Auth/auth.constant';
+import { ROLE } from '../Auth/auth.constant';
 import { OrganizationModel } from '../Organization/organization.model';
 import config from '../../config';
-import QueryBuilder from '../../builders/QueryBuilder';
-import { searchableFields } from '../Organization/organization.constants';
+
 import { calculatePercentageChange } from '../../lib/filter-helper';
 
 const createSubscriptionSession = async (
@@ -21,53 +20,43 @@ const createSubscriptionSession = async (
 ) => {
   const user = await Auth.findById(userId);
   if (!user) throw new AppError(httpStatus.NOT_FOUND, 'User not found');
-  console.log('User Role:', user.role);
 
-  // 1. Determine Price ID based on Role and Selection
-  let priceId = '';
-  if (user.role === ROLE.ORGANIZATION) {
-    priceId =
-      planType === 'monthly'
+  const priceId =
+    user.role === ROLE.ORGANIZATION
+      ? planType === 'monthly'
         ? config.stripe.orgMonthlyPriceId
-        : config.stripe.orgYearlyPriceId;
-  } else if (user.role === ROLE.BUSINESS) {
-    priceId =
-      planType === 'monthly'
-        ? config.stripe.bizMonthlyPriceId
-        : config.stripe.bizYearlyPriceId;
-  }
+        : config.stripe.orgYearlyPriceId
+      : planType === 'monthly'
+      ? config.stripe.bizMonthlyPriceId
+      : config.stripe.bizYearlyPriceId;
 
-  if (!priceId) {
-    throw new AppError(
-      httpStatus.BAD_REQUEST,
-      'Pricing not configured for your role'
-    );
-  }
-
-  // 2. Check remaining local trial days to pass to Stripe
+  // 1. Calculate remaining trial days from our DB
   const localSub = await Subscription.findOne({ user: userId });
-  let remainingTrialDays = 0;
+  let trialEndTimestamp: number | undefined = undefined;
 
-  if (localSub && localSub.status === SUBSCRIPTION_STATUS.TRIALING) {
-    const diff = localSub.currentPeriodEnd.getTime() - new Date().getTime();
-    remainingTrialDays = Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
+  if (localSub && (localSub.status === 'trialing' || localSub.trialEndsAt)) {
+    const now = new Date();
+    const end = localSub.trialEndsAt || localSub.currentPeriodEnd;
+    if (end > now) {
+      // Convert to Unix timestamp for Stripe
+      trialEndTimestamp = Math.floor(end.getTime() / 1000);
+    }
   }
 
-  // 3. Create Session
+  // 2. Create Session with trial_end
   const session = await stripe.checkout.sessions.create({
     mode: 'subscription',
     payment_method_types: ['card'],
     line_items: [{ price: priceId, quantity: 1 }],
     customer_email: user.email,
     subscription_data: {
-      trial_period_days:
-        remainingTrialDays > 0 ? remainingTrialDays : undefined,
-      // trial_end: Math.floor(Date.now() / 1000 + 5 * 60),
-      metadata: { userId, email: user.email },
+      // Pinpoint the exact end of the 6 months so Stripe doesn't charge earlier
+      trial_end: trialEndTimestamp,
+      metadata: { userId, planType }, // Pass planType to metadata
     },
     success_url: `${config.clientUrl}/subscription/success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${config.clientUrl}/subscription/cancel`,
-    metadata: { userId, email: user.email },
+    metadata: { userId, planType },
   });
 
   return { url: session.url };
@@ -77,16 +66,17 @@ const getMySubscription = async (userId: string) => {
   const sub = await Subscription.findOne({ user: userId });
   if (!sub) return null;
 
-  // Check for auto-expiry of local trial
   const now = new Date();
+
   if (
     sub.status === SUBSCRIPTION_STATUS.TRIALING &&
     now > sub.currentPeriodEnd
   ) {
-    sub.status = SUBSCRIPTION_STATUS.EXPIRED;
-    await sub.save();
+    if (!sub.stripeSubscriptionId) {
+      sub.status = SUBSCRIPTION_STATUS.EXPIRED;
+      await sub.save();
+    }
   }
-
   return sub;
 };
 

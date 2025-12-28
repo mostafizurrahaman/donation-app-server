@@ -14,11 +14,12 @@ const subscriptionSchema = new Schema<ISubscriptionModel>(
     stripeSubscriptionId: { type: String, unique: true, sparse: true },
     stripeCustomerId: { type: String },
     stripePriceId: { type: String },
+    trialEndsAt: { type: Date },
 
     planType: {
       type: String,
       enum: Object.values(PLAN_TYPE),
-      default: PLAN_TYPE.TRIAL,
+      default: 'monthly',
     },
 
     status: {
@@ -30,7 +31,7 @@ const subscriptionSchema = new Schema<ISubscriptionModel>(
 
     currentPeriodStart: { type: Date, default: Date.now },
     currentPeriodEnd: { type: Date, required: true },
-    
+
     cancelAtPeriodEnd: { type: Boolean, default: false },
   },
   { timestamps: true, versionKey: false }

@@ -117,8 +117,8 @@ const config: IConfig = {
   },
   email: {
     contactUsEmail: process.env.CONTACT_US_EMAIL || 'contact@example.com',
-    nodemailerEmail: process.env.EMAIL_FOR_NODEMAILER || '',
-    nodemailerPassword: process.env.PASSWORD_FOR_NODEMAILER || '',
+    nodemailerEmail: process.env.EMAIL_FOR_NODEMAILER?.trim() || '',
+    nodemailerPassword: process.env.PASSWORD_FOR_NODEMAILER?.trim() || '',
   },
   admin: {
     email: process.env.ADMIN_EMAIL || 'admin@example.com',

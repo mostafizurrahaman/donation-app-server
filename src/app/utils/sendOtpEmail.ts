@@ -144,11 +144,11 @@ const sendEmail = async ({
   customMessage?: string;
   attachments?: { filename: string; path: string }[];
 }) => {
-  console.log({
-    user: config.email.nodemailerEmail,
-    pass: config.email.nodemailerPassword,
-    otp,
-  });
+  // console.log({
+  //   user: config.email.nodemailerEmail,
+  //   pass: config.email.nodemailerPassword,
+  //   otp,
+  // });
   try {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
@@ -162,6 +162,7 @@ const sendEmail = async ({
 
     // Generate the HTML content dynamically
     const htmlTemplate = generateEmailHTML(otp, name, logoCid, customMessage);
+    console.log({ email });
 
     // Email options: from, to, subject, and HTML body
     const mailOptions = {
