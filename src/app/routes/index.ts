@@ -25,6 +25,7 @@ import { notificationRoutes } from '../modules/Notification/notification.routes'
 import { SuperAdminRoutes } from '../modules/superAdmin/superAdmin.routes';
 import { contentRouter } from '../modules/content/content.routes';
 import { SubscriptionRoutes } from '../modules/Subscription/subscription.routes';
+import { SubscriptionHistoryRoutes } from '../modules/subscriptionHistory/subscriptionHistory.routes';
 
 const router = Router();
 
@@ -135,6 +136,10 @@ const moduleRoutes = [
   {
     path: '/subscription',
     route: SubscriptionRoutes,
+  },
+  {
+    path: '/subscription-history',
+    route: SubscriptionHistoryRoutes,
   },
 ];
 

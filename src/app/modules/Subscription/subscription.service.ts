@@ -500,6 +500,41 @@ const getSubscriptionOverview = async () => {
   };
 };
 
+const cancelSubscription = async (userId: string) => {
+  const sub = await Subscription.findOne({ user: userId });
+
+  if (!sub || !sub.stripeSubscriptionId) {
+    // If they are on the free trial but haven't added a card yet
+    if (sub && sub.status === SUBSCRIPTION_STATUS.TRIALING) {
+      sub.status = SUBSCRIPTION_STATUS.CANCELED;
+
+      await sub.save();
+      return { message: 'Trial canceled successfully' };
+    }
+    throw new AppError(
+      httpStatus.NOT_FOUND,
+      'Active stripe subscription not found'
+    );
+  }
+
+  // Tell Stripe to cancel at the end of the period
+  const updatedStripeSub = await stripe.subscriptions.update(
+    sub.stripeSubscriptionId,
+    { cancel_at_period_end: true }
+  );
+
+  // Update local DB immediately so the UI shows "Cancels on [Date]"
+  sub.cancelAtPeriodEnd = true;
+  await sub.save();
+
+  return {
+    message: 'Subscription scheduled for cancellation',
+    cancelAt: new Date(
+      updatedStripeSub.items.data[0].current_period_end * 1000
+    ),
+  };
+};
+
 export const SubscriptionService = {
   createSubscriptionSession,
   getMySubscription,
@@ -508,4 +543,5 @@ export const SubscriptionService = {
   getAdminSubscriptionAndPaymentsStats,
   getAdminSubscriptionAndPayments,
   getSubscriptionOverview,
+  cancelSubscription,
 };

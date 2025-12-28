@@ -36,4 +36,10 @@ router.get(
   SubscriptionController.getSubscriptionOverviewController
 );
 
+router.post(
+  '/cancel',
+  auth(ROLE.ORGANIZATION, ROLE.BUSINESS),
+  SubscriptionController.cancelSubscription
+);
+
 export const SubscriptionRoutes = router;

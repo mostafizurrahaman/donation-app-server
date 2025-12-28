@@ -6,7 +6,12 @@ const getMyBillingHistory = async (
   query: Record<string, unknown>
 ) => {
   const historyQuery = new QueryBuilder(
-    SubscriptionHistory.find({ user: userId }),
+    SubscriptionHistory.find({
+      user: userId,
+      billingReason: {
+        $ne: 'trial_start',
+      },
+    }),
     query
   )
     .sort()

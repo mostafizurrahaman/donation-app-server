@@ -64,10 +64,25 @@ const getSubscriptionOverviewController = asyncHandler(async (req, res) => {
   });
 });
 
+const cancelSubscription = asyncHandler(
+  async (req: ExtendedRequest, res: Response) => {
+    const result = await SubscriptionService.cancelSubscription(
+      req.user._id.toString()
+    );
+
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      message: 'Subscription canceled successfully',
+      data: result,
+    });
+  }
+);
+
 export const SubscriptionController = {
   createSession,
   getMySubscription,
   getAdminSubscriptionAndPaymentsStats,
   getAdminSubscriptionAndPayments,
   getSubscriptionOverviewController,
+  cancelSubscription,
 };
