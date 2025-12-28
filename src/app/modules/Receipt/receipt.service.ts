@@ -108,13 +108,12 @@ const generateReceipt = async (payload: IReceiptGenerationPayload) => {
       abnNumber: organization.tfnOrAbnNumber,
       taxDeductible: true,
       zakatEligible: !!organization.zakatLicenseHolderNumber,
-
-      // ✅ Financial Breakdown (No legacy tax fields)
+      
       amount: payload.amount,
       coverFees: payload.coverFees,
       platformFee: payload.platformFee,
       gstOnFee: payload.gstOnFee,
-      stripeFee: payload.stripeFee, // ✅ NEW
+      stripeFee: payload.stripeFee, 
       totalAmount: payload.totalAmount,
       netAmount: payload.netAmount,
 

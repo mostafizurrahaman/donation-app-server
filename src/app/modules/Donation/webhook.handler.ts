@@ -33,7 +33,7 @@ import {
   SUBSCRIPTION_STATUS,
   TPlanType,
 } from '../Subscription/subscription.constant';
-import { stripe } from '../../lib/stripeHelper';
+
 
 // ========================================
 // SCHEDULED DONATION: Success Handler
@@ -153,7 +153,7 @@ const generateReceiptAfterPayment = async (
       gstOnFee: donation.gstOnFee,
       stripeFee: donation.stripeFee || 0,
       totalAmount: donation.totalAmount,
-      netOrgAmount: donation.netOrgAmount || 0,
+      netAmount: donation.netAmount || 0, 
 
       currency: donation.currency || paymentIntent.currency.toUpperCase(),
       donationType: donation.donationType || 'one-time',
