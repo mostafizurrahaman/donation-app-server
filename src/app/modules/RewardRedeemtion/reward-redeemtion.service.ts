@@ -13,8 +13,6 @@ import { AppError } from '../../utils';
 import {
   IRewardRedemptionDocument,
   ICancelClaimPayload,
-  IReward,
-  IRewardDocument,
 } from '../Reward/reward.interface';
 
 import {
@@ -239,9 +237,7 @@ const cancelClaimedReward = async (
 ): Promise<IRewardRedemptionDocument> => {
   const { redemptionId, userId, reason } = payload;
 
-  // Resolve client ID
   const isClientExists = await Client.findOne({ auth: userId });
-  // Fallback to direct ID if passed (e.g. admin action)
   const userObjectId = isClientExists
     ? isClientExists._id
     : new Types.ObjectId(userId);
@@ -250,6 +246,7 @@ const cancelClaimedReward = async (
     _id: redemptionId,
     user: userObjectId,
     status: 'claimed',
+    isHidden: { $ne: true }, // EXCLUDE HIDDEN
   }).populate('reward');
 
   if (!redemption) {
@@ -269,9 +266,9 @@ const cancelClaimedReward = async (
   session.startTransaction();
 
   try {
-    // 1. Refund points
+    // Refund points
     const refundTransaction = await pointsServices.refundPoints(
-      userId, // Auth ID passed to points service
+      userId,
       redemption.pointsSpent,
       'reward_redemption',
       reason || 'Reward claim cancelled',
@@ -280,28 +277,35 @@ const cancelClaimedReward = async (
       session
     );
 
-    // 2. Update status
+    // Update status
     redemption.status = 'cancelled';
     redemption.cancelledAt = new Date();
     redemption.cancellationReason = reason;
     redemption.refundTransactionId = refundTransaction.transaction
       ._id as Types.ObjectId;
-
     await redemption.save({ session });
 
-    // 3. Return stock and code to Reward
+    // Return stock and code
     const reward = await Reward.findById(redemption.reward).session(session);
     if (reward) {
-      // Return code if assigned
       if (redemption.assignedCode) {
-        await reward.returnCode(redemption.assignedCode);
+        await RewardCode.findOneAndUpdate(
+          { code: redemption.assignedCode },
+          {
+            $set: {
+              isUsed: false,
+              usedBy: null,
+              usedAt: null,
+              redemption: null,
+            },
+          },
+          { session }
+        );
       }
 
-      // Increment stock
       reward.remainingCount += 1;
       reward.redeemedCount = Math.max(0, reward.redeemedCount - 1);
 
-      // Re-activate if it was sold out
       if (reward.status === 'sold-out') {
         reward.status = 'active';
       }
@@ -327,7 +331,7 @@ const verifyRedemption = async (
   code?: string,
   redemptionId?: string
 ) => {
-  const query: any = { status: 'claimed' };
+  const query: any = { status: 'claimed', isHidden: { $ne: true } };
 
   if (code) {
     query.assignedCode = code;
@@ -382,14 +386,11 @@ const redeemRewardByCode = async (payload: {
 }) => {
   const { code, staffAuthId, method } = payload;
 
-  // 1. Identify the Business performing the action
   const business = await Business.findOne({ auth: staffAuthId });
   if (!business) {
     throw new AppError(httpStatus.NOT_FOUND, 'Business profile not found.');
   }
 
-  // 2. Parse the Code to extract the Prefix
-  // Expected format: RWDXXXX-YYYY
   const codeParts = code.split('-');
   if (codeParts.length < 2) {
     throw new AppError(
@@ -399,7 +400,6 @@ const redeemRewardByCode = async (payload: {
   }
   const prefix = codeParts[0];
 
-  // 3. Identify the Reward using the Prefix
   const reward = await Reward.findOne({ codePrefix: prefix });
   if (!reward) {
     throw new AppError(
@@ -408,7 +408,6 @@ const redeemRewardByCode = async (payload: {
     );
   }
 
-  // 4. Verify that this Reward actually belongs to the scanning Business
   if (reward.business.toString() !== business._id.toString()) {
     throw new AppError(
       httpStatus.FORBIDDEN,
@@ -416,41 +415,39 @@ const redeemRewardByCode = async (payload: {
     );
   }
 
+  // Validate method
   if (reward.type === 'in-store') {
     const availableMethods = [];
-
     if (reward?.inStoreRedemptionMethods?.nfcTap) {
       availableMethods.push(REDEMPTION_METHOD.NFC);
     }
-
     if (reward?.inStoreRedemptionMethods?.qrCode) {
       availableMethods.push(REDEMPTION_METHOD.QR_CODE);
     }
-
     if (reward?.inStoreRedemptionMethods?.staticCode) {
       availableMethods.push(REDEMPTION_METHOD.STATIC_CODE);
     }
-
     if (!availableMethods?.includes(method)) {
       throw new AppError(
         httpStatus.BAD_REQUEST,
-        `Invalid redemption method "${method}". Allowed methods are: ${availableMethods.join(
+        `Invalid redemption method "${method}". Allowed: ${availableMethods.join(
           ', '
         )}.`
       );
     }
   }
 
-  // 5. Find the specific Claim/Redemption record using the full Code
+  // Find the claim - EXCLUDE HIDDEN
   const redemption = await RewardRedemption.findOne({
     assignedCode: code,
     reward: reward._id,
     business: business._id,
     status: REDEMPTION_STATUS.CLAIMED,
-  }).populate<{ user: IClient }>('user', 'name auth'); // Identify the user
+    isHidden: { $ne: true },
+  }).populate<{ user: IClient }>('user', 'name auth');
 
   if (!redemption) {
-    // Check if it was already redeemed
+    // Check if already redeemed
     const alreadyRedeemed = await RewardRedemption.findOne({
       assignedCode: code,
       status: REDEMPTION_STATUS.REDEEMED,
@@ -461,39 +458,45 @@ const redeemRewardByCode = async (payload: {
         'This code has already been redeemed.'
       );
     }
+
+    // Check if hidden (reward was deleted)
+    const hiddenRedemption = await RewardRedemption.findOne({
+      assignedCode: code,
+      isHidden: true,
+    });
+    if (hiddenRedemption) {
+      throw new AppError(
+        httpStatus.GONE,
+        'This reward has been removed and can no longer be redeemed.'
+      );
+    }
+
     throw new AppError(
       httpStatus.NOT_FOUND,
       'No active claim found for this code. It may be expired or invalid.'
     );
   }
 
-  // 6. Security Check: Expiry
   if (new Date() > redemption.expiresAt) {
     redemption.status = 'expired';
     await redemption.save();
     throw new AppError(httpStatus.GONE, 'This reward claim has expired.');
   }
 
-  // 7. Atomic Update: Mark as REDEEMED
+  // Mark as redeemed
   redemption.status = REDEMPTION_STATUS.REDEEMED;
   redemption.redeemedAt = new Date();
   redemption.redeemedByStaff = new Types.ObjectId(business._id);
-  redemption.redemptionMethod = method; // Log method
-
+  redemption.redemptionMethod = method;
   await redemption.save();
 
-  // 8. Update the RewardCode inventory record for auditing
+  // Update code inventory
   await RewardCode.findOneAndUpdate(
     { code: code },
-    {
-      $set: {
-        isUsed: true,
-        usedAt: new Date(),
-      },
-    }
+    { $set: { isUsed: true, usedAt: new Date() } }
   );
 
-  // 9. Notify User (Async)
+  // Notify user
   createNotification(
     redemption.user.auth.toString(),
     NOTIFICATION_TYPE.REWARD_REDEEMED,
@@ -522,6 +525,7 @@ const getUserClaimedRewards = async (
   const baseQuery = new QueryBuilder(
     RewardRedemption.find({
       user: userId,
+      isHidden: { $ne: true },
     }).populate<{ reward: any }>('reward'),
     query
   )
@@ -567,6 +571,7 @@ const getClaimedRewardById = async (
   const redemption = await RewardRedemption.findOne({
     _id: redemptionId,
     user: userId,
+    isHidden: { $ne: true },
   })
     .populate('reward', 'title description image type category pointsCost')
     .populate('business', 'name locations coverImage');
@@ -598,9 +603,11 @@ const expireOldClaimsWithFullRestoration = async (): Promise<{
     errors: [] as Array<{ claimId: string; error: string }>,
   };
 
+  // Find expired claims - EXCLUDE HIDDEN
   const expiredClaims = await RewardRedemption.find({
     status: 'claimed',
     expiresAt: { $lte: now },
+    isHidden: { $ne: true },
   });
 
   result.totalProcessed = expiredClaims.length;
@@ -610,26 +617,27 @@ const expireOldClaimsWithFullRestoration = async (): Promise<{
   for (const claim of expiredClaims) {
     const session = await mongoose.startSession();
     session.startTransaction();
+
     try {
       claim.status = 'expired';
       claim.expiredAt = now;
       await claim.save({ session });
 
+      // Refund points
       try {
-        // Get Auth ID from Client ID to pass to points service
         const client = await Client.findById(claim.user);
-        const authUserId = client
-          ? client.auth.toString()
-          : claim.user.toString();
+        // const authUserId = client
+        //   ? client.auth.toString()
+        //   : claim.user.toString();
 
         const refundResult = await pointsServices.refundPoints(
-          authUserId,
+          client!._id.toString(),
           claim.pointsSpent,
           'claim_expired',
-          `Reward claim expired - automatic refund for claim ${claim._id}`,
+          `Reward claim expired - automatic refund`,
           claim._id.toString(),
           undefined,
-          session // ✅ Critical: Pass the session
+          session
         );
 
         if (refundResult && refundResult.transaction) {
@@ -640,9 +648,37 @@ const expireOldClaimsWithFullRestoration = async (): Promise<{
         }
       } catch (refundError) {
         console.error(
-          `[EXPIRATION] Failed to refund points for claim ${claim._id}:`,
+          `Failed to refund points for claim ${claim._id}:`,
           refundError
         );
+      }
+
+      // Return code and stock
+      const reward = await Reward.findById(claim.reward).session(session);
+      if (reward) {
+        if (claim.assignedCode) {
+          await RewardCode.findOneAndUpdate(
+            { code: claim.assignedCode },
+            {
+              $set: {
+                isUsed: false,
+                usedBy: null,
+                usedAt: null,
+                redemption: null,
+              },
+            },
+            { session }
+          );
+          result.codesReturned++;
+        }
+
+        reward.remainingCount += 1;
+        reward.redeemedCount = Math.max(0, reward.redeemedCount - 1);
+        if (reward.status === 'sold-out' && reward.remainingCount > 0) {
+          reward.status = 'active';
+        }
+        await reward.save({ session });
+        result.stockRestored++;
       }
 
       await session.commitTransaction();
@@ -657,6 +693,7 @@ const expireOldClaimsWithFullRestoration = async (): Promise<{
       session.endSession();
     }
   }
+
   return result;
 };
 

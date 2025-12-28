@@ -1529,8 +1529,6 @@ const getUsersEngagementReportFromDb = async (
   };
 };
 
-
-
 type DonationsEngagementReportParams = {
   donationType?: 'one-time' | 'recurring';
   year?: number;
@@ -2600,7 +2598,13 @@ export const getBusinessRewardOverview = async (query: {
       from: 'rewardredemptions',
       let: { businessId: '$_id' },
       pipeline: [
-        { $match: { $expr: { $eq: ['$business', '$$businessId'] } } },
+        {
+          $match: {
+            $expr: { $eq: ['$business', '$$businessId'] },
+            isHidden: { $ne: true },
+          },
+        },
+
         { $count: 'total' },
       ],
       as: 'redemptionStats',

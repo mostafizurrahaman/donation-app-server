@@ -8,6 +8,7 @@ import {
 import { RewardController } from './reward.controller';
 import { rewardValidation } from './reward.validation';
 import { upload, uploadForParsing } from '../../lib/upload';
+import { checkSubscription } from '../../middlewares/checkSubscription';
 
 const router = express.Router();
 
@@ -30,6 +31,7 @@ router.get('/featured', RewardController.getFeaturedRewards);
 router.get(
   '/business/my-rewards',
   auth(ROLE.BUSINESS),
+  checkSubscription(),
   validateRequest(rewardValidation.getBusinessRewardsSchema),
   RewardController.getBusinessRewards
 );
@@ -74,18 +76,12 @@ router.get(
   RewardController.checkAvailability
 );
 
-// Admin: Archive Reward
-router.delete(
-  '/:id/archive',
-  auth(ROLE.ADMIN),
-  validateRequest(rewardValidation.deleteRewardSchema),
-  RewardController.archiveReward
-);
 
 // Business: Upload Codes
 router.post(
   '/:id/codes',
   auth(ROLE.BUSINESS, ROLE.ADMIN),
+  checkSubscription(),
   uploadForParsing.array('files', 10),
   validateRequest(rewardValidation.uploadCodesSchema),
   RewardController.uploadCodes
@@ -95,6 +91,7 @@ router.post(
 router.patch(
   '/:id/image',
   auth(ROLE.BUSINESS, ROLE.ADMIN),
+  checkSubscription(),
   upload.single('rewardImage'),
   RewardController.updateRewardImage
 );
@@ -123,6 +120,7 @@ router.get(
 router.post(
   '/',
   auth(ROLE.BUSINESS, ROLE.ADMIN),
+  checkSubscription(),
   upload.fields([
     { name: 'rewardImage', maxCount: 1 },
     { name: 'codesFiles', maxCount: 10 },
@@ -134,6 +132,7 @@ router.post(
 router.post(
   '/online',
   auth(ROLE.BUSINESS, ROLE.ADMIN),
+  checkSubscription(),
   upload.fields([
     { name: 'rewardImage', maxCount: 1 },
     { name: 'codesFiles', maxCount: 10 },
@@ -145,6 +144,7 @@ router.post(
 router.patch(
   '/:id/status',
   auth(ROLE.BUSINESS, ROLE.ADMIN),
+  checkSubscription(),
   validateRequest(rewardValidation.toggleRewardStatusSchema),
   RewardController.toggleRewardStatus
 );
@@ -153,6 +153,7 @@ router.patch(
 router.patch(
   '/:id',
   auth(ROLE.BUSINESS, ROLE.ADMIN),
+  checkSubscription(),
   upload.fields([
     { name: 'rewardImage', maxCount: 1 },
     { name: 'codesFiles', maxCount: 10 },
@@ -161,10 +162,11 @@ router.patch(
   RewardController.updateReward
 );
 
-// Business: Soft Delete Reward
+// Business:  Delete Reward
 router.delete(
   '/:id',
   auth(ROLE.BUSINESS, ROLE.ADMIN),
+  checkSubscription(),
   validateRequest(rewardValidation.deleteRewardSchema),
   RewardController.deleteReward
 );

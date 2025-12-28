@@ -5,7 +5,6 @@ import { ROLE, TRole } from '../modules/Auth/auth.constant';
 import Auth from '../modules/Auth/auth.model';
 import { verifyToken } from '../lib';
 import config from '../config';
-import { ORGANIZATION_STATUS } from '../modules/Organization/organization.constants';
 
 const auth = (...requiredRoles: TRole[]) => {
   return asyncHandler(async (req, res, next) => {

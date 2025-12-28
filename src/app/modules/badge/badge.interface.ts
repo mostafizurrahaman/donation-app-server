@@ -10,6 +10,7 @@ import {
 export interface IBadgeTierConfig {
   tier: (typeof BADGE_TIER)[keyof typeof BADGE_TIER];
   name: string;
+  icon: string;
   requiredCount: number;
   requiredAmount?: number;
 }

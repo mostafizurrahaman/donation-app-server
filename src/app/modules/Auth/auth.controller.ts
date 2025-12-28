@@ -308,6 +308,25 @@ const disable2FA = asyncHandler(async (req, res) => {
   });
 });
 
+const guestLogin = asyncHandler(async (req, res) => {
+  const result = await AuthService.guestLogin();
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Logged in as guest!',
+    data: result,
+  });
+});
+
+const guestRemove = asyncHandler(async (req, res) => {
+  const guestId = req.body.guestId;
+  const result = await AuthService.guestRemove(guestId);
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Guest user cleaned up successfully',
+    data: result,
+  });
+});
+
 export const AuthController = {
   createAuth,
   sendSignupOtpAgain,
@@ -332,4 +351,6 @@ export const AuthController = {
   verifyAndEnable2FA,
   verify2FALogin,
   disable2FA,
+  guestLogin,
+  guestRemove,
 };

@@ -5,6 +5,7 @@ export const ROLE = {
   ORGANIZATION: 'ORGANIZATION',
   BUSINESS: 'BUSINESS',
   ADMIN: 'ADMIN',
+  GUEST: 'GUEST',
 } as const;
 
 export type TRole = keyof typeof ROLE;
@@ -23,5 +24,8 @@ export const AUTH_STATUS = {
   SUSPENDED: 'suspended',
 } as const;
 
-export type TAuthStatus = typeof AUTH_STATUS[keyof typeof AUTH_STATUS];
-export const authStatusValues = Object.values(AUTH_STATUS) as [string, ...string[]];
+export type TAuthStatus = (typeof AUTH_STATUS)[keyof typeof AUTH_STATUS];
+export const authStatusValues = Object.values(AUTH_STATUS) as [
+  string,
+  ...string[]
+];

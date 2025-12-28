@@ -451,7 +451,7 @@ const getClientStats = asyncHandler(
     if (!userId) {
       throw new AppError(httpStatus.UNAUTHORIZED, 'User not authenticated');
     }
-
+    
     // Extract query from validated request or raw query
     const timeFilter = (req.query.timeFilter as TTimeFilter) || 'this_month';
 

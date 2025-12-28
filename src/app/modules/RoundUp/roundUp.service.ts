@@ -18,6 +18,8 @@ import { IBankConnection } from '../BankConnection/bankConnection.interface';
 import { IPaymentMethod } from '../PaymentMethod/paymentMethod.interface';
 import { IORGANIZATION } from '../Organization/organization.interface';
 import { ICause } from '../Causes/causes.interface';
+import { SubscriptionService } from '../Subscription/subscription.service';
+import { StripeAccount } from '../OrganizationAccount/stripe-account.model';
 
 const savePlaidConsent = async (
   userId: string,
@@ -85,6 +87,24 @@ const savePlaidConsent = async (
       data: null,
       statusCode: StatusCodes.BAD_REQUEST,
     };
+  }
+
+  // check subscription status of organization
+  await SubscriptionService.validateOrganizationAccess(
+    organization?._id.toString()
+  );
+
+  // check is stripe account exists :
+  const stripeAccount = await StripeAccount.findOne({
+    organization: organization._id,
+    status: 'active',
+  });
+
+  if (!stripeAccount || !stripeAccount.chargesEnabled) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'This organization is not set up to receive payments (Stripe account inactive).'
+    );
   }
 
   const cause = await Cause.findById(causeId);

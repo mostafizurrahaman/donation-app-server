@@ -8,7 +8,7 @@ const fcmTokenSchema = new Schema(
       required: true,
       index: true,
     },
-    token: { type: String, required: true, unique: true },
+    token: { type: String, required: true },
     deviceType: {
       type: String,
       enum: ['android', 'ios', 'web'],

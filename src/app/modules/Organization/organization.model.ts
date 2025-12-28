@@ -1,10 +1,6 @@
 import { model, now, Schema } from 'mongoose';
 import { IORGANIZATION } from './organization.interface';
-import {
-  organizationServiceTypeValues,
-  STRIPE_ACCOUNT_STATUS,
-  STRIPE_ACCOUNT_STATUS_VALUES,
-} from './organization.constants';
+import { organizationServiceTypeValues } from './organization.constants';
 
 const organizationSchema = new Schema<IORGANIZATION>(
   {

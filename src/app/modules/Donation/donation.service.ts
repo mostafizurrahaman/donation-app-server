@@ -46,6 +46,8 @@ import {
 import { ScheduledDonation } from '../ScheduledDonation/scheduledDonation.model';
 import { RoundUpModel } from '../RoundUp/roundUp.model';
 import { StripeAccount } from '../OrganizationAccount/stripe-account.model';
+import { Subscription } from '../Subscription/subscription.model';
+import { SubscriptionService } from '../Subscription/subscription.service';
 
 // Helper function to generate unique idempotency key
 const generateIdempotencyKey = (): string => {
@@ -1352,6 +1354,23 @@ const getDonationAnalytics = async (
       : donationType === 'roundup'
       ? 'round-up'
       : donationType;
+
+  if (
+    ['round-up', 'recurring'].includes(
+      donationTypeFilter as 'round-up' | 'recurring'
+    )
+  ) {
+    const hasSubscription = await SubscriptionService.checkHasSubscription(
+      organizationId!
+    );
+
+    if (!hasSubscription) {
+      throw new AppError(
+        httpStatus.PAYMENT_REQUIRED,
+        'This organization is not eligible for RoundUp or recurring donations because it has no active subscription.'
+      );
+    }
+  }
 
   const [
     totalDonatedAmount,

@@ -23,6 +23,7 @@ import { StripeAccount } from '../OrganizationAccount/stripe-account.model';
 import { createNotification } from '../Notification/notification.service';
 import { NOTIFICATION_TYPE } from '../Notification/notification.constant';
 import { IORGANIZATION } from '../Organization/organization.interface';
+import { SubscriptionService } from '../Subscription/subscription.service';
 
 // Helper function to calculate next donation date
 export const calculateNextDonationDate = (
@@ -111,6 +112,12 @@ const createScheduledDonation = async (
     throw new AppError(httpStatus.NOT_FOUND, 'Organization not found!');
   }
 
+  // check subscription status of organization
+  await SubscriptionService.validateOrganizationAccess(
+    organization?._id.toString()
+  );
+
+  
   // check is stripe account exists :
   const stripeAccount = await StripeAccount.findOne({
     organization: organization._id,

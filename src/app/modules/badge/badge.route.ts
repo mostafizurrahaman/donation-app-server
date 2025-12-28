@@ -38,7 +38,14 @@ router.get(
 router.post(
   '/',
   auth(ROLE.ADMIN),
-  upload.single('icon'),
+  upload.fields([
+    { name: 'mainIcon', maxCount: 1 },
+    { name: 'tier_colour', maxCount: 1 },
+    { name: 'tier_bronze', maxCount: 1 },
+    { name: 'tier_silver', maxCount: 1 },
+    { name: 'tier_gold', maxCount: 1 },
+    { name: 'tier_one-tier', maxCount: 1 },
+  ]),
   validateRequestFromFormData(createBadgeSchema),
   badgeController.createBadge
 );
@@ -46,7 +53,14 @@ router.post(
 router.patch(
   '/:id',
   auth(ROLE.ADMIN),
-  upload.single('icon'),
+  upload.fields([
+    { name: 'mainIcon', maxCount: 1 },
+    { name: 'tier_colour', maxCount: 1 },
+    { name: 'tier_bronze', maxCount: 1 },
+    { name: 'tier_silver', maxCount: 1 },
+    { name: 'tier_gold', maxCount: 1 },
+    { name: 'tier_one-tier', maxCount: 1 },
+  ]),
   validateRequestFromFormData(updateBadgeSchema),
   badgeController.updateBadge
 );
