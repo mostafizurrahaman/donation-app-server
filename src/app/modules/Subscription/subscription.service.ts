@@ -21,6 +21,7 @@ const createSubscriptionSession = async (
 ) => {
   const user = await Auth.findById(userId);
   if (!user) throw new AppError(httpStatus.NOT_FOUND, 'User not found');
+  console.log('User Role:', user.role);
 
   // 1. Determine Price ID based on Role and Selection
   let priceId = '';

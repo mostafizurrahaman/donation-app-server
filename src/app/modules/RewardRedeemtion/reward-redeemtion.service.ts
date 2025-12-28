@@ -13,8 +13,6 @@ import { AppError } from '../../utils';
 import {
   IRewardRedemptionDocument,
   ICancelClaimPayload,
-  IReward,
-  IRewardDocument,
 } from '../Reward/reward.interface';
 
 import {
