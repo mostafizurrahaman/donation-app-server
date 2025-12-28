@@ -67,6 +67,7 @@ export interface IReceiptGenerationPayload {
   gstOnFee: number;
   stripeFee: number; // ✅ NEW
   totalAmount: number;
+  netAmount: number;
 
   currency: string;
   donationType: 'one-time' | 'recurring' | 'round-up';
@@ -126,6 +127,7 @@ export interface IReceiptPDFData {
   gstOnFee: number;
   stripeFee: number; // ✅ NEW
   totalAmount: number;
+  netAmount: number;
 
   currency: string;
   donationType: string;

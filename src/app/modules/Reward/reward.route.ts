@@ -76,7 +76,6 @@ router.get(
   RewardController.checkAvailability
 );
 
-
 // Business: Upload Codes
 router.post(
   '/:id/codes',
@@ -176,6 +175,13 @@ router.post(
   '/maintenance/trigger',
   auth(ROLE.ADMIN),
   RewardController.triggerRewardMaintenance
+);
+
+router.delete(
+  '/delete-image/:id',
+  auth(ROLE.BUSINESS),
+  checkSubscription(),
+  RewardController.deleteRewardImage
 );
 
 export const RewardRoutes = router;

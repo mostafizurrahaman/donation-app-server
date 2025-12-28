@@ -1058,6 +1058,33 @@ const deleteReward = async (
   }
 };
 
+const deleteRewardImage = async (rewardId: string, userId: string) => {
+  // 1. Find the reward
+  const reward = await Reward.findById(rewardId);
+
+  if (!reward) {
+    throw new AppError(httpStatus.NOT_FOUND, REWARD_MESSAGES.NOT_FOUND);
+  }
+
+  try {
+    if (reward.image) {
+      const s3Key = getS3KeyFromUrl(reward.image);
+      if (s3Key) {
+        deleteFromS3(s3Key).catch((err) =>
+          console.error('Failed to delete reward image from S3:', err)
+        );
+      }
+    }
+
+    reward.image = '';
+    await reward.save();
+
+    return reward;
+  } catch (error: any) {
+    throw new AppError(httpStatus.INTERNAL_SERVER_ERROR, error.message);
+  }
+};
+
 /**
  * Check if reward can be deleted
  * Useful for frontend to show/hide delete button or show warning
@@ -1712,4 +1739,5 @@ export const rewardService = {
   getAdminRewardAnalytics,
   getRewardDetailsForAdmin,
   createOnlineReward,
+  deleteRewardImage,
 };
