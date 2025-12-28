@@ -22,6 +22,7 @@ import {
   IParsedCodeFromCSV,
   IRewardDocument,
   IRewardsListResult,
+  IHardDeleteResult,
 } from './reward.interface';
 
 import {
@@ -947,35 +948,153 @@ const toggleRewardStatus = async (
   return reward;
 };
 
-const deleteReward = async (rewardId: string): Promise<void> => {
+const deleteReward = async (
+  rewardId: string,
+  userId: string
+): Promise<IHardDeleteResult> => {
+  // 1. Find the reward
   const reward = await Reward.findById(rewardId);
+
   if (!reward) {
     throw new AppError(httpStatus.NOT_FOUND, REWARD_MESSAGES.NOT_FOUND);
   }
-  reward.isActive = false;
-  reward.status = REWARD_STATUS.INACTIVE;
-  await reward.save();
+
+  // 2. Check if reward is active
+  if (reward.isActive) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      REWARD_MESSAGES.CANNOT_DELETE_ACTIVE
+    );
+  }
+
+  // 3. Check for active claims (claimed but not yet redeemed/expired/cancelled)
+  const activeClaimsCount = await RewardRedemption.countDocuments({
+    reward: rewardId,
+    status: 'claimed',
+    expiresAt: { $gt: new Date() },
+  });
+
+  if (activeClaimsCount > 0) {
+    throw new AppError(
+      httpStatus.CONFLICT,
+      `${
+        REWARD_MESSAGES.CANNOT_DELETE_WITH_ACTIVE_CLAIMS
+      } (${activeClaimsCount} active claim${
+        activeClaimsCount > 1 ? 's' : ''
+      } remaining)`
+    );
+  }
+
+  // 4. Start transaction for atomic deletion
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    // 5. Delete all RewardCodes for this reward
+    const codesResult = await RewardCode.deleteMany(
+      { reward: reward._id },
+      { session }
+    );
+
+    // 6. Delete all ViewRewards for this reward
+    const viewsResult = await ViewReward.deleteMany(
+      { reward: reward._id },
+      { session }
+    );
+
+    // 7. Hide all RewardRedemptions (keep for audit, but hide from user)
+    const redemptionsResult = await RewardRedemption.updateMany(
+      { reward: reward._id },
+      {
+        $set: {
+          isHidden: true,
+          hiddenAt: new Date(),
+          hiddenReason: 'Reward deleted',
+        },
+      },
+      { session }
+    );
+
+    // 8. Store reward info before deletion
+    const deletedRewardInfo = {
+      id: reward._id.toString(),
+      title: reward.title,
+    };
+
+    // 9. Delete the reward document
+    await Reward.findByIdAndDelete(rewardId).session(session);
+
+    // 10. Commit transaction
+    await session.commitTransaction();
+
+    // 11. Cleanup S3 image (outside transaction - fire and forget)
+    if (reward.image) {
+      const s3Key = getS3KeyFromUrl(reward.image);
+      if (s3Key) {
+        deleteFromS3(s3Key).catch((err) =>
+          console.error('Failed to delete reward image from S3:', err)
+        );
+      }
+    }
+
+    return {
+      success: true,
+      deletedReward: deletedRewardInfo,
+      cleanup: {
+        codesDeleted: codesResult.deletedCount,
+        viewsDeleted: viewsResult.deletedCount,
+        redemptionsHidden: redemptionsResult.modifiedCount,
+      },
+    };
+  } catch (error: any) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    session.endSession();
+  }
 };
 
 /**
- * Permanently delete reward record and its image from S3
+ * Check if reward can be deleted
+ * Useful for frontend to show/hide delete button or show warning
  */
-const archiveReward = async (rewardId: string): Promise<void> => {
-  const reward = await Reward.findByIdAndDelete(rewardId);
+const canDeleteReward = async (
+  rewardId: string
+): Promise<{
+  canDelete: boolean;
+  reason?: string;
+  activeClaimsCount?: number;
+}> => {
+  const reward = await Reward.findById(rewardId);
 
   if (!reward) {
     throw new AppError(httpStatus.NOT_FOUND, REWARD_MESSAGES.NOT_FOUND);
   }
 
-  if (reward.image) {
-    const s3Key = getS3KeyFromUrl(reward.image);
-
-    if (s3Key) {
-      await deleteFromS3(s3Key).catch((err) =>
-        console.error('Failed to delete archived reward image from S3:', err)
-      );
-    }
+  if (reward.isActive) {
+    return {
+      canDelete: false,
+      reason: 'Reward is still active. Deactivate it first.',
+    };
   }
+
+  const activeClaimsCount = await RewardRedemption.countDocuments({
+    reward: rewardId,
+    status: 'claimed',
+    expiresAt: { $gt: new Date() },
+  });
+
+  if (activeClaimsCount > 0) {
+    return {
+      canDelete: false,
+      reason: `${activeClaimsCount} active claim${
+        activeClaimsCount > 1 ? 's' : ''
+      } pending. Wait for redemption or expiry.`,
+      activeClaimsCount,
+    };
+  }
+
+  return { canDelete: true };
 };
 
 /**
@@ -1399,6 +1518,7 @@ const getAdminRewardAnalytics = async () => {
       {
         $match: {
           status: 'redeemed',
+          isHidden: { $ne: true },
         },
       },
       {
@@ -1540,7 +1660,10 @@ const getRewardDetailsForAdmin = async (rewardId: string) => {
   }
 
   const redeemtions = new QueryBuilder(
-    RewardRedemption.find({ reward: reward?._id }).populate({
+    RewardRedemption.find({
+      reward: reward?._id,
+      isHidden: { $ne: true },
+    }).populate({
       path: 'user',
       select: 'name image address phoneNumber auth',
       populate: {
@@ -1573,7 +1696,7 @@ export const rewardService = {
   getRewards,
   getRewardsByBusiness,
   deleteReward,
-  archiveReward,
+  canDeleteReward,
   checkAvailability,
   uploadCodesToReward,
   updateExpiredRewards,

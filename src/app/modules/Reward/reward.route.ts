@@ -76,13 +76,6 @@ router.get(
   RewardController.checkAvailability
 );
 
-// Admin: Archive Reward
-router.delete(
-  '/:id/archive',
-  auth(ROLE.ADMIN),
-  validateRequest(rewardValidation.deleteRewardSchema),
-  RewardController.archiveReward
-);
 
 // Business: Upload Codes
 router.post(
@@ -169,7 +162,7 @@ router.patch(
   RewardController.updateReward
 );
 
-// Business: Soft Delete Reward
+// Business:  Delete Reward
 router.delete(
   '/:id',
   auth(ROLE.BUSINESS, ROLE.ADMIN),

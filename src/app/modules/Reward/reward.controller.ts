@@ -209,30 +209,40 @@ const getRewardsByBusiness = asyncHandler(
 );
 
 /**
- * Delete reward (soft delete)
+ * Delete reward (hard delete with cleanup)
  */
-const deleteReward = asyncHandler(async (req: Request, res: Response) => {
-  await rewardService.deleteReward(req.params.id);
+const deleteReward = asyncHandler(
+  async (req: ExtendedRequest, res: Response) => {
+    const userId = req.user?._id?.toString();
 
-  sendResponse(res, {
-    statusCode: httpStatus.OK,
-    message: REWARD_MESSAGES.DELETED,
-    data: null,
-  });
-});
+    if (!userId) {
+      throw new AppError(httpStatus.UNAUTHORIZED, 'User not authenticated');
+    }
+
+    const result = await rewardService.deleteReward(req.params.id, userId);
+
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      message: REWARD_MESSAGES.DELETED,
+      data: result,
+    });
+  }
+);
 
 /**
- * Archive reward (hard delete)
+ * Check if reward can be deleted
  */
-const archiveReward = asyncHandler(async (req: Request, res: Response) => {
-  await rewardService.archiveReward(req.params.id);
+const canDeleteReward = asyncHandler(
+  async (req: ExtendedRequest, res: Response) => {
+    const result = await rewardService.canDeleteReward(req.params.id);
 
-  sendResponse(res, {
-    statusCode: httpStatus.OK,
-    message: REWARD_MESSAGES.ARCHIVED,
-    data: null,
-  });
-});
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      message: 'Delete check completed',
+      data: result,
+    });
+  }
+);
 
 /**
  * Upload codes to reward (supports multiple files)
@@ -381,7 +391,7 @@ export const RewardController = {
   getFeaturedRewards,
   getRewardsByBusiness,
   deleteReward,
-  archiveReward,
+  canDeleteReward,
   uploadCodes,
   checkAvailability,
 

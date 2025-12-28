@@ -69,6 +69,19 @@ export interface IReward {
   updatedAt: Date;
 }
 
+export interface IHardDeleteResult {
+  success: boolean;
+  deletedReward: {
+    id: string;
+    title: string;
+  };
+  cleanup: {
+    codesDeleted: number;
+    viewsDeleted: number;
+    redemptionsHidden: number;
+  };
+}
+
 // Reward Redemption Interface
 export interface IRewardRedemption {
   user: Types.ObjectId;
@@ -106,6 +119,9 @@ export interface IRewardRedemption {
   refundTransactionId?: Types.ObjectId;
 
   idempotencyKey?: string;
+  isHidden: boolean;
+  hiddenAt?: Date;
+  hiddenReason?: string;
 
   createdAt: Date;
   updatedAt: Date;

@@ -198,6 +198,7 @@ const getBusinessOverview = async (userId: string) => {
         {
           $match: {
             business: business._id,
+            isHidden: { $ne: true },
             status: { $in: ['claimed', 'redeemed'] },
           },
         },
@@ -237,6 +238,7 @@ const getBusinessOverview = async (userId: string) => {
         {
           $match: {
             business: business._id,
+            isHidden: { $ne: true },
             createdAt: { $gte: targetYear.startDate, $lte: targetYear.endDate },
             status: { $ne: 'cancelled' },
           },
@@ -359,6 +361,7 @@ const getBusinessRecentActivity = async (
       $match: {
         business: business._id,
         status: { $in: ['redeemed'] },
+        isHidden: { $ne: true },
       },
     },
     {
@@ -514,6 +517,7 @@ const getBusinessAnalytics = async (
       $match: {
         business: business._id,
         status: REDEMPTION_STATUS.REDEEMED,
+        isHidden: { $ne: true },
         redeemedAt: { $gte: current.startDate, $lte: current.endDate },
       },
     },
@@ -538,6 +542,7 @@ const getBusinessAnalytics = async (
       $match: {
         business: business._id,
         status: REDEMPTION_STATUS.REDEEMED,
+        isHidden: { $ne: true },
       },
     },
     { $group: { _id: '$reward', totalRedemptions: { $sum: 1 } } },
@@ -650,6 +655,7 @@ const getSingleRewardAnalytics = async (userId: string, rewardId: string) => {
       {
         $match: {
           reward: reward._id,
+          isHidden: { $ne: true },
           claimedAt: { $gte: current.startDate, $lte: current.endDate },
         },
       },
@@ -665,6 +671,7 @@ const getSingleRewardAnalytics = async (userId: string, rewardId: string) => {
       {
         $match: {
           reward: reward._id,
+          isHidden: { $ne: true },
           status: REDEMPTION_STATUS.REDEEMED,
           redeemedAt: { $gte: current.startDate, $lte: current.endDate },
         },
