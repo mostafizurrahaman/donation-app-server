@@ -771,9 +771,6 @@ const getRewardById = async (
   // Handle Reward Views
   if (userId) {
     const client = await Client.findOne({ auth: userId });
-    console.log({
-      client,
-    });
     if (client) {
       await ViewReward.create({ user: client.auth, reward: rewardId });
     }
@@ -783,24 +780,30 @@ const getRewardById = async (
   let userBalance = 0;
   let hasAlreadyClaimed = false;
   let existingClaimId: Types.ObjectId | undefined;
+  let claimDetails = null;
 
   if (userId) {
+    const client = await Client.findOne({ auth: userId });
     try {
       const [balance, existingClaim] = await Promise.all([
-        pointsServices.getUserBalance(userId),
+        pointsServices.getUserBalance(client!._id.toString()),
         RewardRedemption.findOne({
-          user: userId,
+          user: client?._id,
           reward: rewardId,
           status: { $in: ['claimed', 'redeemed'] },
         }),
       ]);
+
       userBalance = balance.currentBalance;
       userCanAfford = balance.canAfford(STATIC_POINTS_COST);
       if (existingClaim) {
         hasAlreadyClaimed = true;
+        claimDetails = existingClaim;
         existingClaimId = existingClaim._id;
       }
-    } catch {
+    } catch (err) {
+      console.log(err);
+
       userCanAfford = false;
     }
   }
@@ -815,6 +818,7 @@ const getRewardById = async (
     userBalance,
     hasAlreadyClaimed,
     existingClaimId,
+    claimDetails,
   };
 };
 
