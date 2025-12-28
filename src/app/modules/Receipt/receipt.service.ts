@@ -60,7 +60,6 @@ interface ISendReceiptEmailServicePayload {
   gstOnFee: number;
   stripeFee: number; // ✅ NEW: Transaction Fee
   totalAmount: number; // Total Paid
-
   currency: string;
   donationDate: Date;
   receiptNumber?: string;
@@ -117,6 +116,7 @@ const generateReceipt = async (payload: IReceiptGenerationPayload) => {
       gstOnFee: payload.gstOnFee,
       stripeFee: payload.stripeFee, // ✅ NEW
       totalAmount: payload.totalAmount,
+      netAmount: payload.netAmount,
 
       currency: payload.currency,
       donationType: payload.donationType,
@@ -322,6 +322,7 @@ const resendReceiptEmail = async (receiptId: string) => {
     platformFee: receipt.platformFee,
     gstOnFee: receipt.gstOnFee,
     stripeFee: receipt.stripeFee || 0, // ✅ NEW: Pass stored fee or 0
+
     coverFees,
 
     currency: receipt.currency,

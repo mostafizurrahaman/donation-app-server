@@ -153,6 +153,7 @@ const generateReceiptAfterPayment = async (
       gstOnFee: donation.gstOnFee,
       stripeFee: donation.stripeFee || 0,
       totalAmount: donation.totalAmount,
+      netOrgAmount: donation.netOrgAmount || 0,
 
       currency: donation.currency || paymentIntent.currency.toUpperCase(),
       donationType: donation.donationType || 'one-time',
