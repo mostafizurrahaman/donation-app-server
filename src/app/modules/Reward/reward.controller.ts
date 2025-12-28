@@ -230,6 +230,27 @@ const deleteReward = asyncHandler(
 );
 
 /**
+ * Delete reward (hard delete with cleanup)
+ */
+const deleteRewardImage = asyncHandler(
+  async (req: ExtendedRequest, res: Response) => {
+    const userId = req.user?._id?.toString();
+
+    if (!userId) {
+      throw new AppError(httpStatus.UNAUTHORIZED, 'User not authenticated');
+    }
+
+    const result = await rewardService.deleteRewardImage(req.params.id, userId);
+
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      message: REWARD_MESSAGES.DELETED,
+      data: result,
+    });
+  }
+);
+
+/**
  * Check if reward can be deleted
  */
 const canDeleteReward = asyncHandler(
@@ -405,4 +426,5 @@ export const RewardController = {
   getAdminRewardsAnalytics,
   getRewardDetailsForAdmin,
   createOnlineRewardController,
+  deleteRewardImage,
 };
