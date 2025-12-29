@@ -354,6 +354,20 @@ const connectBasiqBankAccount = asyncHandler(async (req, res) => {
   });
 });
 
+const getBasiqAccounts = asyncHandler(async (req, res) => {
+  const userId = req.user._id.toString();
+
+  console.log('Fetching Basiq accounts for user:', userId);
+
+  const basiqAccounts = await basiqService.getBasiqAccounts(userId);
+
+  sendResponse(res, httpStatus.OK, {
+    success: true,
+    message: 'Basiq Accounts retrieved successfully',
+    data: basiqAccounts,
+  });
+});
+
 export const bankConnectionController = {
   generateLinkToken,
   createBankConnection,
@@ -366,4 +380,5 @@ export const bankConnectionController = {
   revokeConsent,
   plaidWebhookHandler,
   connectBasiqBankAccount,
+  getBasiqAccounts,
 };

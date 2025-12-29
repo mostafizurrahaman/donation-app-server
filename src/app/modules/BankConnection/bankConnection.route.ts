@@ -154,6 +154,12 @@ router.post(
 
 router.post('/basiq-webhook', handleBasiqWebhook);
 
+router.get(
+  '/basiq/accounts',
+  auth(ROLE.CLIENT),
+  bankConnectionController.getBasiqAccounts
+);
+
 // Sync transactions
 router.post(
   '/:bankConnectionId/sync',

@@ -9,6 +9,7 @@ import { BankConnectionModel } from './bankConnection.model';
 import { roundUpTransactionService } from '../RoundUpTransaction/roundUpTransaction.service';
 import axios, { AxiosError } from 'axios';
 import { eventNames } from 'pdfkit';
+import { auth } from 'firebase-admin';
 
 /**
  * Step 1: Generate a Session Token
@@ -218,14 +219,47 @@ export const fetchAndProcessBasiqTransactions = async (basiqUserId: string) => {
 /**
  * Fetch all bank accounts associated with a Basiq User
  */
-export const getBasiqAccounts = async (basiqUserId: string) => {
+export const getBasiqAccounts = async (userId: string) => {
+  const user = await Auth.findById(userId);
+
+  if (!user) {
+    throw new AppError(httpStatus.NOT_FOUND, 'User not found in system');
+  }
+
+  if (!user?.basiqUserId) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'Basiq user not initialized');
+  }
+
   const client = await getBasiqClient();
   // Using the core fetch because the SDK might not have a direct helper for /accounts
-  const response = await client.core.fetch(
-    `/users/${basiqUserId}/accounts`,
-    'get'
-  );
-  return response.data.data; // Array of account objects
+  try {
+    // const response = await client.core.fetch(
+    //   `/users/${user.basiqUserId}/accounts`,
+    //   'get'
+    // );
+    // return response.data.data;
+
+    const options = {
+      method: 'GET',
+      url: 'https://au-api.basiq.io/users/userId/accounts',
+      headers: {
+        accept: 'application/json',
+        authorization: `Bearer ${await getBasiqActionToken()}`,
+      },
+    };
+
+    const res = await axios.request(options);
+
+    return res.data.data;
+  } catch (err) {
+    console.log('Error fetching Basiq accounts:', err);
+    throw new AppError(
+      httpStatus.INTERNAL_SERVER_ERROR,
+      'Failed to fetch Basiq accounts'
+    );
+  }
+
+  // Array of account objects
 };
 
 /**

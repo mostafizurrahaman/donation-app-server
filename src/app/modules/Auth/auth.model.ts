@@ -18,7 +18,7 @@ const authSchema = new Schema<IAuth, IAuthModel>(
     },
     basiqUserId: {
       type: String,
-      required: true,
+      sparse: true,
       unique: true,
     },
     password: {
