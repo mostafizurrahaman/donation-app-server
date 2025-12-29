@@ -509,6 +509,9 @@ const redeemRewardByCode = async (payload: {
     rewardTitle: reward.title,
     userName: (redemption.user as any).name,
     redeemedAt: redemption.redeemedAt,
+    method: redemption.redemptionMethod,
+    image: reward.image || '',
+    redemptionCount: reward.redeemedCount,
     status: redemption.status,
   };
 };
