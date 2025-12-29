@@ -2138,6 +2138,8 @@ const getBusinessesReportFromDb = async (params?: BusinessesReportParams) => {
       state: 1,
       postalCode: 1,
       website: 1,
+      logoImage: 1,
+      coverImage: 1,
       phoneNumber: 1,
       image: 1,
       createdAt: 1,
@@ -2152,6 +2154,8 @@ const getBusinessesReportFromDb = async (params?: BusinessesReportParams) => {
   });
 
   const businesses = await Business.aggregate(searchPipeline);
+
+  console.log(businesses);
 
   return {
     businesses,
