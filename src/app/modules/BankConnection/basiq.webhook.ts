@@ -6,7 +6,7 @@ import { fetchAndProcessBasiqTransactions } from './basiq.service';
 export const handleBasiqWebhook = async (req: Request, res: Response) => {
   const { data } = req.body as { data: any[] };
 
-  console.log(data);
+  console.log({ data, event });
 
   if (!data || !Array.isArray(data)) {
     return sendResponse(res, {

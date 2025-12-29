@@ -2,7 +2,7 @@
 import basiq from '@api/basiq';
 import config from '../../config';
 import Auth from '../Auth/auth.model';
-import { AppError } from '../../utils';
+import { AppError, asyncHandler, sendResponse } from '../../utils';
 import httpStatus from 'http-status';
 import Client from '../Client/client.model';
 import { BankConnectionModel } from './bankConnection.model';
@@ -28,6 +28,8 @@ export const getBasiqActionToken = async (): Promise<string> => {
       }
     );
 
+    console.log(data);
+
     return data.access_token;
   } catch (error: any) {
     const detail = error.data?.data?.[0]?.detail || error.message;
@@ -47,6 +49,7 @@ export const getBasiqClient = async () => {
   const token = await getBasiqActionToken();
   // FIX 1: You MUST manually prefix 'Bearer ' here
   // because you manually prefixed 'Basic ' in the previous step
+  console.log(token);
   basiq.auth(token);
   return basiq;
 };
@@ -156,6 +159,7 @@ export const generateBasiqAuthLink = async (
   try {
     const client = await getBasiqClient();
     const { data } = await client.postAuthLink({ userId: basiqUserId });
+    console.log(data);
     return data.links?.public!;
   } catch (error: any) {
     const detail = error.data?.data?.[0]?.detail || error.message;
@@ -171,55 +175,104 @@ export const generateBasiqAuthLink = async (
  */
 export const fetchAndProcessBasiqTransactions = async (basiqUserId: string) => {
   try {
-    const client = await getBasiqClient();
-
     const user = await Auth.findOne({ basiqUserId });
     if (!user) return;
 
-    // Fetch transactions (Basiq returns most recent by default)
-    const response = await client.core.fetch(
-      `/users/${basiqUserId}/transactions`,
-      'get'
-    );
-    const transactions = response.data.data;
-
-    const connection = await BankConnectionModel.findOne({
+    // 1. Find all active Basiq connections for this user in our DB
+    const activeConnections = await BankConnectionModel.find({
       user: user._id,
       provider: 'basiq',
+      isActive: true,
     });
-    if (!connection) return;
 
-    // Map Basiq to Internal Round-Up format
-    const mappedTransactions = transactions.map((t: any) => ({
-      transaction_id: t.id,
-      amount: Math.abs(parseFloat(t.amount)), // Expenditures are treated as positive numbers for rounding
-      date: t.postDate,
-      name: t.description,
-      iso_currency_code: t.currency,
-      personal_finance_category: { primary: t.class },
-    }));
+    for (const conn of activeConnections) {
+      // 2. Pull transactions ONLY for this specific account
+      const transactions = await getBasiqTransactions(
+        basiqUserId,
+        conn.accountId
+      );
 
-    return await roundUpTransactionService.processTransactionsFromPlaid(
-      user._id.toString(),
-      connection._id!.toString(),
-      mappedTransactions
-    );
+      if (!transactions || transactions.length === 0) continue;
+
+      // 3. Map to your internal format
+      const mappedTransactions = transactions.map((t: any) => ({
+        transaction_id: t.id,
+        amount: Math.abs(parseFloat(t.amount)),
+        date: t.postDate,
+        name: t.description,
+        iso_currency_code: t.currency,
+        personal_finance_category: { primary: t.class },
+      }));
+
+      // 4. Process for Round-Ups
+      await roundUpTransactionService.processTransactionsFromPlaid(
+        user._id.toString(),
+        conn._id!.toString(),
+        mappedTransactions
+      );
+    }
   } catch (error: any) {
-    console.error('fetchAndProcessBasiqTransactions Error:', error.message);
+    console.error('Basiq Pull Error:', error.message);
   }
 };
-
 /**
- * PULL Accounts: Sync accounts for selection UI
+ * Fetch all bank accounts associated with a Basiq User
  */
-export const syncBasiqAccounts = async (basiqUserId: string) => {
+export const getBasiqAccounts = async (basiqUserId: string) => {
   const client = await getBasiqClient();
+  // Using the core fetch because the SDK might not have a direct helper for /accounts
   const response = await client.core.fetch(
     `/users/${basiqUserId}/accounts`,
     'get'
   );
+  return response.data.data; // Array of account objects
+};
+
+/**
+ * Pull transactions for a specific account within a date range
+ */
+export const getBasiqTransactions = async (
+  basiqUserId: string,
+  accountId: string,
+  limit: number = 50
+) => {
+  const client = await getBasiqClient();
+  // Filter by account ID in the query params
+  const response = await client.core.fetch(
+    `/users/${basiqUserId}/transactions?filter=account.id.eq('${accountId}')&limit=${limit}`,
+    'get'
+  );
   return response.data.data;
 };
+
+const saveBasiqAccount = asyncHandler(async (req, res) => {
+  const userId = req.user._id.toString();
+  const { accountId, institutionName, accountName, accountType } = req.body;
+
+  const user = await Auth.findById(userId);
+  if (!user?.basiqUserId)
+    throw new AppError(httpStatus.BAD_REQUEST, 'Basiq user not initialized');
+
+  // Save to your BankConnectionModel
+  const connection = await BankConnectionModel.create({
+    user: userId,
+    provider: 'basiq',
+    itemId: user.basiqUserId,
+    accountId: accountId,
+    accountName: accountName,
+    accountType: accountType,
+    institutionName: institutionName,
+    institutionId: 'basiq-link',
+    consentGivenAt: new Date(),
+    isActive: true,
+  });
+
+  sendResponse(res, {
+    statusCode: httpStatus.CREATED,
+    message: 'Bank account connected successfully',
+    data: connection,
+  });
+});
 
 export const basiqService = {
   generateBasiqAuthLink,
@@ -228,5 +281,6 @@ export const basiqService = {
   getBasiqActionToken,
   ensureBasiqWebhookRegistered,
   fetchAndProcessBasiqTransactions,
-  syncBasiqAccounts,
+  getBasiqAccounts,
+  saveBasiqAccount,
 };
