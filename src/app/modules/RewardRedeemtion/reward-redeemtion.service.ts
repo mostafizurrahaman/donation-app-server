@@ -212,6 +212,16 @@ const claimReward = async (payload: { rewardId: string; userId: string }) => {
       { rewardId: reward._id, image: reward.image }
     ).catch((err) => console.error('Notification Failed:', err));
 
+    createNotification(
+      business?.auth.toString() || '',
+      NOTIFICATION_TYPE.REWARD_CLAIMED,
+      isOnline
+        ? `🎉 ${client.name} has claimed and redeemed the reward "${reward.title}" online.`
+        : `🎉 ${client.name} has claimed the reward "${reward.title}" and viewed the code in the rewards section.`,
+      redemption._id.toString(),
+      { rewardId: reward._id, image: reward.image }
+    ).catch((err) => console.error('Notification Failed:', err));
+
     return {
       redemption,
       code: availableCode.code,
@@ -509,6 +519,9 @@ const redeemRewardByCode = async (payload: {
     rewardTitle: reward.title,
     userName: (redemption.user as any).name,
     redeemedAt: redemption.redeemedAt,
+    method: redemption.redemptionMethod,
+    image: reward.image || '',
+    redemptionCount: reward.redeemedCount,
     status: redemption.status,
   };
 };
