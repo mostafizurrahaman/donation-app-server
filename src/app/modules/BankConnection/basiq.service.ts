@@ -229,19 +229,10 @@ export const getBasiqAccounts = async (userId: string) => {
   if (!user?.basiqUserId) {
     throw new AppError(httpStatus.BAD_REQUEST, 'Basiq user not initialized');
   }
-
-  const client = await getBasiqClient();
-  // Using the core fetch because the SDK might not have a direct helper for /accounts
   try {
-    // const response = await client.core.fetch(
-    //   `/users/${user.basiqUserId}/accounts`,
-    //   'get'
-    // );
-    // return response.data.data;
-
     const options = {
       method: 'GET',
-      url: 'https://au-api.basiq.io/users/userId/accounts',
+      url: `https://au-api.basiq.io/users/${user.basiqUserId}/accounts`,
       headers: {
         accept: 'application/json',
         authorization: `Bearer ${await getBasiqActionToken()}`,
@@ -250,9 +241,25 @@ export const getBasiqAccounts = async (userId: string) => {
 
     const res = await axios.request(options);
 
-    return res.data.data;
+    const filterAndFormatBasiqAccounts = (rawBasiqData: any) => {
+      const allowedTypes = ['transaction', 'credit-card', 'savings'];
+
+      return rawBasiqData
+        .filter((acc) => allowedTypes.includes(acc.class.type))
+        .map((acc) => ({
+          provider: 'basiq', // Explicitly mention this is a Basiq account
+          accountId: acc.id,
+          accountName: acc.name,
+          accountType: acc.class.type,
+          institutionId: acc.institution,
+          // We append (Basiq) to the name so it's clear in the Admin UI/Logs
+          institutionName: `${acc.class.product} (Basiq)`,
+        }));
+    };
+
+    return filterAndFormatBasiqAccounts(res.data.data);
   } catch (err) {
-    console.log('Error fetching Basiq accounts:', err);
+    console.log('Error fetching Basiq accounts:', err.data);
     throw new AppError(
       httpStatus.INTERNAL_SERVER_ERROR,
       'Failed to fetch Basiq accounts'
