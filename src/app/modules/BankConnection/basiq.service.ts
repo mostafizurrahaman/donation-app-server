@@ -318,8 +318,8 @@ export const getBasiqAccounts = async (userId: string) => {
       const allowedTypes = ['transaction', 'credit-card', 'savings'];
 
       return rawBasiqData
-        .filter((acc) => allowedTypes.includes(acc.class.type))
-        .map((acc) => ({
+        .filter((acc: any) => allowedTypes.includes(acc.class.type))
+        .map((acc: any) => ({
           provider: 'basiq', // Explicitly mention this is a Basiq account
           accountId: acc.id,
           accountName: acc.name,
@@ -333,7 +333,7 @@ export const getBasiqAccounts = async (userId: string) => {
 
     return filterAndFormatBasiqAccounts(res.data.data);
   } catch (err) {
-    console.log('Error fetching Basiq accounts:', err.data);
+    console.log('Error fetching Basiq accounts:', (err as any).data);
     throw new AppError(
       httpStatus.INTERNAL_SERVER_ERROR,
       'Failed to fetch Basiq accounts'
