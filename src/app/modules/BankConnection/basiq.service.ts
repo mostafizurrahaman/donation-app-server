@@ -7,8 +7,6 @@ import Client from '../Client/client.model';
 import { BankConnectionModel } from './bankConnection.model';
 import { roundUpTransactionService } from '../RoundUpTransaction/roundUpTransaction.service';
 import axios, { AxiosError } from 'axios';
-import { eventNames } from 'pdfkit';
-import { auth } from 'firebase-admin';
 import { BANKCONNECTION_PROVIDER } from './bankConnection.constant';
 import { Convert } from 'easy-currencies';
 /**
@@ -28,9 +26,6 @@ export const getBasiqActionToken = async (): Promise<string> => {
         },
       }
     );
-
-    console.log(data);
-
     return data.access_token;
   } catch (error: any) {
     const detail = error.response?.data?.data?.[0]?.detail || error.message;
@@ -45,7 +40,6 @@ export const getBasiqActionToken = async (): Promise<string> => {
  */
 export const getBasiqAuthToken = async (): Promise<string> => {
   const token = await getBasiqActionToken();
-  console.log(token);
   return token;
 };
 /**
@@ -57,7 +51,7 @@ export const ensureBasiqWebhookRegistered = async (currentAppUrl: string) => {
   const options = {
     method: 'GET',
     url: 'https://au-api.basiq.io/notifications/webhooks',
-    headers: { accept: 'application/json', authorization: `Bearer ${token}` },
+    headers: { accept: 'application/json', Authorization: `Bearer ${token}` },
   };
 
   try {
@@ -80,7 +74,7 @@ export const ensureBasiqWebhookRegistered = async (currentAppUrl: string) => {
     headers: {
       accept: 'application/json',
       'content-type': 'application/json',
-      authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${token}`,
     },
     data: {
       subscribedEvents: [
@@ -121,23 +115,63 @@ export const getOrCreateBasiqUser = async (userId: string): Promise<string> => {
       'User Profile not found in system'
     );
 
-  if (user.basiqUserId) return user.basiqUserId;
+  // Check if phone number exists before creating/updating Basiq user
+  if (!clientProfile.phoneNumber) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'Phone number is required to connect your bank account. Please update your profile with a valid phone number before proceeding.'
+    );
+  }
 
+  // If user already has a Basiq user ID, update the Basiq user with latest profile info
+  if (user.basiqUserId) {
+    try {
+      const token = await getBasiqActionToken();
+
+      // Update the existing Basiq user with current profile information
+      await axios.post(
+        `https://au-api.basiq.io/users/${user.basiqUserId}`,
+        {
+          email: user.email,
+         
+          firstName: clientProfile.name.split(' ')[0] || 'User',
+          lastName: clientProfile.name.split(' ')[1] || 'Default',
+          mobile: clientProfile.phoneNumber,
+        },
+        {
+          headers: {
+            authorization: `Bearer ${token}`,
+             accept: 'application/json',
+            'basiq-version': '3.0',
+             'content-type': 'application/json',
+          },
+        }
+      );
+
+      console.log(`✅ Updated Basiq user ${user.basiqUserId} with latest profile info including phone number`);
+    } catch (error: any) {
+      console.error('⚠️ Failed to update Basiq user info:', error.response?.data?.data?.[0]?.detail || error.message);
+      // Don't throw error here, just log it - we can still proceed with the existing Basiq user
+    }
+
+    return user.basiqUserId;
+  }
+
+  // Create new Basiq user
   try {
     const token = await getBasiqActionToken();
 
     const { data } = await axios.post(
       'https://au-api.basiq.io/users',
       {
-        email: user.email,
-        businessName: clientProfile.name,
+        email: user.email,        
         firstName: clientProfile.name.split(' ')[0] || 'User',
         lastName: clientProfile.name.split(' ')[1] || 'Default',
-        mobile: clientProfile.phoneNumber || '',
+        mobile: clientProfile.phoneNumber,
       },
       {
         headers: {
-          'Authorization': `Bearer ${token}`,
+          authorization: `Bearer ${token}`,
           'basiq-version': '3.0',
           'Content-Type': 'application/json',
         },
@@ -145,6 +179,7 @@ export const getOrCreateBasiqUser = async (userId: string): Promise<string> => {
     );
 
     await Auth.findByIdAndUpdate(userId, { basiqUserId: data.id });
+    console.log(`✅ Created new Basiq user ${data.id} with phone number`);
     return data.id;
   } catch (error: any) {
     const detail = error.response?.data?.data?.[0]?.detail || error.message;
@@ -168,7 +203,7 @@ export const generateBasiqAuthLink = async (
       {},
       {
         headers: {
-          'Authorization': `Bearer ${token}`,
+          authorization: `Bearer ${token}`,
           'basiq-version': '3.0',
           'Content-Type': 'application/json',
         },
@@ -384,7 +419,7 @@ export const getBasiqTransactions = async (
     url: `https://au-api.basiq.io/users/${basiqUserId}/transactions?limit=${limit}&filter=${filter}`,
     headers: {
       accept: 'application/json',
-      authorization: `Bearer ${await getBasiqActionToken()}`,
+      Authorization: `Bearer ${await getBasiqActionToken()}`,
     },
   };
   try {

@@ -250,24 +250,6 @@ const revokeConsent = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
-// Plaid webhook handler
-// const handleWebhook = catchAsync(async (req: Request, res: Response) => {
-//   const { webhook_type, webhook_code, item_id, error } = req.body;
-
-//   await bankConnectionService.handleWebhook(
-//     webhook_type,
-//     webhook_code,
-//     item_id,
-//     error
-//   );
-
-//   sendResponse(res, httpStatus.OK, {
-//     success: true,
-//     message: 'Webhook processed successfully',
-//     data: null,
-//   });
-// });
-
 // Get stored transactions from database
 const getStoredTransactions = catchAsync(
   async (req: Request, res: Response) => {
