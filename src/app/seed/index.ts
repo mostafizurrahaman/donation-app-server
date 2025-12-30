@@ -2,6 +2,7 @@
 import config from '../config';
 import { AUTH_STATUS, ROLE } from '../modules/Auth/auth.constant';
 import Auth from '../modules/Auth/auth.model';
+import SuperAdmin from '../modules/superAdmin/superAdmin.model';
 
 const adminData = {
   role: ROLE.ADMIN,
@@ -9,6 +10,7 @@ const adminData = {
   password: config.admin.password,
   otp: config.admin.otp,
   otpExpiry: new Date(),
+  isProfile: true,
   isVerifiedByOTP: true,
   status: AUTH_STATUS.VERIFIED,
 };
@@ -22,7 +24,18 @@ const seedAdmin = async () => {
     });
 
     if (!admin) {
-      await Auth.create(adminData);
+      const adminAdmin = await Auth.create(adminData);
+
+      await SuperAdmin.findOneAndUpdate(
+        {
+          auth: adminAdmin._id,
+        },
+        {
+          auth: adminAdmin._id,
+          name: 'Crescent Change Admin',
+        },
+        { upsert: true }
+      );
 
       console.log('🎉✅ Admin seeded successfully!');
     } else {
