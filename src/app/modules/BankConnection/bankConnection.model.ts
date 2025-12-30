@@ -46,6 +46,9 @@ const BankConnectionSchema = new Schema(
       type: String,
       required: true,
     },
+    connectionId: {
+      type: String,
+    },
     consentGivenAt: {
       type: Date,
       required: true,
@@ -53,7 +56,6 @@ const BankConnectionSchema = new Schema(
     },
     consentExpiry: {
       type: Date,
-      // No expiry for Plaid (unlike CDR 90 days)
     },
     isActive: {
       type: Boolean,
@@ -66,9 +68,10 @@ const BankConnectionSchema = new Schema(
       type: Date,
     },
     lastSyncCursor: {
-      // ADDED THIS FIELD
+    
       type: String,
     },
+
   },
   {
     timestamps: true,

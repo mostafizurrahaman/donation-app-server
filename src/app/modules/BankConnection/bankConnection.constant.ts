@@ -5,7 +5,7 @@ export const BANKCONNECTION_PROVIDER = {
   PLAID: 'pliad',
 };
 
-export const bankConnectiionProviderValues = Object.keys(
+export const bankConnectiionProviderValues = Object.values(
   BANKCONNECTION_PROVIDER
 );
 

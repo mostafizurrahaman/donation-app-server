@@ -6,46 +6,64 @@ import {
   fetchAndProcessBasiqTransactions,
 } from './basiq.service';
 
+
+const extractUserId = (url?: string) => {
+  return url?.match(/\/users\/([^\/]+)/)?.[1];
+};
+
+const extractConnectionId = (url?: string) => {
+  return url?.match(/\/connections\/([^\/]+)/)?.[1];
+};
+
+const extractConsentId = (url?: string) => {
+  return url?.match(/\/consents\/([^\/]+)/)?.[1];
+};
+
+
 export const handleBasiqWebhook = async (req: Request, res: Response) => {
-  // Basiq wrapper: the event is inside req.body.body
-  const eventData = req.body.body;
+  const eventData = req.body;
 
   if (!eventData) {
     return sendResponse(res, {
-      data: null,
       statusCode: 200,
       message: 'No event data found',
+      data: null,
     });
   }
 
   const { eventTypeId, links } = eventData;
-  console.log(`🔔 Basiq Webhook Received: ${eventTypeId}`);
-
-  // Extract IDs from the eventEntity link:
-  // "https://au-api.basiq.io/users/{userId}/connections/{connectionId}"
   const entityUrl = links?.eventEntity;
-  const match = entityUrl?.match(/\/users\/([^\/]+)\/connections\/([^\/]+)/);
 
-  if (!match) {
-    return res.status(200).json({ message: 'No IDs found in link' });
-  }
+  const basiqUserId = extractUserId(entityUrl);
+  const connectionId = extractConnectionId(entityUrl);
 
-  const [_, basiqUserId, connectionId] = match;
+  console.log('🔔 Basiq Webhook Received:', {
+    eventTypeId,
+    basiqUserId,
+    connectionId,
+    entityUrl,
+  });
 
   try {
     switch (eventTypeId) {
       case 'connection.created':
-        console.log(
-          `🏦 New connection ${connectionId} for user ${basiqUserId}`
-        );
-        // Action: Fetch and save the accounts for this new connection
+        if (!connectionId) break;
+
+        console.log(`🏦 New connection ${connectionId} for user ${basiqUserId}`);
+        // fetch accounts if needed
         break;
 
       case 'transactions.updated':
       case 'transaction.created':
+        if (!basiqUserId) break;
+
         console.log(`🚀 Transactions updated for user ${basiqUserId}`);
-        // Action: Pull latest transactions and process Round-Ups
         await basiqService.fetchAndProcessBasiqTransactions(basiqUserId);
+        break;
+
+      case 'consent.revoked':
+        console.log(`⚠️ Consent revoked for user ${basiqUserId}`);
+        // mark consent revoked in DB
         break;
 
       default:
@@ -56,8 +74,8 @@ export const handleBasiqWebhook = async (req: Request, res: Response) => {
   }
 
   return sendResponse(res, {
-    data: null,
     statusCode: 200,
-    message: `Webhook processed`,
+    message: 'Webhook processed',
+    data: null,
   });
 };

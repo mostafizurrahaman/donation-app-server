@@ -10,6 +10,7 @@ import { roundUpTransactionService } from '../RoundUpTransaction/roundUpTransact
 import axios, { AxiosError } from 'axios';
 import { eventNames } from 'pdfkit';
 import { auth } from 'firebase-admin';
+import { BANKCONNECTION_PROVIDER } from './bankConnection.constant';
 
 /**
  * Step 1: Generate a Session Token
@@ -173,11 +174,16 @@ export const generateBasiqAuthLink = async (
 
 /**
  * PULL Transactions: Triggered by Webhook
+ * Fetches only NEW transactions since last sync using timestamp tracking
  */
 export const fetchAndProcessBasiqTransactions = async (basiqUserId: string) => {
   try {
     const user = await Auth.findOne({ basiqUserId });
-    if (!user) return;
+    console.log('🔍 Basiq user fetched:', user?.email);
+    if (!user) {
+      console.log('⚠️ No user found with basiqUserId:', basiqUserId);
+      return;
+    }
 
     // 1. Find all active Basiq connections for this user in our DB
     const activeConnections = await BankConnectionModel.find({
@@ -186,34 +192,81 @@ export const fetchAndProcessBasiqTransactions = async (basiqUserId: string) => {
       isActive: true,
     });
 
+    console.log(`🏦 Found ${activeConnections.length} active Basiq connection(s)`);
+
     for (const conn of activeConnections) {
-      // 2. Pull transactions ONLY for this specific account
-      const transactions = await getBasiqTransactions(
-        basiqUserId,
-        conn.accountId
-      );
+      try {
+        // 2. Determine the start date for fetching transactions
+        let fromDate: string | undefined;
+        
+        if (conn.lastSyncAt) {
+          // Use lastSyncAt if available (incremental sync)
+          fromDate = conn.lastSyncAt.toISOString().split('T')[0]; // Format: YYYY-MM-DD
+          console.log(`📅 Incremental sync from: ${fromDate}`);
+        } else {
+          // First sync: fetch last 30 days to prevent backfilling all history
+          const thirtyDaysAgo = new Date();
+          thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+          fromDate = thirtyDaysAgo.toISOString().split('T')[0];
+          console.log(`🆕 First sync - fetching from: ${fromDate} (last 30 days)`);
+        }
 
-      if (!transactions || transactions.length === 0) continue;
+        // 3. Pull transactions ONLY for this specific account and date range
+        const transactions = await getBasiqTransactions(
+          basiqUserId,
+          conn.accountId,
+          { fromDate }
+        );
 
-      // 3. Map to your internal format
-      const mappedTransactions = transactions.map((t: any) => ({
-        transaction_id: t.id,
-        amount: Math.abs(parseFloat(t.amount)),
-        date: t.postDate,
-        name: t.description,
-        iso_currency_code: t.currency,
-        personal_finance_category: { primary: t.class },
-      }));
+        if (!transactions || transactions.length === 0) {
+          console.log(`ℹ️ No new transactions for account ${conn.accountId}`);
+          // Still update lastSyncAt even if no transactions
+          await BankConnectionModel.findByIdAndUpdate(conn._id, {
+            lastSyncAt: new Date(),
+          });
+          continue;
+        }
 
-      // 4. Process for Round-Ups
-      await roundUpTransactionService.processTransactionsFromPlaid(
-        user._id.toString(),
-        conn._id!.toString(),
-        mappedTransactions
-      );
+        console.log(`✅ Fetched ${transactions.length} new transaction(s) for processing`);
+
+        // 4. Map to internal format (compatible with processTransactionsFromPlaid)
+        const mappedTransactions = transactions.map((t: any) => ({
+          transaction_id: t.id,
+          amount: Math.abs(parseFloat(t.amount)),
+          date: t.postDate,
+          name: t.description,
+          iso_currency_code: t.currency || 'AUD', // Basiq default is AUD
+          personal_finance_category: { primary: t.class?.toUpperCase() },
+        }));
+
+        // 5. Process for Round-Ups using the existing Plaid processor
+        console.log(`⚙️ Processing ${mappedTransactions.length} transaction(s) for roundup...`);
+        const result = await roundUpTransactionService.processTransactionsFromPlaid(
+          user._id.toString(),
+          conn._id!.toString(),
+          mappedTransactions
+        );
+
+        console.log(`📊 Processing complete:`, {
+          processed: result.processed,
+          skipped: result.skipped,
+          failed: result.failed,
+        });
+
+        // 6. Update lastSyncAt after successful processing
+        await BankConnectionModel.findByIdAndUpdate(conn._id, {
+          lastSyncAt: new Date(),
+        });
+        console.log(`✅ Updated lastSyncAt for connection ${conn._id}`);
+        
+      } catch (connError: any) {
+        console.error(`❌ Error processing connection ${conn._id}:`, connError.message);
+        // Continue to next connection even if one fails
+        continue;
+      }
     }
   } catch (error: any) {
-    console.error('Basiq Pull Error:', error.message);
+    console.error('❌ Basiq Pull Error:', error.message);
   }
 };
 /**
@@ -240,6 +293,7 @@ export const getBasiqAccounts = async (userId: string) => {
     };
 
     const res = await axios.request(options);
+    console.log(res.data);
 
     const filterAndFormatBasiqAccounts = (rawBasiqData: any) => {
       const allowedTypes = ['transaction', 'credit-card', 'savings'];
@@ -254,6 +308,7 @@ export const getBasiqAccounts = async (userId: string) => {
           institutionId: acc.institution,
           // We append (Basiq) to the name so it's clear in the Admin UI/Logs
           institutionName: `${acc.class.product} (Basiq)`,
+          connectionId: acc.connection,
         }));
     };
 
@@ -270,34 +325,63 @@ export const getBasiqAccounts = async (userId: string) => {
 };
 
 /**
- * Pull transactions for a specific account within a date range
+ * Pull transactions for a specific account, optionally filtered by date
+ * @param basiqUserId - Basiq user ID
+ * @param accountId - Account ID to fetch transactions for
+ * @param options - Optional parameters for filtering
+ * @param options.fromDate - ISO date string to fetch transactions from (inclusive)
+ * @param options.limit - Maximum number of transactions to fetch (default 500)
  */
 export const getBasiqTransactions = async (
   basiqUserId: string,
   accountId: string,
-  limit: number = 50
+  options?: { fromDate?: string; limit?: number }
 ) => {
-  const client = await getBasiqClient();
-  // Filter by account ID in the query params
-  const response = await client.core.fetch(
-    `/users/${basiqUserId}/transactions?filter=account.id.eq('${accountId}')&limit=${limit}`,
-    'get'
-  );
-  return response.data.data;
+  const limit = options?.limit || 500;
+  
+  let filter = `account.id.eq('${accountId}')`;
+
+  if (options?.fromDate) {
+    // Basiq expects YYYY-MM-DD string format (already provided by caller)
+    // Do NOT wrap in new Date() - the string is already in correct format
+    filter += `,transaction.postDate.gt('${options.fromDate}')`;
+  }
+
+  const requestOptions = {
+    method: 'GET',
+    url: `https://au-api.basiq.io/users/${basiqUserId}/transactions?limit=${limit}&filter=${filter}`,
+    headers: {
+      accept: 'application/json',
+      authorization: `Bearer ${await getBasiqActionToken()}`,
+    },
+  };
+  try {
+    const response = await axios.request(requestOptions);
+  console.log(`📊 Fetched ${response.data.data?.length || 0} Basiq transactions`);
+  console.log(response.data.data);
+  return response.data.data || [];
+  } catch (err) {
+    console.log('Failed to fetch Basiq transactions', err);
+   
+  }
+
+  
 };
 
 const saveBasiqAccount = asyncHandler(async (req, res) => {
   const userId = req.user._id.toString();
-  const { accountId, institutionName, accountName, accountType } = req.body;
+  const { accountId, institutionName, accountName, accountType, connectionId, } = req.body;
 
   const user = await Auth.findById(userId);
-  if (!user?.basiqUserId)
+  if (!user?.basiqUserId) {
+    
     throw new AppError(httpStatus.BAD_REQUEST, 'Basiq user not initialized');
+  }
 
   // Save to your BankConnectionModel
   const connection = await BankConnectionModel.create({
     user: userId,
-    provider: 'basiq',
+    provider: BANKCONNECTION_PROVIDER.BASIQ,
     itemId: user.basiqUserId,
     accountId: accountId,
     accountName: accountName,
@@ -305,12 +389,17 @@ const saveBasiqAccount = asyncHandler(async (req, res) => {
     institutionName: institutionName,
     institutionId: 'basiq-link',
     consentGivenAt: new Date(),
+    connectionId: connectionId,
     isActive: true,
+    accessToken: 'basiq_not_required_token'
   });
+
+
+ 
 
   sendResponse(res, {
     statusCode: httpStatus.CREATED,
-    message: 'Bank account connected successfully',
+    message: 'Basiq account connected successfully',
     data: connection,
   });
 });
@@ -324,4 +413,5 @@ export const basiqService = {
   fetchAndProcessBasiqTransactions,
   getBasiqAccounts,
   saveBasiqAccount,
+  getBasiqTransactions
 };

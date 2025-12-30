@@ -16,7 +16,7 @@ export const initializeJobs = () => {
 
   try {
     // Start scheduled donations cron job
-    startScheduledDonationsCron();
+    // startScheduledDonationsCron();
 
     // Start RoundUp transactions processing cron job
     startRoundUpProcessingCron();
