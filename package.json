@@ -30,7 +30,7 @@
   "homepage": "https://github.com/sparktechagency/crecent-change-apis#readme",
   "version": "1.0.0",
   "scripts": {
-    "start": "node dist/server.js",
+    "start": "ts-node -T src/server.ts",
     "dev": "ts-node-dev --respawn --transpile-only --poll --clear --exit-child src/server.ts",
     "build": "tsc",
     "generate": "node generate",
@@ -38,7 +38,6 @@
     "deploy": "yarn build && vercel && vercel --prod"
   },
   "dependencies": {
-    "@api/basiq": "file:.api/apis/basiq",
     "@aws-sdk/client-s3": "^3.937.0",
     "@aws-sdk/s3-request-presigner": "^3.937.0",
     "@types/qrcode": "^1.5.6",

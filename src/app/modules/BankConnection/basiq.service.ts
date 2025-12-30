@@ -1,5 +1,4 @@
 // src/app/modules/BankConnection/basiq.service.ts
-import basiq from '@api/basiq';
 import config from '../../config';
 import Auth from '../Auth/auth.model';
 import { AppError, asyncHandler, sendResponse } from '../../utils';
@@ -18,15 +17,15 @@ import { Convert } from 'easy-currencies';
  */
 export const getBasiqActionToken = async (): Promise<string> => {
   try {
-    // Manually prefix 'Basic' as the SDK sometimes fails to auto-detect
-    basiq.auth(`Basic ${config.basiq.apiKey}`);
-
-    const { data } = await basiq.postToken(
+    const { data } = await axios.post(
+      'https://au-api.basiq.io/token',
+      { scope: 'SERVER_ACCESS' },
       {
-        scope: 'SERVER_ACCESS',
-      },
-      {
-        'basiq-version': '3.0',
+        headers: {
+          'Authorization': `Basic ${config.basiq.apiKey}`,
+          'basiq-version': '3.0',
+          'Content-Type': 'application/json',
+        },
       }
     );
 
@@ -34,26 +33,20 @@ export const getBasiqActionToken = async (): Promise<string> => {
 
     return data.access_token;
   } catch (error: any) {
-    const detail = error.data?.data?.[0]?.detail || error.message;
+    const detail = error.response?.data?.data?.[0]?.detail || error.message;
     console.error('BASIQ_TOKEN_ERROR:', detail);
     throw new Error(`Basiq Token Generation Failed: ${detail}`);
   }
 };
 
 /**
- * Step 2: Get an authenticated SDK instance
- * Configures the singleton 'basiq' instance with a Bearer token
+ * Step 2: Get authentication token
+ * Returns a Bearer token for API calls
  */
-/**
- * Step 2: Get an authenticated SDK instance
- */
-export const getBasiqClient = async () => {
+export const getBasiqAuthToken = async (): Promise<string> => {
   const token = await getBasiqActionToken();
-  // FIX 1: You MUST manually prefix 'Bearer ' here
-  // because you manually prefixed 'Basic ' in the previous step
   console.log(token);
-  basiq.auth(token);
-  return basiq;
+  return token;
 };
 /**
  * Ensures your webhook is registered.
@@ -131,20 +124,30 @@ export const getOrCreateBasiqUser = async (userId: string): Promise<string> => {
   if (user.basiqUserId) return user.basiqUserId;
 
   try {
-    const client = await getBasiqClient();
+    const token = await getBasiqActionToken();
 
-    const { data } = await client.createUser({
-      email: user.email,
-      businessName: clientProfile.name,
-      firstName: clientProfile.name.split(' ')[0] || 'User',
-      lastName: clientProfile.name.split(' ')[1] || 'Default',
-      mobile: clientProfile.phoneNumber || '',
-    });
+    const { data } = await axios.post(
+      'https://au-api.basiq.io/users',
+      {
+        email: user.email,
+        businessName: clientProfile.name,
+        firstName: clientProfile.name.split(' ')[0] || 'User',
+        lastName: clientProfile.name.split(' ')[1] || 'Default',
+        mobile: clientProfile.phoneNumber || '',
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'basiq-version': '3.0',
+          'Content-Type': 'application/json',
+        },
+      }
+    );
 
     await Auth.findByIdAndUpdate(userId, { basiqUserId: data.id });
     return data.id;
   } catch (error: any) {
-    const detail = error.data?.data?.[0]?.detail || error.message;
+    const detail = error.response?.data?.data?.[0]?.detail || error.message;
     throw new AppError(
       httpStatus.INTERNAL_SERVER_ERROR,
       `Basiq User Creation Failed: ${detail}`
@@ -159,12 +162,22 @@ export const generateBasiqAuthLink = async (
   basiqUserId: string
 ): Promise<string> => {
   try {
-    const client = await getBasiqClient();
-    const { data } = await client.postAuthLink({ userId: basiqUserId });
+    const token = await getBasiqActionToken();
+    const { data } = await axios.post(
+      `https://au-api.basiq.io/users/${basiqUserId}/auth_link`,
+      {},
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'basiq-version': '3.0',
+          'Content-Type': 'application/json',
+        },
+      }
+    );
     console.log(data);
     return data.links?.public!;
   } catch (error: any) {
-    const detail = error.data?.data?.[0]?.detail || error.message;
+    const detail = error.response?.data?.data?.[0]?.detail || error.message;
     throw new AppError(
       httpStatus.INTERNAL_SERVER_ERROR,
       `Failed to generate bank link: ${detail}`
@@ -422,7 +435,7 @@ const saveBasiqAccount = asyncHandler(async (req, res) => {
 export const basiqService = {
   generateBasiqAuthLink,
   getOrCreateBasiqUser,
-  getBasiqClient,
+  getBasiqAuthToken,
   getBasiqActionToken,
   ensureBasiqWebhookRegistered,
   fetchAndProcessBasiqTransactions,
