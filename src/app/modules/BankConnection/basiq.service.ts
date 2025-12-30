@@ -208,7 +208,7 @@ export const fetchAndProcessBasiqTransactions = async (basiqUserId: string) => {
         } else {
           // First sync: fetch last 30 days to prevent backfilling all history
           const thirtyDaysAgo = new Date();
-          thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 100);
+          thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
           fromDate = thirtyDaysAgo.toISOString().split('T')[0];
           console.log(
             `🆕 First sync - fetching from: ${fromDate} (last 30 days)`
