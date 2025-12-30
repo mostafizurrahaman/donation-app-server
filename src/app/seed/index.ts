@@ -19,7 +19,6 @@ const seedAdmin = async () => {
     const admin = await Auth.findOne({
       role: ROLE.ADMIN,
       email: config.admin.email,
-      status: AUTH_STATUS.VERIFIED,
     });
 
     if (!admin) {

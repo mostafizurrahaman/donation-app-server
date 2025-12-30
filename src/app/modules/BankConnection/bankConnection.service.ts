@@ -27,6 +27,7 @@ import { createNotification } from '../Notification/notification.service';
 import { NOTIFICATION_TYPE } from '../Notification/notification.constant';
 import { roundUpTransactionService } from '../RoundUpTransaction/roundUpTransaction.service';
 import config from '../../config';
+import { RoundUpTransactionModel } from '../RoundUpTransaction/roundUpTransaction.model';
 
 // Initialize Plaid client
 const plaidApi = plaidClient.client as PlaidApi;
@@ -292,10 +293,7 @@ async function getStoredTransactions(
       throw new Error('Bank connection not found');
     }
 
-    // Import RoundUpTransaction model
-    const { RoundUpTransactionModel } = await import(
-      '../RoundUpTransaction/roundUpTransaction.model'
-    );
+  
 
     // Build query
     const query: any = {
