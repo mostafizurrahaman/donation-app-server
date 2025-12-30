@@ -30,7 +30,8 @@
   "homepage": "https://github.com/sparktechagency/crecent-change-apis#readme",
   "version": "1.0.0",
   "scripts": {
-    "start": "ts-node -T src/server.ts",
+    
+    "start": "node dist/server.js",
     "dev": "ts-node-dev --respawn --transpile-only --poll --clear --exit-child src/server.ts",
     "build": "tsc",
     "generate": "node generate",

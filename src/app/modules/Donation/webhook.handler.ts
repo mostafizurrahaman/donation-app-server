@@ -34,7 +34,6 @@ import {
   TPlanType,
 } from '../Subscription/subscription.constant';
 
-
 // ========================================
 // SCHEDULED DONATION: Success Handler
 // ========================================
@@ -744,6 +743,7 @@ const handlePayoutPaid = async (payoutEvent: Stripe.Payout) => {
     // 2. Ensure status is COMPLETED
     if (payout.status !== PAYOUT_STATUS.COMPLETED) {
       payout.status = PAYOUT_STATUS.COMPLETED;
+      payout.stripeTransferId = payoutEvent.balance_transaction as string;
       payout.completedAt = new Date(); // Update with actual webhook time
       await payout.save();
       console.log(
@@ -781,6 +781,7 @@ const handlePayoutFailed = async (payoutEvent: Stripe.Payout) => {
 
     // 1. Mark Payout as FAILED
     payout.status = PAYOUT_STATUS.FAILED;
+    payout.stripeTransferId = payoutEvent.balance_transaction as string;
     payout.failureReason =
       payoutEvent.failure_code ||
       payoutEvent.failure_message ||
