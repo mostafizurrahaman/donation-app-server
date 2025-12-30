@@ -11,7 +11,7 @@ import axios, { AxiosError } from 'axios';
 import { eventNames } from 'pdfkit';
 import { auth } from 'firebase-admin';
 import { BANKCONNECTION_PROVIDER } from './bankConnection.constant';
-
+import { Convert } from 'easy-currencies';
 /**
  * Step 1: Generate a Session Token
  * This is used for all functional API calls.
@@ -192,13 +192,15 @@ export const fetchAndProcessBasiqTransactions = async (basiqUserId: string) => {
       isActive: true,
     });
 
-    console.log(`🏦 Found ${activeConnections.length} active Basiq connection(s)`);
+    console.log(
+      `🏦 Found ${activeConnections.length} active Basiq connection(s)`
+    );
 
     for (const conn of activeConnections) {
       try {
         // 2. Determine the start date for fetching transactions
         let fromDate: string | undefined;
-        
+
         if (conn.lastSyncAt) {
           // Use lastSyncAt if available (incremental sync)
           fromDate = conn.lastSyncAt.toISOString().split('T')[0]; // Format: YYYY-MM-DD
@@ -206,9 +208,11 @@ export const fetchAndProcessBasiqTransactions = async (basiqUserId: string) => {
         } else {
           // First sync: fetch last 30 days to prevent backfilling all history
           const thirtyDaysAgo = new Date();
-          thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+          thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 100);
           fromDate = thirtyDaysAgo.toISOString().split('T')[0];
-          console.log(`🆕 First sync - fetching from: ${fromDate} (last 30 days)`);
+          console.log(
+            `🆕 First sync - fetching from: ${fromDate} (last 30 days)`
+          );
         }
 
         // 3. Pull transactions ONLY for this specific account and date range
@@ -227,25 +231,38 @@ export const fetchAndProcessBasiqTransactions = async (basiqUserId: string) => {
           continue;
         }
 
-        console.log(`✅ Fetched ${transactions.length} new transaction(s) for processing`);
+        console.log(
+          `✅ Fetched ${transactions.length} new transaction(s) for processing`
+        );
 
         // 4. Map to internal format (compatible with processTransactionsFromPlaid)
-        const mappedTransactions = transactions.map((t: any) => ({
-          transaction_id: t.id,
-          amount: Math.abs(parseFloat(t.amount)),
-          date: t.postDate,
-          name: t.description,
-          iso_currency_code: t.currency || 'AUD', // Basiq default is AUD
-          personal_finance_category: { primary: t.class?.toUpperCase() },
-        }));
+        const mappedTransactions = await Promise.all(
+          transactions.map(async (t: any) => ({
+            transaction_id: t.id,
+            amount: await Convert(Math.abs(parseFloat(t.amount)))
+              .from('AUD')
+              .to('USD'),
+            date: t.postDate,
+            name: t.description,
+            iso_currency_code: 'USD',
+            personal_finance_category: {
+              primary: t.class?.toUpperCase(),
+            },
+          }))
+        );
+
+        console.log({ mappedTransactions }, { depth: Infinity });
 
         // 5. Process for Round-Ups using the existing Plaid processor
-        console.log(`⚙️ Processing ${mappedTransactions.length} transaction(s) for roundup...`);
-        const result = await roundUpTransactionService.processTransactionsFromPlaid(
-          user._id.toString(),
-          conn._id!.toString(),
-          mappedTransactions
+        console.log(
+          `⚙️ Processing ${mappedTransactions.length} transaction(s) for roundup...`
         );
+        const result =
+          await roundUpTransactionService.processTransactionsFromPlaid(
+            user._id.toString(),
+            conn._id!.toString(),
+            mappedTransactions
+          );
 
         console.log(`📊 Processing complete:`, {
           processed: result.processed,
@@ -258,9 +275,11 @@ export const fetchAndProcessBasiqTransactions = async (basiqUserId: string) => {
           lastSyncAt: new Date(),
         });
         console.log(`✅ Updated lastSyncAt for connection ${conn._id}`);
-        
       } catch (connError: any) {
-        console.error(`❌ Error processing connection ${conn._id}:`, connError.message);
+        console.error(
+          `❌ Error processing connection ${conn._id}:`,
+          connError.message
+        );
         // Continue to next connection even if one fails
         continue;
       }
@@ -338,7 +357,7 @@ export const getBasiqTransactions = async (
   options?: { fromDate?: string; limit?: number }
 ) => {
   const limit = options?.limit || 500;
-  
+
   let filter = `account.id.eq('${accountId}')`;
 
   if (options?.fromDate) {
@@ -357,24 +376,23 @@ export const getBasiqTransactions = async (
   };
   try {
     const response = await axios.request(requestOptions);
-  console.log(`📊 Fetched ${response.data.data?.length || 0} Basiq transactions`);
-  console.log(response.data.data);
-  return response.data.data || [];
+    console.log(
+      `📊 Fetched ${response.data.data?.length || 0} Basiq transactions`
+    );
+    console.log(response.data.data);
+    return response.data.data || [];
   } catch (err) {
     console.log('Failed to fetch Basiq transactions', err);
-   
   }
-
-  
 };
 
 const saveBasiqAccount = asyncHandler(async (req, res) => {
   const userId = req.user._id.toString();
-  const { accountId, institutionName, accountName, accountType, connectionId, } = req.body;
+  const { accountId, institutionName, accountName, accountType, connectionId } =
+    req.body;
 
   const user = await Auth.findById(userId);
   if (!user?.basiqUserId) {
-    
     throw new AppError(httpStatus.BAD_REQUEST, 'Basiq user not initialized');
   }
 
@@ -391,11 +409,8 @@ const saveBasiqAccount = asyncHandler(async (req, res) => {
     consentGivenAt: new Date(),
     connectionId: connectionId,
     isActive: true,
-    accessToken: 'basiq_not_required_token'
+    accessToken: 'basiq_not_required_token',
   });
-
-
- 
 
   sendResponse(res, {
     statusCode: httpStatus.CREATED,
@@ -413,5 +428,5 @@ export const basiqService = {
   fetchAndProcessBasiqTransactions,
   getBasiqAccounts,
   saveBasiqAccount,
-  getBasiqTransactions
+  getBasiqTransactions,
 };

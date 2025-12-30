@@ -12,7 +12,6 @@ import { AppError } from '../../utils';
 import httpStatus from 'http-status';
 import Auth from '../Auth/auth.model';
 import PaymentMethod from '../PaymentMethod/paymentMethod.model';
-import Client from '../Client/client.model';
 import { AUTH_STATUS, ROLE } from '../Auth/auth.constant';
 import { IBankConnection } from '../BankConnection/bankConnection.interface';
 import { IPaymentMethod } from '../PaymentMethod/paymentMethod.interface';

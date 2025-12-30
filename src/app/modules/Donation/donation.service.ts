@@ -373,41 +373,152 @@ const getDonationsByOrganization = async (
   }
 
   try {
-    const modifiedQuery = { ...query };
-    if (modifiedQuery.status === 'all') delete modifiedQuery.status;
-    if (modifiedQuery.donationType === 'all') delete modifiedQuery.donationType;
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 10;
+    const skip = (page - 1) * limit;
+    const sortBy = (query.sort as string) || '-createdAt';
+    const searchTerm = (query.searchTerm as string) || '';
 
-    const baseQuery = Donation.find({ organization: organizationId })
-      .populate({
-        path: 'donor',
-        select: '_id name auth image',
-        populate: {
-          path: 'auth',
-          select: 'email',
+    // 1. Build the Match stage for primary filters
+    const matchQuery: any = {
+      organization: new Types.ObjectId(organizationId),
+    };
+
+    // Apply filters from query (excluding special keys)
+    if (query.status && query.status !== 'all') {
+      matchQuery.status = query.status;
+    }
+    if (query.donationType && query.donationType !== 'all') {
+      matchQuery.donationType =
+        query.donationType === 'roundup' ? 'round-up' : query.donationType;
+    }
+
+    const pipeline: any[] = [
+      { $match: matchQuery },
+
+      // 2. Lookup Donor (Client) details
+      {
+        $lookup: {
+          from: 'clients',
+          localField: 'donor',
+          foreignField: '_id',
+          as: 'donorData',
         },
-      })
-      .populate('cause', 'name')
-      .populate(
-        'receiptId',
-        'receiptNumber amount currency donationType pdfUrl pdfKey emailSent emailAttempts createdAt updatedAt generatedAt'
-      );
+      },
+      { $unwind: { path: '$donorData', preserveNullAndEmptyArrays: true } },
 
-    const donationSearchFields = ['specialMessage', 'status', 'donationType'];
+      // 3. Lookup Donor Auth (for Email)
+      {
+        $lookup: {
+          from: 'auths',
+          localField: 'donorData.auth',
+          foreignField: '_id',
+          as: 'authData',
+        },
+      },
+      { $unwind: { path: '$authData', preserveNullAndEmptyArrays: true } },
 
-    const donationQuery = new QueryBuilder<IDonationModel>(
-      baseQuery,
-      modifiedQuery
-    )
-      .search(donationSearchFields)
-      .filter()
-      .sort()
-      .paginate()
-      .fields();
+      // 4. Lookup Cause
+      {
+        $lookup: {
+          from: 'causes',
+          localField: 'cause',
+          foreignField: '_id',
+          as: 'causeData',
+        },
+      },
+      { $unwind: { path: '$causeData', preserveNullAndEmptyArrays: true } },
 
-    const donations = await donationQuery.modelQuery;
-    const meta = await donationQuery.countTotal();
+      // 5. Lookup Receipt
+      {
+        $lookup: {
+          from: 'receipts',
+          localField: 'receiptId',
+          foreignField: '_id',
+          as: 'receiptData',
+        },
+      },
+      { $unwind: { path: '$receiptData', preserveNullAndEmptyArrays: true } },
 
-    return { donations, meta };
+      // 6. Search Filter (Applies to Name, Email, and Special Message)
+      ...(searchTerm
+        ? [
+            {
+              $match: {
+                $or: [
+                  { 'donorData.name': { $regex: searchTerm, $options: 'i' } },
+                  { 'authData.email': { $regex: searchTerm, $options: 'i' } },
+                  { specialMessage: { $regex: searchTerm, $options: 'i' } },
+                ],
+              },
+            },
+          ]
+        : []),
+
+      // 7. Facet for pagination and total count
+      {
+        $facet: {
+          metadata: [{ $count: 'total' }],
+          data: [
+            // Handle Sorting
+            {
+              $sort: {
+                [sortBy.startsWith('-') ? sortBy.substring(1) : sortBy]:
+                  sortBy.startsWith('-') ? -1 : 1,
+              },
+            },
+            { $skip: skip },
+            { $limit: limit },
+            // Project into the exact structure expected by the frontend
+            {
+              $project: {
+                _id: 1,
+                amount: 1,
+                totalAmount: 1,
+                netAmount: 1,
+                currency: 1,
+                status: 1,
+                donationType: 1,
+                donationDate: 1,
+                specialMessage: 1,
+                coverFees: 1,
+                platformFee: 1,
+                gstOnFee: 1,
+                stripeFee: 1,
+                donor: {
+                  _id: '$donorData._id',
+                  name: '$donorData.name',
+                  image: '$donorData.image',
+                  auth: {
+                    email: '$authData.email',
+                  },
+                },
+                cause: {
+                  _id: '$causeData._id',
+                  name: '$causeData.name',
+                },
+                receiptId: '$receiptData',
+              },
+            },
+          ],
+        },
+      },
+    ];
+
+    const aggregationResult = await Donation.aggregate(pipeline);
+
+    const donations = aggregationResult[0]?.data || [];
+    const total = aggregationResult[0]?.metadata[0]?.total || 0;
+
+    return {
+      donations,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPage: Math.ceil(total / limit),
+      },
+    };
   } catch (error: unknown) {
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error occurred';
