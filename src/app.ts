@@ -29,6 +29,8 @@ app.use(
       'http://13.55.115.124:5173',
       'http://13.55.115.124:5174',
       'https://crescent-dashboard-eta.vercel.app',
+      'https://org.crescentchange.com',
+      'https://admin.crescentchange.com',
     ],
   })
 );
