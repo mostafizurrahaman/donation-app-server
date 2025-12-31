@@ -136,7 +136,7 @@ export const calculateAustralianFees = (
     netToOrg = Number((totalCharge - stripeFee - applicationFee).toFixed(2));
   }
 
-  const platformFeeWithStripe = stripeFee + applicationFee;
+  const platformFeeWithStripe = Number((stripeFee + applicationFee).toFixed(2));
 
   console.log({
     baseAmount, // Tax Deductible amount
