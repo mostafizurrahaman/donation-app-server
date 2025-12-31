@@ -21,6 +21,8 @@ const BadgeTierSchema = new Schema<IBadgeTierConfig>(
     tier: { type: String, enum: BADGE_TIER_VALUES, required: true },
     name: { type: String, required: true },
     icon: { type: String, required: true },
+    animationUrl: { type: String, required: true },
+    smallIconUrl: { type: String, required: true },
     requiredCount: { type: Number, default: 0 },
     requiredAmount: { type: Number, default: 0 },
   },
@@ -109,6 +111,12 @@ const UserBadgeSchema = new Schema<IUserBadge>(
       {
         tier: { type: String, enum: BADGE_TIER_VALUES },
         unlockedAt: { type: Date, default: Date.now },
+      },
+    ],
+    previewedTiers: [
+      {
+        tier: { type: String, enum: BADGE_TIER_VALUES },
+        previewedAt: { type: Date, default: Date.now },
       },
     ],
   },

@@ -52,6 +52,8 @@ const badgeTierSchema = z
     tier: z.enum(BADGE_TIER_VALUES as [string, ...string[]]),
     name: z.string().min(1, 'Tier name is required'),
     icon: z.string().optional(),
+    animationUrl: z.string().optional(),
+    smallIconUrl: z.string().optional(),
     requiredCount: z.number().min(0).optional(),
     requiredAmount: z.number().min(0).optional(),
   })
@@ -264,5 +266,14 @@ export const getBadgesQuerySchema = z.object({
     page: z.string().regex(/^\d+$/).transform(Number).optional(),
     limit: z.string().regex(/^\d+$/).transform(Number).optional(),
     searchTerm: z.string().optional(),
+  }),
+});
+
+export const markBadgeTierAsPreviewedSchema = z.object({
+  body: z.object({
+    badgeId: z.string().min(1, 'Badge ID is required'),
+    tier: z.enum(['colour', 'bronze', 'silver', 'gold', 'one-tier'], {
+      message: 'Tier must be one of: colour, bronze, silver, gold, one-tier',
+    }),
   }),
 });

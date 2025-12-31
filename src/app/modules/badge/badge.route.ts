@@ -5,6 +5,7 @@ import { badgeController } from './badge.controller';
 import {
   createBadgeSchema,
   getBadgesQuerySchema,
+  markBadgeTierAsPreviewedSchema,
   updateBadgeSchema,
 } from './badge.validation';
 import { upload } from '../../lib';
@@ -17,6 +18,13 @@ router.get(
   '/user/progress',
   auth(ROLE.CLIENT, ROLE.ADMIN),
   badgeController.getAllBadgesWithProgress
+);
+
+router.patch(
+  '/mark-as-previewed',
+  auth(ROLE.CLIENT, ROLE.ADMIN),
+  validateRequest(markBadgeTierAsPreviewedSchema),
+  badgeController.markTierVideoPreviewed
 );
 
 router.get(
@@ -40,11 +48,30 @@ router.post(
   auth(ROLE.ADMIN),
   upload.fields([
     { name: 'mainIcon', maxCount: 1 },
+    // colour
     { name: 'tier_colour', maxCount: 1 },
+    { name: 'tier_colour_animation', maxCount: 1 },
+    { name: 'tier_colour_smallIcon', maxCount: 1 },
+
+    // bronze
     { name: 'tier_bronze', maxCount: 1 },
+    { name: 'tier_bronze_animation', maxCount: 1 },
+    { name: 'tier_bronze_smallIcon', maxCount: 1 },
+
+    // silver
     { name: 'tier_silver', maxCount: 1 },
+    { name: 'tier_silver_animation', maxCount: 1 },
+    { name: 'tier_silver_smallIcon', maxCount: 1 },
+
+    // gold
     { name: 'tier_gold', maxCount: 1 },
+    { name: 'tier_gold_animation', maxCount: 1 },
+    { name: 'tier_gold_smallIcon', maxCount: 1 },
+
+    // one-tier
     { name: 'tier_one-tier', maxCount: 1 },
+    { name: 'tier_one-tier_animation', maxCount: 1 },
+    { name: 'tier_one-tier_smallIcon', maxCount: 1 },
   ]),
   validateRequestFromFormData(createBadgeSchema),
   badgeController.createBadge
@@ -55,11 +82,30 @@ router.patch(
   auth(ROLE.ADMIN),
   upload.fields([
     { name: 'mainIcon', maxCount: 1 },
+    // colour
     { name: 'tier_colour', maxCount: 1 },
+    { name: 'tier_colour_animation', maxCount: 1 },
+    { name: 'tier_colour_smallIcon', maxCount: 1 },
+
+    // bronze
     { name: 'tier_bronze', maxCount: 1 },
+    { name: 'tier_bronze_animation', maxCount: 1 },
+    { name: 'tier_bronze_smallIcon', maxCount: 1 },
+
+    // silver
     { name: 'tier_silver', maxCount: 1 },
+    { name: 'tier_silver_animation', maxCount: 1 },
+    { name: 'tier_silver_smallIcon', maxCount: 1 },
+
+    // gold
     { name: 'tier_gold', maxCount: 1 },
+    { name: 'tier_gold_animation', maxCount: 1 },
+    { name: 'tier_gold_smallIcon', maxCount: 1 },
+
+    // one-tier
     { name: 'tier_one-tier', maxCount: 1 },
+    { name: 'tier_one-tier_animation', maxCount: 1 },
+    { name: 'tier_one-tier_smallIcon', maxCount: 1 },
   ]),
   validateRequestFromFormData(updateBadgeSchema),
   badgeController.updateBadge

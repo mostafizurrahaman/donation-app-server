@@ -86,6 +86,18 @@ const getBadgeHistory = asyncHandler(
   }
 );
 
+export const markTierVideoPreviewed = asyncHandler(async (req, res) => {
+  const userId = req.user._id?.toString();
+  const { badgeId, tier } = req.body;
+
+  await badgeService.markTierVideoPreviewed(userId, badgeId, tier);
+
+  res.status(httpStatus.OK).json({
+    success: true,
+    message: 'Tier video preview recorded',
+  });
+});
+
 export const badgeController = {
   createBadge,
   updateBadge,
@@ -94,4 +106,5 @@ export const badgeController = {
   deleteBadge,
   getAllBadgesWithProgress,
   getBadgeHistory,
+  markTierVideoPreviewed,
 };

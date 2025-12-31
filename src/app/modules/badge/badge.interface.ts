@@ -10,7 +10,9 @@ import {
 export interface IBadgeTierConfig {
   tier: (typeof BADGE_TIER)[keyof typeof BADGE_TIER];
   name: string;
-  icon: string;
+  icon: string; // glb
+  animationUrl: string; //  gif
+  smallIconUrl: string; // png, jpg
   requiredCount: number;
   requiredAmount?: number;
 }
@@ -18,7 +20,7 @@ export interface IBadgeTierConfig {
 export interface IBadge extends Document {
   name: string;
   description: string;
-  icon: string; // URL to S3
+  icon: string;
 
   // Logic Engine
   unlockType: (typeof BADGE_UNLOCK_TYPE)[keyof typeof BADGE_UNLOCK_TYPE];
@@ -51,6 +53,11 @@ export interface ITierUnlockHistory {
   unlockedAt: Date;
 }
 
+export interface IPreviewedTier {
+  tier: (typeof BADGE_TIER)[keyof typeof BADGE_TIER];
+  previewedAt: Date;
+}
+
 export interface IUserBadge extends Document {
   _id: Types.ObjectId;
   user: Types.ObjectId;
@@ -69,6 +76,7 @@ export interface IUserBadge extends Document {
   lastDonationDate: Date;
 
   tiersUnlocked: ITierUnlockHistory[];
+  previewedTiers: IPreviewedTier[];
 
   createdAt: Date;
   updatedAt: Date;

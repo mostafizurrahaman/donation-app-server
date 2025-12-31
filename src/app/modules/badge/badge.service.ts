@@ -58,11 +58,16 @@ const createBadge = async (
 
   for (const tierConfig of tiers) {
     const fieldName = `tier_${tierConfig.tier}`;
-    const file = files?.[fieldName]?.[0];
+    const animationField = `tier_${tierConfig.tier}_animation`;
+    const smallIconField = `tier_${tierConfig.tier}_smallIcon`;
 
-    if (file) {
+    const icon = files?.[fieldName]?.[0];
+    const animation = files?.[animationField]?.[0];
+    const smallIcon = files?.[smallIconField]?.[0];
+
+    if (icon) {
       const uploadResult = await uploadToS3({
-        buffer: file.buffer,
+        buffer: icon.buffer,
         key: `badge-tier-${tierConfig.tier}-${Date.now()}`,
         contentType: 'model/gltf-binary',
         folder: 'badges/tiers',
@@ -72,6 +77,36 @@ const createBadge = async (
       throw new AppError(
         httpStatus.BAD_REQUEST,
         `Icon for tier ${tierConfig.tier} is missing`
+      );
+    }
+
+    if (animation) {
+      const uploadResult = await uploadToS3({
+        buffer: animation.buffer,
+        key: `badge-tier-${tierConfig.tier}-animation-${Date.now()}`,
+        contentType: 'model/gltf-binary',
+        folder: 'badges/tiers',
+      });
+      tierConfig.animationUrl = uploadResult.url;
+    } else {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        `Animation for tier ${tierConfig.tier} is missing`
+      );
+    }
+
+    if (smallIcon) {
+      const uploadResult = await uploadToS3({
+        buffer: smallIcon.buffer,
+        key: `badge-tier-${tierConfig.tier}-small-${Date.now()}`,
+        contentType: 'model/gltf-binary',
+        folder: 'badges/tiers',
+      });
+      tierConfig.smallIconUrl = uploadResult.url;
+    } else {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        `Small icon for tier ${tierConfig.tier} is missing`
       );
     }
   }
@@ -108,9 +143,14 @@ const updateBadge = async (
   if (payload.tiers) {
     for (const tierConfig of payload.tiers) {
       const fieldName = `tier_${tierConfig.tier}`;
-      const file = files?.[fieldName]?.[0];
+      const animationField = `tier_${tierConfig.tier}_animation`;
+      const smallIconField = `tier_${tierConfig.tier}_smallIcon`;
 
-      if (file) {
+      const icon = files?.[fieldName]?.[0];
+      const animation = files?.[animationField]?.[0];
+      const smallIcon = files?.[smallIconField]?.[0];
+
+      if (icon) {
         // Delete old tier icon if it existed
         const existingTier = badge.tiers.find(
           (t) => t.tier === tierConfig.tier
@@ -121,7 +161,7 @@ const updateBadge = async (
         }
 
         const uploadResult = await uploadToS3({
-          buffer: file.buffer,
+          buffer: icon.buffer,
           key: `badge-tier-upd-${tierConfig.tier}-${Date.now()}`,
           contentType: 'model/gltf-binary',
           folder: 'badges/tiers',
@@ -133,6 +173,56 @@ const updateBadge = async (
           (t) => t.tier === tierConfig.tier
         );
         if (existingTier) tierConfig.icon = existingTier.icon;
+      }
+
+      if (animation) {
+        // Delete old tier animation if it existed
+        const existingTier = badge.tiers.find(
+          (t) => t.tier === tierConfig.tier
+        );
+        if (existingTier?.animationUrl) {
+          const oldKey = getS3KeyFromUrl(existingTier.animationUrl);
+          if (oldKey) await deleteFromS3(oldKey).catch(() => null);
+        }
+
+        const uploadResult = await uploadToS3({
+          buffer: animation.buffer,
+          key: `badge-tier-upd-${tierConfig.tier}-animation-${Date.now()}`,
+          contentType: 'model/gltf-binary',
+          folder: 'badges/tiers',
+        });
+        tierConfig.animationUrl = uploadResult.url;
+      } else {
+        // Keep existing animation if no new file uploaded for this tier
+        const existingTier = badge.tiers.find(
+          (t) => t.tier === tierConfig.tier
+        );
+        if (existingTier) tierConfig.animationUrl = existingTier.animationUrl;
+      }
+
+      if (smallIcon) {
+        // Delete old tier smallIcon if it existed
+        const existingTier = badge.tiers.find(
+          (t) => t.tier === tierConfig.tier
+        );
+        if (existingTier?.smallIconUrl) {
+          const oldKey = getS3KeyFromUrl(existingTier.smallIconUrl);
+          if (oldKey) await deleteFromS3(oldKey).catch(() => null);
+        }
+
+        const uploadResult = await uploadToS3({
+          buffer: smallIcon.buffer,
+          key: `badge-tier-upd-${tierConfig.tier}-smallIcon-${Date.now()}`,
+          contentType: 'model/gltf-binary',
+          folder: 'badges/tiers',
+        });
+        tierConfig.smallIconUrl = uploadResult.url;
+      } else {
+        // Keep existing smallIcon if no new file uploaded for this tier
+        const existingTier = badge.tiers.find(
+          (t) => t.tier === tierConfig.tier
+        );
+        if (existingTier) tierConfig.smallIconUrl = existingTier.smallIconUrl;
       }
     }
   }
@@ -304,6 +394,23 @@ const getAllBadgesWithProgress = async (
       description: badge.description,
       type: badge.unlockType,
       isUnlocked: !!userBadge,
+      tiers: badge.tiers.map((tier: any) => ({
+        tier: tier.tier,
+        name: tier.name,
+        icon: tier.icon,
+        animationUrl: tier.animationUrl,
+        smallIconUrl: tier.smallIconUrl,
+        isUnlocked:
+          userBadge?.tiersUnlocked?.some((t: any) => t.tier === tier.tier) ||
+          false,
+
+        isPreviewed:
+          userBadge?.previewedTiers?.some((p: any) => p.tier === tier.tier) ||
+          false,
+
+        requiredCount: tier.requiredCount,
+        requiredAmount: tier.requiredAmount,
+      })),
       isCompleted,
       currentTier: currentTierName,
       progress: {
@@ -933,6 +1040,41 @@ const checkTierUpgrade = async (userBadge: any, badge: any): Promise<void> => {
     await checkTierUpgrade(userBadge, badge);
   }
 };
+
+const markTierVideoPreviewed = async (
+  userId: string,
+  badgeId: string,
+  tier: 'colour' | 'bronze' | 'silver' | 'gold' | 'one-tier'
+) => {
+  const userBadge = await UserBadge.findOne({
+    user: userId,
+    badge: badgeId,
+  });
+
+  if (!userBadge) {
+    throw new AppError(httpStatus.NOT_FOUND, 'User badge not found');
+  }
+
+  const isUnlocked = userBadge.tiersUnlocked.some((t) => t.tier === tier);
+
+  if (!isUnlocked) {
+    throw new AppError(httpStatus.FORBIDDEN, 'Tier not unlocked');
+  }
+
+  const alreadyPreviewed = userBadge.previewedTiers?.some(
+    (p) => p.tier === tier
+  );
+
+  if (alreadyPreviewed) return;
+
+  userBadge.previewedTiers.push({
+    tier,
+    previewedAt: new Date(),
+  });
+
+  await userBadge.save();
+};
+
 export const badgeService = {
   createBadge,
   updateBadge,
@@ -942,4 +1084,5 @@ export const badgeService = {
   getAllBadgesWithProgress,
   checkAndUpdateBadgesForDonation,
   getBadgeHistory,
+  markTierVideoPreviewed,
 };
