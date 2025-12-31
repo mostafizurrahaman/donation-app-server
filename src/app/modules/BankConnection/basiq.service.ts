@@ -54,6 +54,7 @@ export const ensureBasiqWebhookRegistered = async (currentAppUrl: string) => {
     headers: { accept: 'application/json', Authorization: `Bearer ${token}` },
   };
 
+ 
   try {
     const res = await axios.request(options);
     const exitingWebhooks = res.data.data;
@@ -66,7 +67,7 @@ export const ensureBasiqWebhookRegistered = async (currentAppUrl: string) => {
   }
 
   const targetWebhookUrl = `${currentAppUrl}/api/v1/bank-connection/basiq-webhook`;
-  console.log(targetWebhookUrl);
+  
 
   const newOptions = {
     method: 'POST',
@@ -93,8 +94,8 @@ export const ensureBasiqWebhookRegistered = async (currentAppUrl: string) => {
 
   try {
     const WBResponse = await axios.request(newOptions);
-    const webHook = WBResponse.data.data;
-    console.log(webHook);
+    const webHook = WBResponse.data
+    console.log({webHook})
   } catch (error: any) {
     console.log('error', (error as AxiosError).response!.data);
   }
