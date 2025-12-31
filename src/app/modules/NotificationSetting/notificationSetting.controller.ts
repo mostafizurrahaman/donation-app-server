@@ -7,7 +7,7 @@ import { NotificationSettingService } from './notificationSetting.service';
 const getNotificationSettings = asyncHandler(
   async (req: Request, res: Response) => {
     const result = await NotificationSettingService.getNotificationSettings(
-      (req as any).user.userId
+      req?.user._id?.toString()
     );
 
     sendResponse(res, {
@@ -20,8 +20,10 @@ const getNotificationSettings = asyncHandler(
 
 const updateNotificationSettings = asyncHandler(
   async (req: Request, res: Response) => {
+    console.log(req.user);
+
     const result = await NotificationSettingService.updateNotificationSettings(
-      (req as any).user.userId,
+      req?.user._id?.toString(),
       req.body
     );
 

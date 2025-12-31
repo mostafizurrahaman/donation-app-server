@@ -9,13 +9,13 @@ const router = express.Router();
 
 router.get(
   '/',
-  auth(USER_ROLE.CLIENT, USER_ROLE.ADMIN),
+  auth(USER_ROLE.CLIENT, USER_ROLE.BUSINESS, USER_ROLE.ADMIN),
   NotificationSettingController.getNotificationSettings
 );
 
 router.patch(
   '/',
-  auth(USER_ROLE.CLIENT, USER_ROLE.ADMIN),
+  auth(USER_ROLE.CLIENT, USER_ROLE.BUSINESS, USER_ROLE.ADMIN),
   validateRequest(
     NotificationSettingValidations.updateNotificationSettingValidation
   ),
