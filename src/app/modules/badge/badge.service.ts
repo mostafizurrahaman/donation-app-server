@@ -70,7 +70,7 @@ const createBadge = async (
       const uploadResult = await uploadToS3({
         buffer: icon.buffer,
         key: `badge-tier-${tierConfig.tier}-${Date.now()}`,
-        contentType: 'model/gltf-binary',
+        contentType: icon.mimetype,
         folder: 'badges/tiers',
       });
       tierConfig.icon = uploadResult.url;
@@ -85,7 +85,7 @@ const createBadge = async (
       const uploadResult = await uploadToS3({
         buffer: animation.buffer,
         key: `badge-tier-${tierConfig.tier}-animation-${Date.now()}`,
-        contentType: 'model/gltf-binary',
+        contentType: animation.mimetype,
         folder: 'badges/tiers',
       });
       tierConfig.animationUrl = uploadResult.url;
@@ -100,7 +100,7 @@ const createBadge = async (
       const uploadResult = await uploadToS3({
         buffer: smallIcon.buffer,
         key: `badge-tier-${tierConfig.tier}-small-${Date.now()}`,
-        contentType: 'model/gltf-binary',
+        contentType: smallIcon.mimetype,
         folder: 'badges/tiers',
       });
       tierConfig.smallIconUrl = uploadResult.url;
@@ -189,7 +189,7 @@ const updateBadge = async (
         const uploadResult = await uploadToS3({
           buffer: animation.buffer,
           key: `badge-tier-upd-${tierConfig.tier}-animation-${Date.now()}`,
-          contentType: 'model/gltf-binary',
+          contentType: animation.mimetype,
           folder: 'badges/tiers',
         });
         tierConfig.animationUrl = uploadResult.url;
@@ -214,7 +214,7 @@ const updateBadge = async (
         const uploadResult = await uploadToS3({
           buffer: smallIcon.buffer,
           key: `badge-tier-upd-${tierConfig.tier}-smallIcon-${Date.now()}`,
-          contentType: 'model/gltf-binary',
+          contentType: smallIcon.mimetype,
           folder: 'badges/tiers',
         });
         tierConfig.smallIconUrl = uploadResult.url;

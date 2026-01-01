@@ -1082,6 +1082,8 @@ const fetchProfileFromDB = async (user: IAuth) => {
       coverImage: businessProfile?.coverImage || null,
       logoImage: businessProfile?.logoImage || null,
       isSubscribed,
+      subscriptionStartAt: sub?.currentPeriodStart,
+      subscriptionExpiresAt: sub?.currentPeriodEnd,
     };
   } else if (user?.role === ROLE.ORGANIZATION) {
     const organization = await Organization.findOne({
