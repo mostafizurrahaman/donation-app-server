@@ -24,6 +24,7 @@ import {
   ICreateBadgePayload,
   IUpdateBadgePayload,
   IBadgeTierConfig,
+  IBadge,
 } from './badge.interface';
 
 import QueryBuilder from '../../builders/QueryBuilder';
@@ -1046,10 +1047,16 @@ const markTierVideoPreviewed = async (
   badgeId: string,
   tier: 'colour' | 'bronze' | 'silver' | 'gold' | 'one-tier'
 ) => {
+  const client = await Client?.findOne({ auth: userId });
+
+  if (!client) {
+    throw new AppError(httpStatus.NOT_FOUND, 'User Not found!');
+  }
+
   const userBadge = await UserBadge.findOne({
-    user: userId,
+    user: client?._id,
     badge: badgeId,
-  });
+  }).populate<{ badge: IBadge }>('badge');
 
   if (!userBadge) {
     throw new AppError(httpStatus.NOT_FOUND, 'User badge not found');
@@ -1065,14 +1072,25 @@ const markTierVideoPreviewed = async (
     (p) => p.tier === tier
   );
 
-  if (alreadyPreviewed) return;
+  if (alreadyPreviewed) {
+    throw new AppError(
+      httpStatus.CONFLICT,
+      `Badge ${tier} tier already previewed!`
+    );
+  }
 
   userBadge.previewedTiers.push({
     tier,
     previewedAt: new Date(),
   });
 
+  const currentTierInfo = userBadge.badge.tiers?.find(
+    (badge) => badge.tier === tier
+  );
+
   await userBadge.save();
+
+  return currentTierInfo;
 };
 
 export const badgeService = {
