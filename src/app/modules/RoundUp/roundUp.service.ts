@@ -548,6 +548,7 @@ const updateRoundUp = async (
   roundUpId: string,
   payload: { monthlyThreshold?: number | 'no-limit'; specialMessage?: string }
 ) => {
+  console.log({ userId, roundUpId, payload });
   const roundUpConfig = await RoundUpModel.findOne({
     _id: roundUpId,
     user: userId,

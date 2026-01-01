@@ -6,7 +6,7 @@ import { manualTriggerRoundUpProcessing } from '../../jobs/roundUpTransactions.j
 import httpStatus from 'http-status';
 // Controller functions that handle HTTP requests/responses and call service functions
 const savePlaidConsent = catchAsync(async (req: Request, res: Response) => {
-  const userId = req.user.id;
+  const userId = req.user._id?.toString();
   const payload = req.body;
 
   const result = await roundUpService.savePlaidConsent(userId, payload);
@@ -19,7 +19,7 @@ const savePlaidConsent = catchAsync(async (req: Request, res: Response) => {
 });
 
 const revokeConsent = catchAsync(async (req: Request, res: Response) => {
-  const userId = req.user.id;
+  const userId = req.user._id?.toString();
   const { bankConnectionId } = req.params;
 
   const result = await roundUpService.revokeConsent(userId, bankConnectionId);
@@ -32,7 +32,7 @@ const revokeConsent = catchAsync(async (req: Request, res: Response) => {
 });
 
 const syncTransactions = catchAsync(async (req: Request, res: Response) => {
-  const userId = req.user.id;
+  const userId = req.user._id?.toString();
   const { bankConnectionId } = req.params;
   const payload = req.body;
 
@@ -52,6 +52,11 @@ const syncTransactions = catchAsync(async (req: Request, res: Response) => {
 const updateRoundUp = catchAsync(async (req: Request, res: Response) => {
   const userId = req.user._id?.toString();
   const { id } = req.params;
+  console.log({
+    userId,
+    user: req.user,
+    id,
+  });
   const result = await roundUpService.updateRoundUp(userId, id, req.body);
 
   return sendResponse(res, 200, {
@@ -98,7 +103,7 @@ const testRoundUpProcessingCron = catchAsync(
 );
 
 const resumeRoundUp = catchAsync(async (req: Request, res: Response) => {
-  const userId = req.user.id;
+  const userId = req.user._id?.toString();
   const payload = req.body;
 
   const result = await roundUpService.resumeRoundUp(userId, payload);
@@ -111,7 +116,7 @@ const resumeRoundUp = catchAsync(async (req: Request, res: Response) => {
 });
 
 const switchCharity = catchAsync(async (req: Request, res: Response) => {
-  const userId = req.user.id;
+  const userId = req.user._id?.toString();
   const payload = req.body;
 
   const result = await roundUpService.switchCharity(userId, payload);
@@ -124,7 +129,7 @@ const switchCharity = catchAsync(async (req: Request, res: Response) => {
 });
 
 const getUserDashboard = catchAsync(async (req: Request, res: Response) => {
-  const userId = req.user.id;
+  const userId = req.user._id?.toString();
 
   const result = await roundUpService.getUserDashboard(userId);
 
