@@ -410,7 +410,12 @@ const switchCharity = async (
 };
 
 const getUserDashboard = async (userId: string) => {
-  const roundUpConfig = await (RoundUpModel as any).findActiveByUserId(userId);
+  const roundUpConfig = await RoundUpModel.findOne({
+    user: userId,
+    isActive: true,
+    enabled: true,
+    status: { $ne: 'cancelled' },
+  });
 
   if (!roundUpConfig) {
     return {

@@ -50,7 +50,7 @@ const syncTransactions = catchAsync(async (req: Request, res: Response) => {
 });
 
 const updateRoundUp = catchAsync(async (req: Request, res: Response) => {
-  const userId = req.user.id;
+  const userId = req.user._id?.toString();
   const { id } = req.params;
   const result = await roundUpService.updateRoundUp(userId, id, req.body);
 
@@ -62,7 +62,7 @@ const updateRoundUp = catchAsync(async (req: Request, res: Response) => {
 });
 
 const cancelRoundUp = catchAsync(async (req: Request, res: Response) => {
-  const userId = req.user.id;
+  const userId = req.user._id?.toString();
   const { id } = req.params;
   const { reason } = req.body;
   const result = await roundUpService.cancelRoundUp(userId, id, reason);
