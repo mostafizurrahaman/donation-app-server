@@ -20,12 +20,14 @@ export const getBasiqActionToken = async (): Promise<string> => {
       { scope: 'SERVER_ACCESS' },
       {
         headers: {
-          'Authorization': `Basic ${config.basiq.apiKey}`,
+          Authorization: `Basic ${config.basiq.apiKey}`,
           'basiq-version': '3.0',
           'Content-Type': 'application/json',
         },
       }
     );
+
+    console.log({ token: data.access_token });
     return data.access_token;
   } catch (error: any) {
     const detail = error.response?.data?.data?.[0]?.detail || error.message;
@@ -40,6 +42,7 @@ export const getBasiqActionToken = async (): Promise<string> => {
  */
 export const getBasiqAuthToken = async (): Promise<string> => {
   const token = await getBasiqActionToken();
+
   return token;
 };
 /**
@@ -54,7 +57,6 @@ export const ensureBasiqWebhookRegistered = async (currentAppUrl: string) => {
     headers: { accept: 'application/json', Authorization: `Bearer ${token}` },
   };
 
- 
   try {
     const res = await axios.request(options);
     const exitingWebhooks = res.data.data;
@@ -67,7 +69,6 @@ export const ensureBasiqWebhookRegistered = async (currentAppUrl: string) => {
   }
 
   const targetWebhookUrl = `${currentAppUrl}/api/v1/bank-connection/basiq-webhook`;
-  
 
   const newOptions = {
     method: 'POST',
@@ -85,6 +86,8 @@ export const ensureBasiqWebhookRegistered = async (currentAppUrl: string) => {
         'consent.expired',
         'connection.created',
         'connection.invalidated',
+        'account.updated',
+        'user.deleted',
       ],
       name: 'My General Webhook',
       description: 'Webhook to catch all events',
@@ -94,8 +97,8 @@ export const ensureBasiqWebhookRegistered = async (currentAppUrl: string) => {
 
   try {
     const WBResponse = await axios.request(newOptions);
-    const webHook = WBResponse.data
-    console.log({webHook})
+    const webHook = WBResponse.data;
+    console.log({ webHook });
   } catch (error: any) {
     console.log('error', (error as AxiosError).response!.data);
   }
@@ -134,7 +137,7 @@ export const getOrCreateBasiqUser = async (userId: string): Promise<string> => {
         `https://au-api.basiq.io/users/${user.basiqUserId}`,
         {
           email: user.email,
-         
+
           firstName: clientProfile.name.split(' ')[0] || 'User',
           lastName: clientProfile.name.split(' ')[1] || 'Default',
           mobile: clientProfile.phoneNumber,
@@ -142,16 +145,21 @@ export const getOrCreateBasiqUser = async (userId: string): Promise<string> => {
         {
           headers: {
             authorization: `Bearer ${token}`,
-             accept: 'application/json',
+            accept: 'application/json',
             'basiq-version': '3.0',
-             'content-type': 'application/json',
+            'content-type': 'application/json',
           },
         }
       );
 
-      console.log(`✅ Updated Basiq user ${user.basiqUserId} with latest profile info including phone number`);
+      console.log(
+        `✅ Updated Basiq user ${user.basiqUserId} with latest profile info including phone number`
+      );
     } catch (error: any) {
-      console.error('⚠️ Failed to update Basiq user info:', error.response?.data?.data?.[0]?.detail || error.message);
+      console.error(
+        '⚠️ Failed to update Basiq user info:',
+        error.response?.data?.data?.[0]?.detail || error.message
+      );
       // Don't throw error here, just log it - we can still proceed with the existing Basiq user
     }
 
@@ -165,7 +173,7 @@ export const getOrCreateBasiqUser = async (userId: string): Promise<string> => {
     const { data } = await axios.post(
       'https://au-api.basiq.io/users',
       {
-        email: user.email,        
+        email: user.email,
         firstName: clientProfile.name.split(' ')[0] || 'User',
         lastName: clientProfile.name.split(' ')[1] || 'Default',
         mobile: clientProfile.phoneNumber,
@@ -449,7 +457,7 @@ const saveBasiqAccount = asyncHandler(async (req, res) => {
   const connection = await BankConnectionModel.create({
     user: userId,
     provider: BANKCONNECTION_PROVIDER.BASIQ,
-    itemId: user.basiqUserId,
+    itemId: user?.basiqUserId,
     accountId: accountId,
     accountName: accountName,
     accountType: accountType,

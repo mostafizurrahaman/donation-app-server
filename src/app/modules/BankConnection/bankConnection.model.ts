@@ -20,7 +20,7 @@ const BankConnectionSchema = new Schema(
     itemId: {
       type: String,
       required: true,
-      unique: true,
+      // unique: true,
     },
     accessToken: {
       type: String,
