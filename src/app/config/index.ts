@@ -92,6 +92,7 @@ interface IConfig {
   basiq: {
     apiKey: string;
     baseUrl: string;
+    clientRedirectUrl: string;
   };
 }
 
@@ -178,6 +179,9 @@ const config: IConfig = {
   basiq: {
     apiKey: process.env.BASIQ_API_KEY || '',
     baseUrl: process.env.BASIQ_BASE_URL || 'https://au-api.basiq.io',
+    clientRedirectUrl:
+      process.env.BASIQ_CLIENT_REDIRECT_URL ||
+      `${process.env.CLIENT_URL || 'http://localhost:3000'}/bank-connection/success`,
   },
   encryptionKey: process.env.ENCRYPTION_KEY || '',
   awsConfig: {

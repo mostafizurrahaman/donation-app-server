@@ -3,7 +3,7 @@ import { IBankConnection } from './bankConnection.interface';
 import plaidService from './bankConnection.service';
 import { bankConnectiionProviderValues } from './bankConnection.constant';
 
-export interface IBankConnectionDocument extends IBankConnection, Document {}
+export interface IBankConnectionDocument extends IBankConnection, Document { }
 
 const BankConnectionSchema = new Schema(
   {
@@ -20,7 +20,10 @@ const BankConnectionSchema = new Schema(
     itemId: {
       type: String,
       required: true,
-      // unique: true,
+      unique: true,
+    },
+    bsiqUserId: {
+      type: String,
     },
     accessToken: {
       type: String,
@@ -68,10 +71,8 @@ const BankConnectionSchema = new Schema(
       type: Date,
     },
     lastSyncCursor: {
-    
       type: String,
     },
-
   },
   {
     timestamps: true,
@@ -90,6 +91,7 @@ const BankConnectionSchema = new Schema(
 // Indexes for optimal performance
 BankConnectionSchema.index({ user: 1, isActive: 1 });
 BankConnectionSchema.index({ itemId: 1 });
+BankConnectionSchema.index({ connectionId: 1 });
 BankConnectionSchema.index({ isActive: 1, lastSyncAt: 1 });
 
 // Method to check if consent is still valid

@@ -292,7 +292,8 @@ const processTransactionsFromPlaid = async (
 
     if (!roundUpConfig) {
       // Not an error, just means no config active for this bank
-      throw new Error('No active round-up configuration found');
+      console.log('No active round-up configuration found');
+      return result;
     }
 
     // 2. Reset monthly total if new month

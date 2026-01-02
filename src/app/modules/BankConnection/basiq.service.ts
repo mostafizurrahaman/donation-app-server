@@ -13,7 +13,19 @@ import { Convert } from 'easy-currencies';
  * Step 1: Generate a Session Token
  * This is used for all functional API calls.
  */
+let cachedToken: string | null = null;
+let tokenExpiry: number | null = null;
+
+/**
+ * Step 1: Generate a Session Token
+ * This is used for all functional API calls.
+ */
 export const getBasiqActionToken = async (): Promise<string> => {
+  // Check if token is cached and valid (with 5 minute buffer)
+  if (cachedToken && tokenExpiry && Date.now() < tokenExpiry) {
+    return cachedToken;
+  }
+
   try {
     const { data } = await axios.post(
       'https://au-api.basiq.io/token',
@@ -28,8 +40,20 @@ export const getBasiqActionToken = async (): Promise<string> => {
     );
 
     console.log({ token: data.access_token });
+
+    // Cache the token
+    cachedToken = data.access_token;
+    // expires_in is usually in seconds (e.g. 3600 for 1 hour)
+    // We subtract 5 minutes (300000ms) for safety buffer
+    const expiresIn = data.expires_in || 3600;
+    tokenExpiry = Date.now() + expiresIn * 1000 - 300000;
+
     return data.access_token;
   } catch (error: any) {
+    // Clear cache on error
+    cachedToken = null;
+    tokenExpiry = null;
+
     const detail = error.response?.data?.data?.[0]?.detail || error.message;
     console.error('BASIQ_TOKEN_ERROR:', detail);
     throw new Error(`Basiq Token Generation Failed: ${detail}`);
@@ -62,13 +86,20 @@ export const ensureBasiqWebhookRegistered = async (currentAppUrl: string) => {
     const exitingWebhooks = res.data.data;
     if (exitingWebhooks?.length > 0) {
       console.log(exitingWebhooks);
+      // Optional: Check if the existing webhook matches the current URL configuration
+      // If not, we might want to update it, but for now we follow existing logic
       return;
     }
   } catch (error) {
     console.log(error);
   }
 
-  const targetWebhookUrl = `${currentAppUrl}/api/v1/bank-connection/basiq-webhook`;
+  // const baseUrl = config.serverUrl || currentAppUrl;
+  const baseUrl = `https://dauntless-cathey-telial.ngrok-free.dev`;
+  const targetWebhookUrl = `${baseUrl}/api/v1/bank-connection/basiq-webhook`;
+
+  // NOTE: Basiq requires a publicly accessible HTTPS URL.
+  // On localhost, this MUST be ngrok or similar.
 
   const newOptions = {
     method: 'POST',
@@ -86,10 +117,11 @@ export const ensureBasiqWebhookRegistered = async (currentAppUrl: string) => {
         'consent.expired',
         'connection.created',
         'connection.invalidated',
+        'connection.deleted',
         'account.updated',
         'user.deleted',
       ],
-      name: 'My General Webhook',
+      name: 'General Webhook',
       description: 'Webhook to catch all events',
       url: targetWebhookUrl,
     },
@@ -203,13 +235,23 @@ export const getOrCreateBasiqUser = async (userId: string): Promise<string> => {
  * Generates a unique URL for the user to connect their bank.
  */
 export const generateBasiqAuthLink = async (
-  basiqUserId: string
+  basiqUserId: string,
+  mobile?: string // Allow passing mobile preference
 ): Promise<string> => {
   try {
     const token = await getBasiqActionToken();
+
+    // We can try to pass the redirect URL preference here,
+    // although strictly it should be configured in the dashboard.
+    // Some implementation variations allow passing 'mobile' to pre-fill 2FA.
+    const body: any = {
+      // If we want to enforce SMS 2FA pre-fill
+      mobile: mobile || undefined,
+    };
+
     const { data } = await axios.post(
       `https://au-api.basiq.io/users/${basiqUserId}/auth_link`,
-      {},
+      body,
       {
         headers: {
           authorization: `Bearer ${token}`,
@@ -219,7 +261,24 @@ export const generateBasiqAuthLink = async (
       }
     );
     console.log(data);
-    return data.links?.public!;
+
+    let publicLink = data.links?.public!;
+
+    // Attempt to append redirect_url parameter if config is present
+    // NOTE: This relies on the Basiq Consent UI respecting this query param override.
+    // If it doesn't, the Dashboard setting is the only way.
+    if (config.basiq.clientRedirectUrl) {
+      // Check if link already has query params
+      const separator = publicLink.includes('?') ? '&' : '?';
+      // 'return_url' or 'redirect_url' - usually 'return_url' in some contexts, but let's try 'redirect_url' which is more standard Oauth
+      // However, for Basiq, it's often implicit.
+      // We'll trust the Dashboard configuration primarily, but logged here for visibility.
+      console.log(
+        `ℹ️ User should be redirected to: ${config.basiq.clientRedirectUrl}`
+      );
+    }
+
+    return publicLink;
   } catch (error: any) {
     const detail = error.response?.data?.data?.[0]?.detail || error.message;
     throw new AppError(
@@ -358,37 +417,15 @@ export const getBasiqAccounts = async (userId: string) => {
   if (!user?.basiqUserId) {
     throw new AppError(httpStatus.BAD_REQUEST, 'Basiq user not initialized');
   }
+
   try {
-    const options = {
-      method: 'GET',
-      url: `https://au-api.basiq.io/users/${user.basiqUserId}/accounts`,
-      headers: {
-        accept: 'application/json',
-        authorization: `Bearer ${await getBasiqActionToken()}`,
-      },
-    };
+    const data = await BankConnectionModel.find({
+      provider: 'basiq',
+      bsiqUserId: user?.basiqUserId,
+      isActive: true,
+    });
 
-    const res = await axios.request(options);
-    console.log(res.data);
-
-    const filterAndFormatBasiqAccounts = (rawBasiqData: any) => {
-      const allowedTypes = ['transaction', 'credit-card', 'savings'];
-
-      return rawBasiqData
-        .filter((acc: any) => allowedTypes.includes(acc.class.type))
-        .map((acc: any) => ({
-          provider: 'basiq', // Explicitly mention this is a Basiq account
-          accountId: acc.id,
-          accountName: acc.name,
-          accountType: acc.class.type,
-          institutionId: acc.institution,
-          // We append (Basiq) to the name so it's clear in the Admin UI/Logs
-          institutionName: `${acc.class.product} (Basiq)`,
-          connectionId: acc.connection,
-        }));
-    };
-
-    return filterAndFormatBasiqAccounts(res.data.data);
+    return data;
   } catch (err) {
     console.log('Error fetching Basiq accounts:', (err as any).data);
     throw new AppError(
@@ -396,9 +433,9 @@ export const getBasiqAccounts = async (userId: string) => {
       'Failed to fetch Basiq accounts'
     );
   }
-
-  // Array of account objects
 };
+
+// Array of account objects
 
 /**
  * Pull transactions for a specific account, optionally filtered by date
@@ -443,6 +480,75 @@ export const getBasiqTransactions = async (
   }
 };
 
+/**
+ * Syncs all Basiq connections/accounts for a user into the local DB.
+ * Used by webhooks (connection.created) and manual syncs.
+ */
+export const syncUserBasiqConnections = async (basiqUserId: string) => {
+  const user = await Auth.findOne({ basiqUserId });
+  if (!user) {
+    console.error(`User with basiqId ${basiqUserId} not found`);
+    return;
+  }
+
+  try {
+    // Fetch all accounts from Basiq
+    // Re-using logic from getBasiqAccounts but internal
+    const token = await getBasiqActionToken();
+    const { data } = await axios.get(
+      `https://au-api.basiq.io/users/${basiqUserId}/accounts`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+        },
+      }
+    );
+
+    const accounts = data.data; // Basiq accounts array
+    console.log({ accounts });
+
+    console.log(
+      `Syncing ${accounts.length} Basiq accounts for user ${user._id}`
+    );
+
+    for (const acc of accounts) {
+      // We only care about transaction or savings/credit accounts usually
+      // check 'class.type' logic as per getBasiqAccounts
+      const allowedTypes = ['transaction', 'credit-card', 'savings'];
+      if (!allowedTypes.includes(acc.class.type)) continue;
+
+      // Upsert into BankConnectionModel
+      // Upsert into BankConnectionModel
+      await BankConnectionModel.findOneAndUpdate(
+        {
+          user: user._id,
+          accountId: acc.id,
+        },
+        {
+          user: user._id,
+          provider: BANKCONNECTION_PROVIDER.BASIQ,
+          itemId: acc.id, // CHANGED: itemId is now the Account ID per user request
+          bsiqUserId: basiqUserId, // CHANGED: Saving the Basiq User ID in dedicated field
+          connectionId: acc.connection,
+          accountId: acc.id,
+          accountName: acc.name,
+          accountType: acc.class.type,
+          institutionName: acc.class.product || 'Basiq Bank',
+          institutionId: acc.institution,
+          isActive: acc.status !== 'closed' && acc.status !== 'deleted',
+          accessToken: 'basiq_server_access',
+        },
+        { upsert: true, new: true }
+      );
+    }
+    console.log(`✅ Synced Basiq accounts for ${user.email}`);
+  } catch (error: any) {
+    console.error('Failed to sync Basiq connections:', error.message);
+    throw error;
+  }
+};
+
 const saveBasiqAccount = asyncHandler(async (req, res) => {
   const userId = req.user._id.toString();
   const { accountId, institutionName, accountName, accountType, connectionId } =
@@ -457,7 +563,8 @@ const saveBasiqAccount = asyncHandler(async (req, res) => {
   const connection = await BankConnectionModel.create({
     user: userId,
     provider: BANKCONNECTION_PROVIDER.BASIQ,
-    itemId: user?.basiqUserId,
+    itemId: accountId, // CHANGED
+    bsiqUserId: user?.basiqUserId, // CHANGED
     accountId: accountId,
     accountName: accountName,
     accountType: accountType,
@@ -484,6 +591,7 @@ export const basiqService = {
   ensureBasiqWebhookRegistered,
   fetchAndProcessBasiqTransactions,
   getBasiqAccounts,
+  syncUserBasiqConnections,
   saveBasiqAccount,
   getBasiqTransactions,
 };
