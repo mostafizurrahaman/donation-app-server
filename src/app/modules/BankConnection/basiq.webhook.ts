@@ -1,9 +1,7 @@
 // src/app/modules/BankConnection/basiq.webhook.ts
 import { Request, Response } from 'express'; // <--- Add this import
 import { sendResponse } from '../../utils';
-import {
-  basiqService
-} from './basiq.service';
+import { basiqService } from './basiq.service';
 import { BankConnectionModel } from './bankConnection.model';
 import { RoundUpModel } from '../RoundUp/roundUp.model';
 import { createNotification } from '../Notification/notification.service';
@@ -33,6 +31,7 @@ export const handleBasiqWebhook = async (req: Request, res: Response) => {
   });
 
   try {
+
     switch (eventTypeId) {
       case 'transactions.updated':
         await basiqService.fetchAndProcessBasiqTransactions(basiqUserId!);
@@ -134,14 +133,57 @@ export const handleBasiqWebhook = async (req: Request, res: Response) => {
         break;
 
       case 'user.deleted':
-        await BankConnectionModel.deleteMany({
+        const bankConns = await BankConnectionModel.find({
           bsiqUserId: basiqUserId, // CHANGED from itemId
         });
+
+        const bankIds = bankConns?.map((conn) => conn._id) || [];
+        console.log(bankIds?.length + "Bank Connections deleted");
+
+        if (bankIds?.length > 0) {
+          // Disable RoundUps
+          await RoundUpModel.updateMany(
+            { bankConnection: { $in: bankIds } },
+            {
+              enabled: false,
+              status: 'failed',
+              lastDonationFailureReason: 'Bank connection deleted',
+            }
+          );
+
+          // Notify
+          await createNotification(
+            bankConns[0].user.toString(),
+            NOTIFICATION_TYPE.BANK_DISCONNECTED,
+            `Your bank ${bankConns[0].institutionName?.split(' ')[0]} connection was removed. Please reconnect to continue Round-Ups.`,
+            bankConns[0]._id?.toString(),
+            {
+              disconnectedBanks: [bankConns],
+            }
+          );
+        }
 
         await Auth.findOneAndUpdate(
           { basiqUserId },
           { $unset: { basiqUserId: 1 } }
         );
+
+
+
+
+
+
+        if (bankConns?.length > 0) {
+          // Disable RoundUps
+          await RoundUpModel.updateMany(
+            { bankConnection: { $in: bankConns } },
+            {
+              enabled: false,
+              status: 'failed',
+              lastDonationFailureReason: 'Bank connection deleted',
+            }
+          );
+        }
         break;
       case 'account.updated': {
         // 1. Get account details from the webhook data
