@@ -39,7 +39,6 @@ const getRoundupStats = async (userId: string, roundupId: string) => {
     // _id: roundupId,
   });
 
-  console.log(currentRoundup);
 
   if (!currentRoundup) {
     return {
