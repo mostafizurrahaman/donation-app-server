@@ -19,6 +19,8 @@ import { IORGANIZATION } from '../Organization/organization.interface';
 import { ICause } from '../Causes/causes.interface';
 import { SubscriptionService } from '../Subscription/subscription.service';
 import { StripeAccount } from '../OrganizationAccount/stripe-account.model';
+import Client from '../Client/client.model';
+import { getDateRanges } from '../../lib/filter-helper';
 
 const savePlaidConsent = async (
   userId: string,
@@ -633,6 +635,74 @@ const cancelRoundUp = async (
   return { success: true };
 };
 
+const getOrganizationForUserRoundup = async (userId: string) => {
+  // is client exists :
+  const client = await Client?.findOne({ auth: userId });
+
+  if (!client) {
+    throw new AppError(httpStatus.NOT_FOUND, `Clinet doesn't exists!`);
+  }
+
+  const organizations = await RoundUpModel.aggregate([
+    {
+      $match: {
+        isActive: true,
+        enabled: true,
+        status: { $nin: ['failed', 'completed'] }, // ✅ small fix
+      },
+    },
+    {
+      $lookup: {
+        from: 'organizations',
+        localField: 'organization',
+        foreignField: '_id',
+        as: 'organizationDetails',
+      },
+    },
+    { $unwind: '$organizationDetails' },
+
+    // 🔹 GROUP BY ORGANIZATION
+    {
+      $group: {
+        _id: '$organizationDetails._id',
+
+        orgName: { $first: '$organizationDetails.name' },
+        registeredCharityName: {
+          $first: '$organizationDetails.registeredCharityName',
+        },
+        address: { $first: '$organizationDetails.address' },
+        state: { $first: '$organizationDetails.state' },
+        country: { $first: '$organizationDetails.country' },
+        logoImage: { $first: '$organizationDetails.logoImage' },
+        coverImage: { $first: '$organizationDetails.coverImage' },
+        serviceType: { $first: '$organizationDetails.serviceType' },
+        roundupId: { $first: '$_id' },
+      },
+    },
+
+    // 🔹 FINAL SHAPE
+    {
+      $project: {
+        _id: 0,
+        organizationId: '$_id',
+        orgName: 1,
+        registeredCharityName: 1,
+        address: 1,
+        state: 1,
+        country: 1,
+        logoImage: 1,
+        coverImage: 1,
+        serviceType: 1,
+        roundupId: 1,
+      },
+    },
+  ]);
+
+  console.log(organizations);
+
+  return organizations;
+};
+
 export const roundUpService = {
   savePlaidConsent,
   revokeConsent,
@@ -643,4 +713,5 @@ export const roundUpService = {
   updateRoundUp,
   cancelRoundUp,
   getActiveRoundup,
+  getOrganizationForUserRoundup,
 };

@@ -5,12 +5,13 @@ import clientService from './client.service';
 
 const getRoundupStats = asyncHandler(async (req: Request, res: Response) => {
   const userId = req.user._id?.toString();
+  const roundupId = req.query.roundupId;
 
   if (!userId) {
     throw new AppError(httpStatus.NOT_FOUND, 'User not found!');
   }
 
-  const result = await clientService.getRoundupStats(userId);
+  const result = await clientService.getRoundupStats(userId, roundupId);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
