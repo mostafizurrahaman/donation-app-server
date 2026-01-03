@@ -196,6 +196,19 @@ const createCauseIntoDB = async (payload: {
       throw new AppError(httpStatus.NOT_FOUND, 'Organization not found!');
     }
 
+    // Cause with same category:
+    const isAlreadyExists = await Cause.find({
+      category: payload.category,
+      organization: organization?._id,
+    });
+
+    if (isAlreadyExists) {
+      throw new AppError(
+        httpStatus.CONFLICT,
+        'A cause already exists in this category.'
+      );
+    }
+
     // Create cause
     const [cause] = await Cause.create([payload], { session });
 
@@ -392,6 +405,22 @@ const updateCauseIntoDB = async (
   const existingCause = await Cause.findById(causeId);
   if (!existingCause) {
     throw new AppError(httpStatus.NOT_FOUND, 'Cause not found!');
+  }
+
+  if (payload.category !== existingCause.category) {
+    // check for same category
+    const isSameCategoryHasCause = await Cause.find({
+      category: payload.category,
+      organization: existingCause?.organization,
+    });
+
+    // check for same category
+    if (isSameCategoryHasCause) {
+      throw new AppError(
+        httpStatus.CONFLICT,
+        'A cause already exists in this category!'
+      );
+    }
   }
 
   const cause = await Cause.findByIdAndUpdate(causeId, payload, {
