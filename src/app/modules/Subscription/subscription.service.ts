@@ -217,6 +217,18 @@ const getAdminSubscriptionAndPayments = async (query: Record<string, any>) => {
   if (status && status !== 'all') matchStage.status = status;
   if (planType && planType !== 'all') matchStage.planType = planType;
 
+  const dateFilter: any = {};
+  if (fromDate || toDate) {
+    if (fromDate) {
+      dateFilter.$gte = new Date(fromDate);
+    }
+    if (toDate) {
+      dateFilter.$lte = new Date(fromDate);
+    }
+
+    matchStage.currentPeriodStart = dateFilter;
+  }
+
   const pipeline: any[] = [
     /** 1. Match subscription filters */
     { $match: matchStage },
@@ -230,6 +242,7 @@ const getAdminSubscriptionAndPayments = async (query: Record<string, any>) => {
         as: 'user',
       },
     },
+
     { $unwind: '$user' },
 
     /** 3. Organization lookup */
@@ -263,18 +276,18 @@ const getAdminSubscriptionAndPayments = async (query: Record<string, any>) => {
               $expr: { $eq: ['$subscription', '$$subscriptionId'] },
             },
           },
-          ...(fromDate || toDate
-            ? [
-                {
-                  $match: {
-                    createdAt: {
-                      ...(fromDate && { $gte: new Date(fromDate) }),
-                      ...(toDate && { $lte: new Date(toDate) }),
-                    },
-                  },
-                },
-              ]
-            : []),
+          // ...(fromDate || toDate
+          //   ? [
+          //       {
+          //         $match: {
+          //           createdAt: {
+          //             ...(fromDate && { $gte: new Date(fromDate) }),
+          //             ...(toDate && { $lte: new Date(toDate) }),
+          //           },
+          //         },
+          //       },
+          //     ]
+          //   : []),
           { $sort: { createdAt: -1 } },
         ],
         as: 'payments',
