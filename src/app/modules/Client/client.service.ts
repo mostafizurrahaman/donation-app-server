@@ -36,9 +36,8 @@ const getRoundupStats = async (userId: string, roundupId: string) => {
   // 2. Get Active Roundup
   const currentRoundup = await RoundUpModel.findOne({
     user: client?.auth,
-    // _id: roundupId,
+    _id: roundupId,
   });
-
 
   if (!currentRoundup) {
     return {
@@ -196,6 +195,8 @@ const getRoundupStats = async (userId: string, roundupId: string) => {
   const diffTime = nextMonthFirstDay.getTime() - today.getTime();
 
   const daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+ 
 
   return {
     currentRoundupBalance: Number(currentBalance.toFixed(2)),

@@ -648,7 +648,7 @@ const getOrganizationForUserRoundup = async (userId: string) => {
       $match: {
         isActive: true,
         enabled: true,
-        status: { $nin: ['failed', 'completed'] }, // ✅ small fix
+        status: { $nin: ['failed', 'completed', 'cancelled'] }, // ✅ small fix
       },
     },
     {
