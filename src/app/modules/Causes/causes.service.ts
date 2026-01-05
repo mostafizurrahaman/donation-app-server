@@ -197,7 +197,7 @@ const createCauseIntoDB = async (payload: {
     }
 
     // Cause with same category:
-    const isAlreadyExists = await Cause.find({
+    const isAlreadyExists = await Cause.findOne({
       category: payload.category,
       organization: organization?._id,
     });
@@ -409,7 +409,7 @@ const updateCauseIntoDB = async (
 
   if (payload.category !== existingCause.category) {
     // check for same category
-    const isSameCategoryHasCause = await Cause.find({
+    const isSameCategoryHasCause = await Cause.findOne({
       category: payload.category,
       organization: existingCause?.organization,
     });
