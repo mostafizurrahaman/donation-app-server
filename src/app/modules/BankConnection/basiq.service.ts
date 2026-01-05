@@ -94,8 +94,7 @@ export const ensureBasiqWebhookRegistered = async (currentAppUrl: string) => {
     console.log(error);
   }
 
-  // const baseUrl = config.serverUrl || currentAppUrl;
-  const baseUrl = `https://dauntless-cathey-telial.ngrok-free.dev`;
+  const baseUrl = config.serverUrl || currentAppUrl;
   const targetWebhookUrl = `${baseUrl}/api/v1/bank-connection/basiq-webhook`;
 
   // NOTE: Basiq requires a publicly accessible HTTPS URL.
