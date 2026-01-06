@@ -27,6 +27,7 @@ import { contentRouter } from '../modules/content/content.routes';
 import { SubscriptionRoutes } from '../modules/Subscription/subscription.routes';
 import { SubscriptionHistoryRoutes } from '../modules/subscriptionHistory/subscriptionHistory.routes';
 import { NotificationSettingRoutes } from '../modules/NotificationSetting/notificationSetting.route';
+import { favoriteRoutes } from '../modules/FavoriteReward/FavoriteReward.routes';
 
 const router = Router();
 
@@ -145,6 +146,10 @@ const moduleRoutes = [
   {
     path: '/subscription-history',
     route: SubscriptionHistoryRoutes,
+  },
+  {
+    path: '/favorite',
+    route: favoriteRoutes,
   },
 ];
 

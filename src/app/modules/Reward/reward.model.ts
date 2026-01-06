@@ -159,6 +159,8 @@ const rewardSchema = new Schema<IRewardDocument, IRewardModel>(
       default: false,
       index: true,
     },
+    
+
     priority: {
       type: Number,
       default: 1,
