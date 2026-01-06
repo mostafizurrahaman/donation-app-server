@@ -32,6 +32,7 @@ import { getDateHeader, getTimeAgo } from '../../lib/filter-helper';
 import { createNotification } from '../Notification/notification.service';
 import { NOTIFICATION_TYPE } from '../Notification/notification.constant';
 import { deleteFromS3, getS3KeyFromUrl } from '../../utils/s3.utils';
+import mongoose from 'mongoose';
 
 const createBadge = async (
   payload: ICreateBadgePayload,
@@ -257,13 +258,55 @@ const getAllBadges = async (query: Record<string, unknown>) => {
 };
 
 const deleteBadge = async (id: string) => {
-  const badge = await Badge.findByIdAndUpdate(id, { isActive: false }); // Soft delete
-  if (!badge) {
-    throw new AppError(httpStatus.NOT_FOUND, "Badge doesn't exist");
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const badge = await Badge.findById(id).session(session);
+
+    if (!badge) {
+      throw new AppError(httpStatus.NOT_FOUND, "Badge doesn't exist");
+    }
+
+    // 1. Delete Related User progress
+    await UserBadge.deleteMany({ badge: id }, { session });
+
+    // 2. Delete Related Audit Trail
+    await UserBadgeHistory.deleteMany({ badge: id }, { session });
+
+    // 3. Permanently Delete the Badge
+    await Badge.findByIdAndDelete(id, { session });
+
+    // If everything successful, commit the transaction
+    await session.commitTransaction();
+    session.endSession();
+
+    // 4. Cleanup S3 Assets (Perform AFTER commit)
+    const filesToDelete: string[] = [];
+    if (badge.icon) filesToDelete.push(badge.icon);
+
+    badge.tiers.forEach((tier) => {
+      if (tier.icon) filesToDelete.push(tier.icon);
+      if (tier.animationUrl) filesToDelete.push(tier.animationUrl);
+      if (tier.smallIconUrl) filesToDelete.push(tier.smallIconUrl);
+    });
+
+    // Fire and forget S3 cleanup
+    Promise.all(
+      filesToDelete.map(async (url) => {
+        const key = getS3KeyFromUrl(url);
+        if (key) await deleteFromS3(key).catch(() => null);
+      })
+    ).catch((err) => console.error('S3 Cleanup Error:', err));
+
+    return badge;
+  } catch (error) {
+    // If any error occurs, cancel all database changes
+    await session.abortTransaction();
+    session.endSession();
+    throw error;
   }
 };
-
-// --- USER PROGRESS ---
 
 /**
  * Retrieves all badges and calculates user-specific progress.

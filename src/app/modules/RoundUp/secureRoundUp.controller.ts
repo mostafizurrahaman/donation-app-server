@@ -152,6 +152,22 @@ const getActiveRoundup = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+const getOrganizationForUserRoundup = catchAsync(
+  async (req: Request, res: Response) => {
+    const userId = req.user._id;
+
+    const result = await roundUpService.getOrganizationForUserRoundup(
+      userId?.toString()
+    );
+
+    return sendResponse(res, httpStatus.OK, {
+      success: true,
+      message: 'All organization Fetched successfully for user roundup.',
+      data: result,
+    });
+  }
+);
+
 export const roundUpController = {
   savePlaidConsent,
   revokeConsent,
@@ -163,4 +179,5 @@ export const roundUpController = {
   updateRoundUp,
   cancelRoundUp,
   getActiveRoundup,
+  getOrganizationForUserRoundup,
 };

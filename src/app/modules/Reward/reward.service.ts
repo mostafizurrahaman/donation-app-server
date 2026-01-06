@@ -44,6 +44,7 @@ import { NOTIFICATION_TYPE } from '../Notification/notification.constant';
 import { generateUniqueRWDPrefix } from './reward.utils';
 import { RewardCode } from '../RewardCode/reward-code.model';
 import { deleteFromS3, getS3KeyFromUrl } from '../../utils/s3.utils';
+import { FavoriteReward } from '../FavoriteReward/FavoriteReward.model';
 
 // ==========================================
 // HELPER FUNCTIONS
@@ -763,11 +764,6 @@ const getRewardById = async (
     throw new AppError(httpStatus.NOT_FOUND, REWARD_MESSAGES.NOT_FOUND);
   }
 
-  console.log({
-    userId,
-    rewardId,
-  });
-
   // Handle Reward Views
   if (userId) {
     const client = await Client.findOne({ auth: userId });
@@ -781,21 +777,29 @@ const getRewardById = async (
   let hasAlreadyClaimed = false;
   let existingClaimId: Types.ObjectId | undefined;
   let claimDetails = null;
+  let isAlreadySaved = false;
 
   if (userId) {
     const client = await Client.findOne({ auth: userId });
     try {
-      const [balance, existingClaim] = await Promise.all([
+      const [balance, existingClaim, existingFavorite] = await Promise.all([
         pointsServices.getUserBalance(client!._id.toString()),
         RewardRedemption.findOne({
           user: client?._id,
           reward: rewardId,
           status: { $in: ['claimed', 'redeemed'] },
         }),
+        FavoriteReward.exists({
+          user: userId,
+          reward: rewardId,
+        }),
       ]);
 
       userBalance = balance.currentBalance;
       userCanAfford = balance.canAfford(STATIC_POINTS_COST);
+      if (existingFavorite) {
+        isAlreadySaved = true;
+      }
       if (existingClaim) {
         hasAlreadyClaimed = true;
         claimDetails = existingClaim;
@@ -814,6 +818,7 @@ const getRewardById = async (
     ...rewardData,
     availableCodesCount: reward?.remainingCount,
     isAvailable: reward.checkAvailability(),
+    isAlreadySaved,
     userCanAfford,
     userBalance,
     hasAlreadyClaimed,

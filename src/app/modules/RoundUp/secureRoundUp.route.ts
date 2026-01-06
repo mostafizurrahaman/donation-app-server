@@ -63,6 +63,12 @@ router.post(
 router.get('/dashboard', auth(ROLE.CLIENT), roundUpController.getUserDashboard);
 
 router.get(
+  '/get-organizations',
+  auth(ROLE.CLIENT),
+  roundUpController.getOrganizationForUserRoundup
+);
+
+router.get(
   '/get-by-user',
   auth(ROLE.CLIENT),
   roundUpController.getActiveRoundup

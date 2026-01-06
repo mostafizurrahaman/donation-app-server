@@ -22,7 +22,8 @@ import {
 } from '../../utils/s3.utils';
 
 // 1. Roundup donation stats
-const getRoundupStats = async (userId: string) => {
+const getRoundupStats = async (userId: string, roundupId: string) => {
+  console.log(roundupId);
   // 1. Check User
   const client = await Client.findOne({
     auth: userId,
@@ -33,12 +34,12 @@ const getRoundupStats = async (userId: string) => {
   }
 
   // 2. Get Active Roundup
-  const activeRoundup = await RoundUpModel.findOne({
-    user: userId,
-    isActive: true,
+  const currentRoundup = await RoundUpModel.findOne({
+    user: client?.auth,
+    _id: roundupId,
   });
 
-  if (!activeRoundup) {
+  if (!currentRoundup) {
     return {
       currentRoundupBalance: 0,
       monthlyThreshold: 0,
@@ -52,7 +53,7 @@ const getRoundupStats = async (userId: string) => {
   // 3. Get Last Transaction Amount (Single Query for accuracy)
   const lastTransaction = await RoundUpTransactionModel.findOne({
     user: userId,
-    roundUp: activeRoundup._id,
+    roundUp: currentRoundup._id,
     status: 'processed',
   })
     .sort({ createdAt: -1 })
@@ -66,7 +67,7 @@ const getRoundupStats = async (userId: string) => {
     {
       $match: {
         user: new Types.ObjectId(userId),
-        roundUp: activeRoundup._id,
+        roundUp: currentRoundup._id,
         status: 'processed',
         createdAt: { $gte: startOfDay },
       },
@@ -86,7 +87,7 @@ const getRoundupStats = async (userId: string) => {
     {
       $match: {
         user: new Types.ObjectId(userId),
-        roundUp: activeRoundup._id,
+        roundUp: currentRoundup._id,
         status: 'processed',
       },
     },
@@ -170,8 +171,8 @@ const getRoundupStats = async (userId: string) => {
     },
   ]);
 
-  const currentBalance = activeRoundup.currentMonthTotal || 0;
-  const threshold = activeRoundup.monthlyThreshold;
+  const currentBalance = currentRoundup.currentMonthTotal || 0;
+  const threshold = currentRoundup.monthlyThreshold;
   const isUnlimited = threshold === 'no-limit';
 
   const numericThreshold =
@@ -194,6 +195,8 @@ const getRoundupStats = async (userId: string) => {
   const diffTime = nextMonthFirstDay.getTime() - today.getTime();
 
   const daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+ 
 
   return {
     currentRoundupBalance: Number(currentBalance.toFixed(2)),
