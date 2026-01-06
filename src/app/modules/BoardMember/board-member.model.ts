@@ -10,7 +10,6 @@ const BoardMemeberSchema = new Schema<IBoardMember>(
       type: Schema.Types.ObjectId,
       ref: 'Organization',
       required: true,
-      unique: true,
     },
     boardMemberName: {
       type: String,

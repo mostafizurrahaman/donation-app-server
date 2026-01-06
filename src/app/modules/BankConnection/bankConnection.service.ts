@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   PlaidApi,
   TransactionsGetRequest,
@@ -7,9 +9,6 @@ import {
   CountryCode,
   Products,
   DepositoryAccountSubtype,
-  SandboxItemFireWebhookRequest,
-  SandboxItemFireWebhookRequestWebhookCodeEnum,
-  WebhookType,
 } from 'plaid';
 import { BankConnectionModel } from './bankConnection.model';
 import {
@@ -24,6 +23,11 @@ import {
 import plaidClient, { encryptData, decryptData } from '../../config/plaid';
 import { RoundUpModel } from '../RoundUp/roundUp.model';
 import QueryBuilder from '../../builders/QueryBuilder';
+import { createNotification } from '../Notification/notification.service';
+import { NOTIFICATION_TYPE } from '../Notification/notification.constant';
+import { roundUpTransactionService } from '../RoundUpTransaction/roundUpTransaction.service';
+import config from '../../config';
+import { RoundUpTransactionModel } from '../RoundUpTransaction/roundUpTransaction.model';
 
 // Initialize Plaid client
 const plaidApi = plaidClient.client as PlaidApi;
@@ -42,7 +46,7 @@ async function generateLinkToken(
       products: [Products.Transactions],
       country_codes: [CountryCode.Us],
       language: 'en',
-      webhook: process.env.PLAID_WEBHOOK_URL,
+      webhook: config.plaid.webhookUrl,
       account_filters: {
         depository: {
           account_subtypes: [
@@ -122,6 +126,7 @@ async function exchangePublicTokenForAccessToken(
     const accountsResponse = await plaidApi.accountsGet({
       access_token: accessToken,
     });
+    console.log({ accessToken });
 
     // Find the selected account (would be passed from frontend)
     const selectedAccount = accountsResponse.data.accounts[0]; // Simplified, should match selected account_id
@@ -170,7 +175,6 @@ async function exchangePublicTokenForAccessToken(
 }
 
 // Sync transactions using Plaid's recommended incremental sync
-// UPDATED FUNCTION
 async function syncTransactions(
   bankConnectionId: string,
   cursor?: string, // No longer required from frontend; used as a fallback for the first sync
@@ -183,7 +187,7 @@ async function syncTransactions(
       throw new Error('Bank connection not found or inactive');
     }
 
-    const accessToken = decryptData(bankConnection.accessToken);
+    const accessToken = decryptData(bankConnection.accessToken!);
 
     // Use the cursor stored in the database from the previous sync.
     // If no cursor exists, use undefined for first-time sync (not empty string)
@@ -256,7 +260,7 @@ async function getTransactions(
       throw new Error('Bank connection not found or inactive');
     }
 
-    const accessToken = decryptData(bankConnection.accessToken);
+    const accessToken = decryptData(bankConnection.accessToken!);
 
     const request: TransactionsGetRequest = {
       access_token: accessToken,
@@ -289,10 +293,7 @@ async function getStoredTransactions(
       throw new Error('Bank connection not found');
     }
 
-    // Import RoundUpTransaction model
-    const { RoundUpTransactionModel } = await import(
-      '../RoundUpTransaction/roundUpTransaction.model'
-    );
+  
 
     // Build query
     const query: any = {
@@ -371,6 +372,19 @@ async function handleWebhook(
         break;
 
       case 'ITEM':
+        if (webhookCode === 'LOGIN_REQUIRED' || webhookCode === 'ERROR') {
+          try {
+            await createNotification(
+              bankConnection.user.toString(),
+              NOTIFICATION_TYPE.BANK_DISCONNECTED,
+              `Action Required: Your connection to ${bankConnection.institutionName} has expired. Please reconnect to continue Round-Ups.`,
+              bankConnection?._id!.toString()
+            );
+            console.log(`✅ Bank disconnected notification sent!`);
+          } catch (error: any) {
+            console.log(`✅ Bank disconnected notification show error!`);
+          }
+        }
         if (
           webhookCode === 'ERROR' ||
           webhookCode === 'USER_PERMISSION_REVOKED'
@@ -532,6 +546,47 @@ async function hasActiveBankConnection(userId: string): Promise<boolean> {
   return !!connection;
 }
 
+const handleTransactionsWebhook = async (itemId: string) => {
+  console.log({
+    itemId,
+  });
+  // 1. Find the connection by Plaid Item ID
+  const connection = await BankConnectionModel.findOne({ itemId });
+  if (!connection) {
+    console.error(`Plaid Item ID ${itemId} not found in database.`);
+    return;
+  }
+
+  // 2. Fetch changes from Plaid using the cursor
+  // Note: This calls your existing sync logic which hits Plaid's /transactions/sync
+  const syncData = await syncTransactions(
+    connection._id!.toString(),
+    connection.lastSyncCursor
+  );
+
+  console.log({ syncData });
+
+  // 3. Process ADDED transactions for Round-Ups
+  if (syncData.added && syncData.added.length > 0) {
+    await roundUpTransactionService.processTransactionsFromPlaid(
+      connection.user.toString(),
+      connection._id!.toString(),
+      syncData.added
+    );
+  }
+
+  // 4. Update the cursor in the database so we don't fetch these again
+  connection.lastSyncCursor = syncData.nextCursor;
+  console.log({ lastCursor: connection.lastSyncCursor });
+  await connection.save();
+
+  return {
+    added: syncData.added.length,
+    removed: syncData.removed.length,
+    modified: syncData.modified.length,
+  };
+};
+
 export const bankConnectionServices = {
   generateLinkToken,
   exchangePublicTokenForAccessToken,
@@ -545,6 +600,7 @@ export const bankConnectionServices = {
   updateBankConnection,
   hasActiveBankConnection,
   getUserBankAccountsWithRoundUpStatus,
+  handleTransactionsWebhook,
 };
 
 export default bankConnectionServices;

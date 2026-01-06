@@ -4,12 +4,22 @@ import { ROLE } from '../Auth/auth.constant';
 import { validateRequest } from '../../middlewares/validateRequest';
 import { RewardRedemptionController } from './reward-redeemtion.controller';
 import { rewardRedemptionValidation } from './reward-redeemtion.validation';
+import { checkSubscription } from '../../middlewares/checkSubscription';
 
 const router = express.Router();
 
 // ==========================================
 // CLIENT ROUTES (User Actions)
 // ==========================================
+
+// 2. Mark reward as REDEEMED (Final Step)
+router.post(
+  '/redeem',
+  auth(ROLE.BUSINESS, ROLE.ADMIN),
+  checkSubscription(),
+  validateRequest(rewardRedemptionValidation.redeemRewardSchema),
+  RewardRedemptionController.redeemReward
+);
 
 // Claim a reward (Deducts Points)
 router.post(
@@ -39,6 +49,7 @@ router.get(
 router.post(
   '/:redemptionId/cancel',
   auth(ROLE.CLIENT),
+
   validateRequest(rewardRedemptionValidation.cancelClaimedRewardSchema),
   RewardRedemptionController.cancelClaimedReward
 );
@@ -51,16 +62,9 @@ router.post(
 router.post(
   '/verify',
   auth(ROLE.BUSINESS, ROLE.ADMIN),
+  checkSubscription(),
   validateRequest(rewardRedemptionValidation.verifyRedemptionSchema),
   RewardRedemptionController.verifyRedemption
-);
-
-// 2. Mark reward as REDEEMED (Final Step)
-router.post(
-  '/:redemptionId/redeem',
-  auth(ROLE.BUSINESS, ROLE.ADMIN),
-  validateRequest(rewardRedemptionValidation.redeemRewardSchema),
-  RewardRedemptionController.redeemReward
 );
 
 export const RewardRedemptionRoutes = router;

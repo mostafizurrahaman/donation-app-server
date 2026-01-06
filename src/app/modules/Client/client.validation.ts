@@ -26,8 +26,21 @@ const updateClientProfileSchema = z.object({
   }),
 });
 
+const getUserRoundupForOrganization = z.object({
+  query: z.object({
+    roundupId: z
+      .string({
+        error: () => `roundupId is required!`,
+      })
+      .min(1, {
+        error: 'roundupId is required!',
+      }),
+  }),
+});
+
 export const clientValidationSchema = {
   getUserRecurringDonationsForSpecificOrganizationSchema,
   getHistorySchema,
   updateClientProfileSchema,
+  getUserRoundupForOrganization,
 };

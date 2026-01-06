@@ -7,6 +7,10 @@ import routes from './app/routes';
 import webhookRoutes from './app/routes/webhook.routes';
 import { globalErrorHandler, notFoundHandler } from './app/utils';
 import { manualTriggerRoundUpProcessing } from './app/jobs';
+import { createNotification } from './app/modules/Notification/notification.service';
+import { ROLE } from './app/modules/Auth/auth.constant';
+import { auth } from './app/middlewares';
+import { NOTIFICATION_TYPE } from './app/modules/Notification/notification.constant';
 
 // app
 const app: Application = express();
@@ -22,6 +26,11 @@ app.use(
       'http://localhost:3003',
       'http://localhost:5173',
       'http://localhost:5174',
+      'http://13.55.115.124:5173',
+      'http://13.55.115.124:5174',
+      'https://crescent-dashboard-eta.vercel.app',
+      'https://org.crescentchange.com',
+      'https://admin.crescentchange.com',
     ],
   })
 );
@@ -35,29 +44,26 @@ app.use(morgan('dev'));
 app.use('/public', express.static('public'));
 
 // Apply raw body middleware BEFORE body parsing for webhooks
-app.use('/api/v1/webhook/donation', (req, res, next) => {
-  let rawBody = '';
+app.use(
+  ['/api/v1/webhook/donation', '/api/v1/webhook/basiq'],
+  (req, res, next) => {
+    let rawBody = '';
+    req.on('data', (chunk) => {
+      rawBody += chunk;
+    });
+    req.on('end', () => {
+      req.rawBody = rawBody;
+      try {
+        req.body = JSON.parse(rawBody);
+      } catch (e) {
+        req.body = {};
+      }
+      next();
+    });
+  }
+);
 
-  req.on('data', (chunk) => {
-    rawBody += chunk;
-  });
-
-  req.on('end', () => {
-    req.rawBody = rawBody;
-    // Parse JSON for processing but keep raw for signature verification
-    try {
-      req.body = JSON.parse(rawBody);
-    } catch (e) {
-      req.body = {};
-    }
-    next();
-  });
-
-  req.on('error', (err) => {
-    next(err);
-  });
-});
-
+// TODO: REMOVE LATER
 app.post('/api/v1/test-my-corn', async (req, res) => {
   await manualTriggerRoundUpProcessing();
 
@@ -69,14 +75,37 @@ app.post('/api/v1/test-my-corn', async (req, res) => {
   });
 });
 
+// TODO: REMOVE LATER
+app.post(
+  '/api/v1/test-notification',
+  auth(ROLE.ADMIN, ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION),
+  async (req, res) => {
+    const userId = req.user._id.toString(); // Send it to yourself
+
+    // Call the dispatcher you built
+    await createNotification(
+      userId,
+      NOTIFICATION_TYPE.NEW_DONATION,
+      `Donation created successully`,
+      'test_id',
+      {
+        name: 'mostafizur rahaman',
+        email: 'test@gmail.com',
+      }
+    );
+
+    res.json({ success: true, message: 'Notification triggered' });
+  }
+);
+
 // Add webhook routes after the raw body middleware
 app.use('/api/v1/webhook', webhookRoutes);
 
 //body parser
-app.use(express.json());
+app.use(express.json({ limit: '20mb' }));
 
 //url encoded parser
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({ limit: '20mb', extended: true }));
 
 // All main routes
 app.use('/api/v1', routes);

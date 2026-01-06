@@ -8,6 +8,7 @@ export interface INotification {
   receiver: Types.ObjectId;
   type: TNotification;
   redirectId?: string;
+  meta: {};
 
   createdAt: string;
   updatedAt: string;

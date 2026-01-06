@@ -1,6 +1,6 @@
 {
   "include": ["src/**/*.ts"],
-  "exclude": ["node_modules"],
+  "exclude": ["node_modules", ".api"],
   "compilerOptions": {
     "target": "es2016",
     "module": "commonjs",

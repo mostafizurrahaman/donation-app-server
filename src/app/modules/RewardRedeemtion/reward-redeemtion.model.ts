@@ -1,6 +1,4 @@
-// ==========================================
-// Reward Redemption Schema
-// ==========================================
+// src/app/modules/RewardRedeemtion/reward-redeemtion.model.ts
 
 import { model, Schema, Types } from 'mongoose';
 import {
@@ -66,13 +64,11 @@ const rewardRedemptionSchema = new Schema<
 
     assignedCode: { type: String },
 
-    // ✅ The specific method used to finalize redemption
     redemptionMethod: {
       type: String,
       enum: [...REDEMPTION_METHOD_VALUES, null],
     },
 
-    // ✅ The list of allowed methods for this claim (Snapshot)
     availableRedemptionMethods: {
       type: [String],
       enum: REDEMPTION_METHOD_VALUES,
@@ -106,6 +102,20 @@ const rewardRedemptionSchema = new Schema<
       unique: true,
       sparse: true,
     },
+
+   
+    isHidden: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    hiddenAt: {
+      type: Date,
+    },
+    hiddenReason: {
+      type: String,
+    },
+    
   },
   {
     timestamps: true,
@@ -120,8 +130,9 @@ rewardRedemptionSchema.index({ business: 1, status: 1 });
 rewardRedemptionSchema.index({ expiresAt: 1, status: 1 });
 rewardRedemptionSchema.index({ idempotencyKey: 1 });
 rewardRedemptionSchema.index({ assignedCode: 1 });
+rewardRedemptionSchema.index({ user: 1, isHidden: 1 }); // NEW
 
-// Instance Methods
+// Instance Methods (keep existing ones)
 rewardRedemptionSchema.methods.markAsRedeemed = async function (
   staffId?: Types.ObjectId,
   notes?: string
@@ -194,6 +205,7 @@ rewardRedemptionSchema.statics.findClaimedByUser = function (
   return this.find({
     user: userId,
     status: 'claimed',
+    isHidden: { $ne: true },
     expiresAt: { $gt: new Date() },
   }).populate('reward business');
 };
@@ -205,6 +217,7 @@ rewardRedemptionSchema.statics.expireOldClaims =
       {
         status: 'claimed',
         expiresAt: { $lte: now },
+        isHidden: { $ne: true },
       },
       {
         $set: {

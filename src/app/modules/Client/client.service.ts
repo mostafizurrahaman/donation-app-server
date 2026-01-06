@@ -1,4 +1,4 @@
-import { AppError, deleteFile } from '../../utils';
+import { AppError } from '../../utils';
 import Donation from '../Donation/donation.model';
 import { RoundUpModel } from '../RoundUp/roundUp.model';
 import { RoundUpTransactionModel } from '../RoundUpTransaction/roundUpTransaction.model';
@@ -14,11 +14,16 @@ import {
 } from '../../lib/filter-helper';
 import Organization from '../Organization/organization.model';
 import { IScheduledDonation } from '../Donation/donation.interface';
-import { getFileUrl } from '../../lib/upload';
 import { IClient } from './client.interface';
+import {
+  deleteFromS3,
+  getS3KeyFromUrl,
+  uploadToS3,
+} from '../../utils/s3.utils';
 
 // 1. Roundup donation stats
-const getRoundupStats = async (userId: string) => {
+const getRoundupStats = async (userId: string, roundupId: string) => {
+  console.log(roundupId);
   // 1. Check User
   const client = await Client.findOne({
     auth: userId,
@@ -29,12 +34,12 @@ const getRoundupStats = async (userId: string) => {
   }
 
   // 2. Get Active Roundup
-  const activeRoundup = await RoundUpModel.findOne({
-    user: userId,
-    isActive: true,
+  const currentRoundup = await RoundUpModel.findOne({
+    user: client?.auth,
+    _id: roundupId,
   });
 
-  if (!activeRoundup) {
+  if (!currentRoundup) {
     return {
       currentRoundupBalance: 0,
       monthlyThreshold: 0,
@@ -48,7 +53,7 @@ const getRoundupStats = async (userId: string) => {
   // 3. Get Last Transaction Amount (Single Query for accuracy)
   const lastTransaction = await RoundUpTransactionModel.findOne({
     user: userId,
-    roundUp: activeRoundup._id,
+    roundUp: currentRoundup._id,
     status: 'processed',
   })
     .sort({ createdAt: -1 })
@@ -62,7 +67,7 @@ const getRoundupStats = async (userId: string) => {
     {
       $match: {
         user: new Types.ObjectId(userId),
-        roundUp: activeRoundup._id,
+        roundUp: currentRoundup._id,
         status: 'processed',
         createdAt: { $gte: startOfDay },
       },
@@ -82,7 +87,7 @@ const getRoundupStats = async (userId: string) => {
     {
       $match: {
         user: new Types.ObjectId(userId),
-        roundUp: activeRoundup._id,
+        roundUp: currentRoundup._id,
         status: 'processed',
       },
     },
@@ -166,8 +171,8 @@ const getRoundupStats = async (userId: string) => {
     },
   ]);
 
-  const currentBalance = activeRoundup.currentMonthTotal || 0;
-  const threshold = activeRoundup.monthlyThreshold;
+  const currentBalance = currentRoundup.currentMonthTotal || 0;
+  const threshold = currentRoundup.monthlyThreshold;
   const isUnlimited = threshold === 'no-limit';
 
   const numericThreshold =
@@ -190,6 +195,8 @@ const getRoundupStats = async (userId: string) => {
   const diffTime = nextMonthFirstDay.getTime() - today.getTime();
 
   const daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+ 
 
   return {
     currentRoundupBalance: Number(currentBalance.toFixed(2)),
@@ -445,6 +452,7 @@ export const getRecurringDonationStats = async (userId: string) => {
         frequency: 1,
         customInterval: 1,
         startDate: 1,
+        'organizationDetails._id': 1,
         'organizationDetails.name': 1,
         'organizationDetails.logoImage': 1,
         'organizationDetails.coverImage': 1,
@@ -539,8 +547,6 @@ export const getUserRecurringDonationsForSpecificOrganization = async (
     previousDonations,
   };
 };
-
-
 
 const getUnifiedTransactionHistory = async (
   userId: string,
@@ -713,22 +719,40 @@ const updateClientProfile = async (
   payload: Partial<IClient>,
   file?: Express.Multer.File
 ) => {
+  // 1. Find the existing client profile
   const client = await Client.findOne({ auth: userId });
 
   if (!client) {
-    if (file) deleteFile(file.path);
+    // Note: No need to delete local file here anymore because it's in memory buffer
     throw new AppError(httpStatus.NOT_FOUND, 'Client profile not found!');
   }
 
+  // 2. Handle Image Update if a file is provided
   if (file) {
     if (client.image && !client.image.includes('default')) {
-      deleteFile(`public${client.image}`);
+      const oldKey = getS3KeyFromUrl(client.image);
+      if (oldKey) {
+        // Fire and forget (delete in background)
+        deleteFromS3(oldKey).catch((err) =>
+          console.error('Failed to delete old client image from S3:', err)
+        );
+      }
     }
 
-    payload.image = getFileUrl(file);
+    // B. Upload new image buffer to S3
+    const fileName = `client-${userId}-${Date.now()}`;
+    const uploadResult = await uploadToS3({
+      buffer: file.buffer,
+      key: fileName,
+      contentType: file.mimetype,
+      folder: 'profiles/clients',
+    });
+
+    // C. Set the new S3 URL to the payload
+    payload.image = uploadResult.url;
   }
 
-  // Update Database
+  // 3. Update the Database
   const result = await Client.findOneAndUpdate(
     { auth: userId },
     { $set: payload },

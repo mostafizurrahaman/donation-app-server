@@ -1,4 +1,8 @@
 import { Document, Types } from 'mongoose';
+import { STRIPE_ACCOUNT_STATUS } from './organization.constants';
+
+export type TOrganizationAccountStatusType =
+  (typeof STRIPE_ACCOUNT_STATUS)[keyof typeof STRIPE_ACCOUNT_STATUS];
 
 export interface IORGANIZATION extends Document {
   _id: Types.ObjectId;
@@ -6,7 +10,7 @@ export interface IORGANIZATION extends Document {
 
   name: string;
   aboutUs?: string;
-  serviceType: string;
+  serviceType: 'non-profit' | 'charity' | 'mosque';
   address: string;
   country?: string;
   state: string;
@@ -23,10 +27,10 @@ export interface IORGANIZATION extends Document {
   drivingLicenseURL: string;
 
   tfnOrAbnNumber: string;
+  acncNumber: string;
   zakatLicenseHolderNumber: string | null;
-  stripeConnectAccountId?: string;
+
   dateOfEstablishment: Date;
   registeredCharityName: string;
   isProfileVisible?: boolean;
 }
-

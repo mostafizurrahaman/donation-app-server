@@ -1,11 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import fs from 'fs';
 import httpStatus from 'http-status';
-import { startSession, PipelineStage } from 'mongoose';
+import { startSession } from 'mongoose';
 import { AppError } from '../../utils';
 import Business, { BusinessView, BusinessWebsiteView } from './business.model';
 import { IAuth } from '../Auth/auth.interface';
-import { defaultUserImage } from '../Auth/auth.constant';
 import {
   calculatePercentageChange,
   getDateHeader,
@@ -23,6 +21,11 @@ import {
 import { TTimeFilter } from '../Donation/donation.interface';
 
 import Auth from '../Auth/auth.model';
+import {
+  deleteFromS3,
+  getS3KeyFromUrl,
+  uploadToS3,
+} from '../../utils/s3.utils';
 // 1. Update Business Profile Service
 const updateBusinessProfile = async (
   payload: {
@@ -51,35 +54,52 @@ const updateBusinessProfile = async (
     throw new AppError(httpStatus.NOT_FOUND, 'Business profile not found!');
   }
 
-  const coverImagePath =
-    files?.coverImage?.[0]?.path.replace(/\\/g, '/') || null;
-  const logoImagePath = files?.logoImage?.[0]?.path.replace(/\\/g, '/') || null;
+  const businessUpdatePayload: any = { ...payload };
+
+  // --- Handle Cover Image Upload ---
+  if (files?.coverImage?.[0]) {
+    // 1. Delete old cover from S3 if it exists
+    if (existingBusiness.coverImage) {
+      const oldKey = getS3KeyFromUrl(existingBusiness.coverImage);
+      if (oldKey) await deleteFromS3(oldKey).catch(() => null);
+    }
+
+    // 2. Upload new cover to S3
+    const uploadRes = await uploadToS3({
+      buffer: files.coverImage[0].buffer,
+      key: `cover-${user._id}-${Date.now()}`,
+      contentType: files.coverImage[0].mimetype,
+      folder: 'profiles/businesses',
+    });
+    businessUpdatePayload.coverImage = uploadRes.url;
+  }
+
+  // --- Handle Logo Image Upload ---
+  if (files?.logoImage?.[0]) {
+    // 1. Delete old logo from S3 if it exists
+    if (existingBusiness.logoImage) {
+      const oldKey = getS3KeyFromUrl(existingBusiness.logoImage);
+      if (oldKey) await deleteFromS3(oldKey).catch(() => null);
+    }
+
+    // 2. Upload new logo to S3
+    const uploadRes = await uploadToS3({
+      buffer: files.logoImage[0].buffer,
+      key: `logo-${user._id}-${Date.now()}`,
+      contentType: files.logoImage[0].mimetype,
+      folder: 'profiles/businesses',
+    });
+    businessUpdatePayload.logoImage = uploadRes.url;
+  }
 
   const session = await startSession();
 
   try {
     session.startTransaction();
 
-    const businessUpdatePayload: any = {};
-
-    if (payload.category) businessUpdatePayload.category = payload.category;
-    if (payload.name) businessUpdatePayload.name = payload.name;
-    if (payload.tagLine) businessUpdatePayload.tagLine = payload.tagLine;
-    if (payload.description)
-      businessUpdatePayload.description = payload.description;
-    if (payload.businessPhoneNumber)
-      businessUpdatePayload.businessPhoneNumber = payload.businessPhoneNumber;
-    if (payload.businessEmail)
-      businessUpdatePayload.businessEmail = payload.businessEmail;
-    if (payload.businessWebsite)
-      businessUpdatePayload.businessWebsite = payload.businessWebsite;
-    if (payload.locations) businessUpdatePayload.locations = payload.locations;
-    if (coverImagePath) businessUpdatePayload.coverImage = coverImagePath;
-    if (logoImagePath) businessUpdatePayload.logoImage = logoImagePath;
-
     const updatedBusiness = await Business.findOneAndUpdate(
       { auth: user._id },
-      businessUpdatePayload,
+      { $set: businessUpdatePayload },
       { new: true, session }
     );
 
@@ -93,31 +113,13 @@ const updateBusinessProfile = async (
     await session.commitTransaction();
     await session.endSession();
 
-    
-
     return updatedBusiness;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     await session.abortTransaction();
     await session.endSession();
 
-    if (files) {
-      Object.values(files).forEach((fileArray) => {
-        fileArray.forEach((file) => {
-          try {
-            if (file?.path && fs.existsSync(file.path)) {
-              fs.unlinkSync(file.path);
-            }
-          } catch (deleteErr) {
-            console.warn(
-              'Failed to delete uploaded file:',
-              file.path,
-              deleteErr
-            );
-          }
-        });
-      });
-    }
+    // Note: With memoryStorage, we don't need to manually delete local files
+    // in the catch block as there are no files written to disk.
 
     if (error instanceof AppError) {
       throw error;
@@ -146,12 +148,12 @@ const getBusinessProfileById = async (businessId: string, userId: string) => {
     throw new AppError(httpStatus.NOT_FOUND, `Business doesn't exists!`);
   }
 
-  const view = await BusinessView.create({
+  await BusinessView.create({
     business: business._id,
     user: auth._id,
   });
 
-  return view;
+  return business;
 };
 // 3. Increase Business website count
 const increaseWebsiteCount = async (businessId: string, userId: string) => {
@@ -196,6 +198,7 @@ const getBusinessOverview = async (userId: string) => {
         {
           $match: {
             business: business._id,
+            isHidden: { $ne: true },
             status: { $in: ['claimed', 'redeemed'] },
           },
         },
@@ -235,6 +238,7 @@ const getBusinessOverview = async (userId: string) => {
         {
           $match: {
             business: business._id,
+            isHidden: { $ne: true },
             createdAt: { $gte: targetYear.startDate, $lte: targetYear.endDate },
             status: { $ne: 'cancelled' },
           },
@@ -357,6 +361,7 @@ const getBusinessRecentActivity = async (
       $match: {
         business: business._id,
         status: { $in: ['redeemed'] },
+        isHidden: { $ne: true },
       },
     },
     {
@@ -512,6 +517,7 @@ const getBusinessAnalytics = async (
       $match: {
         business: business._id,
         status: REDEMPTION_STATUS.REDEEMED,
+        isHidden: { $ne: true },
         redeemedAt: { $gte: current.startDate, $lte: current.endDate },
       },
     },
@@ -536,6 +542,7 @@ const getBusinessAnalytics = async (
       $match: {
         business: business._id,
         status: REDEMPTION_STATUS.REDEEMED,
+        isHidden: { $ne: true },
       },
     },
     { $group: { _id: '$reward', totalRedemptions: { $sum: 1 } } },
@@ -648,6 +655,7 @@ const getSingleRewardAnalytics = async (userId: string, rewardId: string) => {
       {
         $match: {
           reward: reward._id,
+          isHidden: { $ne: true },
           claimedAt: { $gte: current.startDate, $lte: current.endDate },
         },
       },
@@ -663,6 +671,7 @@ const getSingleRewardAnalytics = async (userId: string, rewardId: string) => {
       {
         $match: {
           reward: reward._id,
+          isHidden: { $ne: true },
           status: REDEMPTION_STATUS.REDEEMED,
           redeemedAt: { $gte: current.startDate, $lte: current.endDate },
         },
@@ -675,12 +684,6 @@ const getSingleRewardAnalytics = async (userId: string, rewardId: string) => {
       },
     ]),
   ]);
-
-  console.log({
-    redemptionsData,
-    claimsData,
-    viewsData,
-  });
 
   const viewsMap = new Map(viewsData.map((d) => [d._id, d.count]));
   const claimsMap = new Map(claimsData.map((d) => [d._id, d.count]));

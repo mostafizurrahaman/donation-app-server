@@ -21,6 +21,13 @@ import { PayoutRoutes } from '../modules/Payout/payout.route';
 import { clientRoutes } from '../modules/Client/client.route';
 import { boardMemberRoutes } from '../modules/BoardMember/board-member.router';
 import { RewardRedemptionRoutes } from '../modules/RewardRedeemtion/reward-redeemtion.routes';
+import { notificationRoutes } from '../modules/Notification/notification.routes';
+import { SuperAdminRoutes } from '../modules/superAdmin/superAdmin.routes';
+import { contentRouter } from '../modules/content/content.routes';
+import { SubscriptionRoutes } from '../modules/Subscription/subscription.routes';
+import { SubscriptionHistoryRoutes } from '../modules/subscriptionHistory/subscriptionHistory.routes';
+import { NotificationSettingRoutes } from '../modules/NotificationSetting/notificationSetting.route';
+import { favoriteRoutes } from '../modules/FavoriteReward/FavoriteReward.routes';
 
 const router = Router();
 
@@ -42,10 +49,14 @@ const moduleRoutes = [
     path: '/business',
     route: BusinessRoutes,
   },
-  // {
-  //   path: '/notification',
-  //   route: notificationRoutes,
-  // },
+  {
+    path: '/notification',
+    route: notificationRoutes,
+  },
+  {
+    path: '/notification-settings',
+    route: NotificationSettingRoutes,
+  },
 
   {
     path: '/donation',
@@ -119,6 +130,26 @@ const moduleRoutes = [
   {
     path: '/payout',
     route: PayoutRoutes,
+  },
+  {
+    path: '/super-admin',
+    route: SuperAdminRoutes,
+  },
+  {
+    path: '/content',
+    route: contentRouter,
+  },
+  {
+    path: '/subscription',
+    route: SubscriptionRoutes,
+  },
+  {
+    path: '/subscription-history',
+    route: SubscriptionHistoryRoutes,
+  },
+  {
+    path: '/favorite',
+    route: favoriteRoutes,
   },
 ];
 

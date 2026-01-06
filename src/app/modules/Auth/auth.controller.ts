@@ -247,6 +247,86 @@ const organizationSignupWithProfile = asyncHandler(async (req, res) => {
   });
 });
 
+const updateFcmToken = asyncHandler(async (req, res) => {
+  const { fcmToken, deviceType } = req.body;
+
+  const result = await AuthService.updateFcmToken(
+    req.user?._id?.toString(),
+    fcmToken,
+    deviceType
+  );
+
+  sendResponse(res, {
+    statusCode: httpStatus.CREATED,
+    message: `Notification configured successfully!`,
+    data: null,
+  });
+});
+
+const setup2FA = asyncHandler(async (req, res) => {
+  const result = await AuthService.setup2FA(req.user._id.toString());
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: '2FA setup initiated. Scan the QR code.',
+    data: result,
+  });
+});
+
+const verifyAndEnable2FA = asyncHandler(async (req, res) => {
+  const result = await AuthService.verifyAndEnable2FA(
+    req.user._id.toString(),
+    req.body.token
+  );
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: '2FA enabled successfully!',
+    data: result,
+  });
+});
+
+const verify2FALogin = asyncHandler(async (req, res) => {
+  const result = await AuthService.verify2FALogin(
+    req.body.email,
+    req.body.token
+  );
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Login successful!',
+    data: result,
+  });
+});
+
+const disable2FA = asyncHandler(async (req, res) => {
+  const result = await AuthService.disable2FA(
+    req.user._id.toString(),
+    req.body.token
+  );
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: '2FA disabled successfully!',
+    data: result,
+  });
+});
+
+const guestLogin = asyncHandler(async (req, res) => {
+  const result = await AuthService.guestLogin();
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Logged in as guest!',
+    data: result,
+  });
+});
+
+const guestRemove = asyncHandler(async (req, res) => {
+  const guestId = req.body.guestId;
+  const result = await AuthService.guestRemove(guestId);
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Guest user cleaned up successfully',
+    data: result,
+  });
+});
+
 export const AuthController = {
   createAuth,
   sendSignupOtpAgain,
@@ -266,4 +346,11 @@ export const AuthController = {
   updateAuthData,
   businessSignupWithProfile,
   organizationSignupWithProfile,
+  updateFcmToken,
+  setup2FA,
+  verifyAndEnable2FA,
+  verify2FALogin,
+  disable2FA,
+  guestLogin,
+  guestRemove,
 };

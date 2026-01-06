@@ -96,9 +96,10 @@ export interface ICreateRoundUpPaymentIntentRequest {
   amount: number; // Base Amount
   month: string;
   year: number;
-  specialMessage?: string;
-  paymentMethodId?: string;
-  donationId?: string;
+  specialMessage: string;
+  paymentMethodId: string;
+  donationId: string;
+  applicationFee: number;
 
   // ✅ Financial Breakdown for Metadata
   coverFees?: boolean;

@@ -1,8 +1,9 @@
 import mongoose, { Schema, Document } from 'mongoose';
 import { IBankConnection } from './bankConnection.interface';
 import plaidService from './bankConnection.service';
+import { bankConnectiionProviderValues } from './bankConnection.constant';
 
-export interface IBankConnectionDocument extends IBankConnection, Document {}
+export interface IBankConnectionDocument extends IBankConnection, Document { }
 
 const BankConnectionSchema = new Schema(
   {
@@ -11,10 +12,18 @@ const BankConnectionSchema = new Schema(
       required: true,
       ref: 'Auth',
     },
+    provider: {
+      type: String,
+      required: true,
+      enum: bankConnectiionProviderValues,
+    },
     itemId: {
       type: String,
       required: true,
       unique: true,
+    },
+    bsiqUserId: {
+      type: String,
     },
     accessToken: {
       type: String,
@@ -40,6 +49,9 @@ const BankConnectionSchema = new Schema(
       type: String,
       required: true,
     },
+    connectionId: {
+      type: String,
+    },
     consentGivenAt: {
       type: Date,
       required: true,
@@ -47,7 +59,6 @@ const BankConnectionSchema = new Schema(
     },
     consentExpiry: {
       type: Date,
-      // No expiry for Plaid (unlike CDR 90 days)
     },
     isActive: {
       type: Boolean,
@@ -60,7 +71,6 @@ const BankConnectionSchema = new Schema(
       type: Date,
     },
     lastSyncCursor: {
-      // ADDED THIS FIELD
       type: String,
     },
   },
@@ -81,6 +91,7 @@ const BankConnectionSchema = new Schema(
 // Indexes for optimal performance
 BankConnectionSchema.index({ user: 1, isActive: 1 });
 BankConnectionSchema.index({ itemId: 1 });
+BankConnectionSchema.index({ connectionId: 1 });
 BankConnectionSchema.index({ isActive: 1, lastSyncAt: 1 });
 
 // Method to check if consent is still valid

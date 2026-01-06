@@ -7,7 +7,7 @@ import httpStatus from 'http-status';
 import { Donation } from './donation.model';
 import { StripeService } from '../Stripe/stripe.service';
 import { ExtendedRequest } from '../../types';
-import { Types } from 'mongoose';
+import mongoose, { Types } from 'mongoose';
 import { ScheduledDonation } from '../ScheduledDonation/scheduledDonation.model';
 import { RoundUpModel } from '../RoundUp/roundUp.model';
 import { RoundUpTransactionModel } from '../RoundUpTransaction/roundUpTransaction.model';
@@ -16,56 +16,33 @@ import { Receipt } from '../Receipt/receipt.model';
 import { pointsServices } from '../Points/points.service';
 import { badgeService } from '../badge/badge.service';
 import { BalanceService } from '../Balance/balance.service';
+import { PAYOUT_STATUS } from '../Payout/payout.constant';
+import { Payout } from '../Payout/payout.model';
+import { BalanceTransaction } from '../Balance/balance.model';
+import { calculateNextDonationDate } from '../ScheduledDonation/scheduledDonation.service';
+import { StripeAccount } from '../OrganizationAccount/stripe-account.model';
+import { createNotification } from '../Notification/notification.service';
+import { NOTIFICATION_TYPE } from '../Notification/notification.constant';
+import { IORGANIZATION } from '../Organization/organization.interface';
+import { IClient } from '../Client/client.interface';
+import { ICause } from '../Causes/causes.interface';
+import { Subscription } from '../Subscription/subscription.model';
+import { SubscriptionHistory } from '../subscriptionHistory/subscriptionHistory.model';
+import {
+  PLAN_TYPE,
+  SUBSCRIPTION_STATUS,
+  TPlanType,
+} from '../Subscription/subscription.constant';
 
-// ... (calculateNextDonationDate helper remains same)
-const calculateNextDonationDate = (
-  currentDate: Date,
-  frequency: string,
-  customInterval?: { value: number; unit: 'days' | 'weeks' | 'months' }
-): Date => {
-  const nextDate = new Date(currentDate);
-
-  switch (frequency) {
-    case 'daily':
-      nextDate.setDate(nextDate.getDate() + 1);
-      break;
-    case 'weekly':
-      nextDate.setDate(nextDate.getDate() + 7);
-      break;
-    case 'monthly':
-      nextDate.setMonth(nextDate.getMonth() + 1);
-      break;
-    case 'quarterly':
-      nextDate.setMonth(nextDate.getMonth() + 3);
-      break;
-    case 'yearly':
-      nextDate.setFullYear(nextDate.getFullYear() + 1);
-      break;
-    case 'custom':
-      if (customInterval) {
-        switch (customInterval.unit) {
-          case 'days':
-            nextDate.setDate(nextDate.getDate() + customInterval.value);
-            break;
-          case 'weeks':
-            nextDate.setDate(nextDate.getDate() + customInterval.value * 7);
-            break;
-          case 'months':
-            nextDate.setMonth(nextDate.getMonth() + customInterval.value);
-            break;
-        }
-      }
-      break;
-  }
-
-  return nextDate;
-};
-
-// ... (updateScheduledDonationAfterSuccess helper remains same)
+// ========================================
+// SCHEDULED DONATION: Success Handler
+// ========================================
 const updateScheduledDonationAfterSuccess = async (
   scheduledDonationId: string
 ) => {
   try {
+    console.log(`🔄 Updating scheduled donation: ${scheduledDonationId}`);
+
     const scheduledDonation = await ScheduledDonation.findById(
       scheduledDonationId
     );
@@ -75,36 +52,77 @@ const updateScheduledDonationAfterSuccess = async (
       return;
     }
 
-    // Update execution tracking
-    scheduledDonation.lastExecutedDate = new Date();
-    scheduledDonation.totalExecutions += 1;
-
-    // Calculate next donation date
+    const now = new Date();
     const nextDate = calculateNextDonationDate(
-      new Date(),
+      now,
       scheduledDonation.frequency,
       scheduledDonation.customInterval
     );
-    scheduledDonation.nextDonationDate = nextDate;
 
-    // Check if end date has passed
-    if (scheduledDonation.endDate && nextDate > scheduledDonation.endDate) {
-      scheduledDonation.isActive = false;
-      console.log(
-        `🏁 Scheduled donation ${scheduledDonationId} completed (reached end date)`
-      );
-    }
+    await ScheduledDonation.findByIdAndUpdate(scheduledDonationId, {
+      $set: {
+        lastExecutedDate: now,
+        nextDonationDate: nextDate,
+        status: 'active',
+      },
+      $inc: {
+        totalExecutions: 1,
+      },
+    });
 
-    await scheduledDonation.save();
-
-    console.log(`✅ Updated scheduled donation: ${scheduledDonationId}`);
+    console.log(`✅ Scheduled donation updated successfully`);
   } catch (error: unknown) {
     const err = error as Error;
-    console.error(`❌ Error updating scheduled donation: ${err.message}`);
+    console.error(`❌ Error updating scheduled donation:`, err.message);
+
+    // Unlock on error
+    await ScheduledDonation.findByIdAndUpdate(scheduledDonationId, {
+      status: 'active',
+    });
   }
 };
 
-// Generate Receipt
+// ========================================
+// SCHEDULED DONATION: Failure Handler
+// ========================================
+const updateScheduledDonationAfterFailure = async (
+  scheduledDonationId: string,
+  errorMessage?: string
+) => {
+  try {
+    console.log(
+      `❌ Updating scheduled donation after failure: ${scheduledDonationId}`
+    );
+
+    await ScheduledDonation.findOneAndUpdate(
+      {
+        _id: scheduledDonationId,
+        status: 'processing',
+      },
+      {
+        $set: {
+          status: 'active',
+        },
+      }
+    );
+
+    console.log(
+      `🔓 Unlocked scheduled donation ${scheduledDonationId} after failure: ${
+        errorMessage || 'Unknown error'
+      }`
+    );
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error(
+      `❌ Error unlocking scheduled donation: ${err.message}`,
+      err.stack
+    );
+  }
+};
+
+// ========================================
+// RECEIPT: Generate After Payment
+// ========================================
 const generateReceiptAfterPayment = async (
   donation: any,
   paymentIntent: Stripe.PaymentIntent
@@ -127,13 +145,14 @@ const generateReceiptAfterPayment = async (
       organizationId: donation.organization._id || donation.organization,
       causeId: donation.cause?._id || donation.cause,
 
-      // ✅ Use Financial Breakdown
+      // Financial Breakdown
       amount: donation.amount,
       coverFees: donation.coverFees,
       platformFee: donation.platformFee,
       gstOnFee: donation.gstOnFee,
-      stripeFee: donation.stripeFee || 0, // ✅ NEW: Pass Stripe Fee
+      stripeFee: donation.stripeFee || 0,
       totalAmount: donation.totalAmount,
+      netAmount: donation.netAmount || 0,
 
       currency: donation.currency || paymentIntent.currency.toUpperCase(),
       donationType: donation.donationType || 'one-time',
@@ -152,7 +171,9 @@ const generateReceiptAfterPayment = async (
   }
 };
 
-// ... (handleRoundUpDonationSuccess, handleRoundUpDonationFailure, handleCheckoutSessionCompleted remain same)
+// ========================================
+// ROUND-UP: Success Handler
+// ========================================
 const handleRoundUpDonationSuccess = async (
   roundUpId: string,
   paymentIntentId: string
@@ -210,6 +231,9 @@ const handleRoundUpDonationSuccess = async (
   }
 };
 
+// ========================================
+// ROUND-UP: Failure Handler
+// ========================================
 const handleRoundUpDonationFailure = async (
   roundUpId: string,
   paymentIntentId: string,
@@ -228,6 +252,7 @@ const handleRoundUpDonationFailure = async (
       status: 'processed',
       stripePaymentIntentId: paymentIntentId,
     });
+
     const restoredAmount = processingTransactions.reduce(
       (sum, transaction) => sum + transaction.roundUpAmount,
       0
@@ -265,38 +290,21 @@ const handleRoundUpDonationFailure = async (
   }
 };
 
-const handleCheckoutSessionCompleted = async (
-  session: Stripe.Checkout.Session
-) => {
-  const { metadata } = session;
-  if (session.payment_intent && metadata?.donationId) {
-    try {
-      await Donation.findOneAndUpdate(
-        {
-          _id: new Types.ObjectId(metadata.donationId),
-          status: { $in: ['pending'] },
-        },
-        {
-          stripePaymentIntentId: session.payment_intent as string,
-          status: 'processing',
-        }
-      );
-    } catch (error) {
-      console.error(`Failed to update donation:`, error);
-    }
-  }
-};
-
-// Handle payment_intent.succeeded
+// ========================================
+// PAYMENT INTENT: Succeeded Handler
+// ========================================
 const handlePaymentIntentSucceeded = async (
   paymentIntent: Stripe.PaymentIntent
 ) => {
   const { metadata } = paymentIntent;
-
-  console.log(`WEBHOOK: payment_intent.succeeded`);
+  console.log({ metadata });
+  console.log(`\n🎉 ========================================`);
+  console.log(`   WEBHOOK: payment_intent.succeeded`);
   console.log(`   Payment Intent ID: ${paymentIntent.id}`);
+  console.log(`========================================\n`);
 
   try {
+    // Try to find donation by payment intent ID
     let donation = await Donation.findOneAndUpdate(
       {
         stripePaymentIntentId: paymentIntent.id,
@@ -308,10 +316,11 @@ const handlePaymentIntentSucceeded = async (
       },
       { new: true }
     )
-      .populate('donor')
-      .populate('organization')
-      .populate('cause');
+      .populate<{ donor: IClient }>('donor')
+      .populate<{ organization: IORGANIZATION }>('organization')
+      .populate<{ cuase: ICause }>('cause');
 
+    // Fallback: Try to find by metadata donation ID
     if (!donation && metadata?.donationId) {
       donation = await Donation.findOneAndUpdate(
         {
@@ -325,94 +334,159 @@ const handlePaymentIntentSucceeded = async (
         },
         { new: true }
       )
-        .populate('donor')
-        .populate('organization')
-        .populate('cause');
+        .populate<{ donor: IClient }>('donor')
+        .populate<{ organization: IORGANIZATION }>('organization')
+        .populate<{ cuase: ICause }>('cause');
     }
 
     if (!donation) {
-      console.error('Donation not found for payment_intent.succeeded');
+      console.error('❌ Donation not found for payment_intent.succeeded');
       return;
     }
 
+    // Update points earned
     donation.pointsEarned = Math.floor(donation.amount * 100);
     await donation.save();
 
-    console.log(`Payment succeeded for donation: ${donation._id}`);
+    console.log(`✅ Payment succeeded for donation: ${donation._id}`);
 
-    // ✅ ADD FUNDS TO BALANCE
+    // ========================================
+    // POST-PAYMENT PROCESSING
+    // ========================================
+
+    // 1. Log funds to history ledger (History Only - No Local Balance Update)
+    const orgId =
+      (donation.organization as any)._id?.toString() ||
+      donation.organization.toString();
+
+    const donorAuthId = (donation.donor as any).auth?.toString();
     try {
-      const orgId =
-        (donation.organization as any)._id?.toString() ||
-        donation.organization.toString();
-
-      // ✅ FIX: Explicitly cast totalAmount to number to satisfy TS
-      await BalanceService.addDonationFunds(
+      await BalanceService.logDonationTransaction(
         orgId,
         donation?._id?.toString() as string,
         donation?.donationType
       );
-      console.log(`✅ Funds added to ledger for Org: ${orgId}`);
+      console.log(`✅ Donation transaction logged for Org: ${orgId}`);
     } catch (err: any) {
-      console.error(`❌ Failed to update balance:`, err.message);
+      console.error(`❌ Failed to log transaction:`, err.message);
     }
 
+    // ========================================
+    // DONATION TYPE SPECIFIC HANDLING
+    // ========================================
+
+    // Handle RoundUp donation success
+    if (metadata?.donationType === 'roundup' && metadata?.roundUpId) {
+      try {
+        console.log(`🔄 Processing RoundUp donation success...`);
+        await handleRoundUpDonationSuccess(
+          metadata.roundUpId,
+          paymentIntent.id
+        );
+      } catch (err) {
+        console.error(`❌ Round-Up handling failed:`, err);
+      }
+    }
+
+    // Handle Scheduled donation success
+    if (
+      donation?.donationType === 'recurring' &&
+      donation?.scheduledDonationId
+    ) {
+      try {
+        console.log(`🔄 Processing Scheduled donation success...`);
+        await updateScheduledDonationAfterSuccess(
+          donation.scheduledDonationId?.toString()
+        );
+      } catch (err) {
+        console.error(`❌ Failed to update scheduled donation:`, err);
+      }
+    }
+
+    // 2. Generate receipt
     try {
       await generateReceiptAfterPayment(donation, paymentIntent);
     } catch (err) {
-      console.error(`Receipt generation failed:`, err);
+      console.error(`❌ Receipt generation failed:`, err);
     }
 
+    // 3. Award points
     try {
       await pointsServices.awardPointsForDonation(
         donation.donor._id.toString(),
         donation._id!.toString(),
         donation.amount
       );
+      console.log(`✅ Points awarded to donor`);
     } catch (err) {
-      console.error(`Points awarding failed:`, err);
+      console.error(`❌ Points awarding failed:`, err);
+    }
+
+    // 4. Check and update badges
+    try {
+      console.log(`🏅 Checking badges...`);
+      await badgeService.checkAndUpdateBadgesForDonation(
+        donation.donor._id?.toString(),
+        donation._id?.toString() as string
+      );
+      console.log(`✅ Badges checked and updated`);
+    } catch (err) {
+      console.error(`❌ Badge checking failed:`, err);
     }
 
     try {
-      await badgeService.checkAndUpdateBadgesForDonation(
-        donation.donor._id,
-        donation._id?.toString() as string,
+      // Notify Donor
+      await createNotification(
+        donorAuthId,
+        NOTIFICATION_TYPE.DONATION_SUCCESS,
+        `Your ${donation?.donationType} donation of $${donation.amount} to ${donation.organization.name} was successful!`,
+        donation._id!.toString(),
+        { ...donation }
       );
+      console.log(`🔔 Cilent notification sucussfully sent!`);
     } catch (err) {
-      console.error(`Badge checking failed:`, err);
+      console.log(`❌🔔 Cilent notification Failed!`);
     }
 
-    if (metadata?.donationType === 'roundup' && metadata?.roundUpId) {
-      try {
-        await handleRoundUpDonationSuccess(
-          metadata.roundUpId,
-          paymentIntent.id
-        );
-      } catch (err) {
-        console.error(`Round-Up handling failed:`, err);
-      }
+    try {
+      // Notify Organization
+      await createNotification(
+        donation.organization.auth.toString(), // Use org's auth ID
+        NOTIFICATION_TYPE.NEW_DONATION,
+        `New ${donation?.donationType} donation received: $${donation.amount} from ${donation.donor.name}`,
+        donation._id!.toString(),
+        { ...donation }
+      );
+      console.log(`🔔 Organization notification sucussfully sent!`);
+    } catch (err) {
+      console.log(`❌🔔 Organization notification Failed!`);
     }
 
-    if (
-      metadata?.donationType === 'recurring' &&
-      metadata?.scheduledDonationId
-    ) {
-      try {
-        await updateScheduledDonationAfterSuccess(metadata.scheduledDonationId);
-      } catch (err) {
-        console.error(`Failed to update scheduled donation:`, err);
-      }
-    }
+    console.log(`\n✅ Payment processing completed successfully\n`);
   } catch (error) {
-    console.error(`Critical error in payment_intent.succeeded handler:`, error);
+    console.error(
+      `❌ Critical error in payment_intent.succeeded handler:`,
+      error
+    );
   }
 };
 
-// Handle payment_intent.payment_failed
+// ========================================
+// PAYMENT INTENT: Failed Handler
+// ========================================
 const handlePaymentIntentFailed = async (
   paymentIntent: Stripe.PaymentIntent
 ) => {
   const { metadata } = paymentIntent;
+
+  console.log(`\n❌ ========================================`);
+  console.log(`   WEBHOOK: payment_intent.payment_failed`);
+  console.log(`   Payment Intent ID: ${paymentIntent.id}`);
+  console.log(
+    `   Error: ${paymentIntent.last_payment_error?.message || 'Unknown'}`
+  );
+  console.log(`========================================\n`);
+
   try {
     const donation = await Donation.findOneAndUpdate(
       {
@@ -425,8 +499,12 @@ const handlePaymentIntentFailed = async (
         lastPaymentAttempt: new Date(),
       },
       { new: true }
-    );
+    )
+      .populate<{ donor: IClient }>('donor')
+      .populate<{ organization: IORGANIZATION }>('organization')
+      .populate<{ cuase: ICause }>('cause');
 
+    // Fallback: Try to find by metadata donation ID
     if (!donation && metadata?.donationId) {
       const fallbackUpdate = await Donation.findOneAndUpdate(
         {
@@ -442,6 +520,7 @@ const handlePaymentIntentFailed = async (
         { new: true }
       );
 
+      // Handle RoundUp failure
       if (
         fallbackUpdate &&
         metadata?.donationType === 'roundup' &&
@@ -453,9 +532,23 @@ const handlePaymentIntentFailed = async (
           paymentIntent.last_payment_error?.message
         );
       }
+
+      // ✅ Handle scheduled donation failure
+      if (
+        fallbackUpdate &&
+        metadata?.donationType === 'recurring' &&
+        metadata?.scheduledDonationId
+      ) {
+        await updateScheduledDonationAfterFailure(
+          metadata.scheduledDonationId,
+          paymentIntent.last_payment_error?.message
+        );
+      }
+
       return;
     }
 
+    // Handle RoundUp failure
     if (
       donation &&
       metadata?.donationType === 'roundup' &&
@@ -467,16 +560,53 @@ const handlePaymentIntentFailed = async (
         paymentIntent.last_payment_error?.message
       );
     }
+
+    // ✅ Handle scheduled donation failure
+    if (
+      donation &&
+      donation?.donationType === 'recurring' &&
+      donation?.scheduledDonationId
+    ) {
+      await updateScheduledDonationAfterFailure(
+        donation.scheduledDonationId?.toString(),
+        paymentIntent.last_payment_error?.message
+      );
+    }
+
+    try {
+      const donorAuthId = donation?.donor.auth?.toString() as string;
+      // Notify Donor
+      await createNotification(
+        donorAuthId,
+        NOTIFICATION_TYPE.DONATION_FAILED,
+        `Your ${donation?.donationType} donation attempt of $${donation?.amount} failed. Please check your payment method.`,
+        donation?._id!.toString()
+      );
+      console.log(`🔔 Cilent notification sucussfully sent!`);
+    } catch (err) {
+      console.log(`❌🔔 Cilent notification Failed!`);
+    }
+
+    console.log(`✅ Payment failure processed`);
   } catch (error) {
-    console.error(`Failed to update donation for payment intent:`, error);
+    console.error(`❌ Failed to update donation for payment intent:`, error);
   }
 };
 
-// Handle payment_intent.canceled
+// ========================================
+// PAYMENT INTENT: Canceled Handler
+// ========================================
 const handlePaymentIntentCanceled = async (
   paymentIntent: Stripe.PaymentIntent
 ) => {
   const { metadata } = paymentIntent;
+
+  console.log({ metadata });
+  console.log(`\n🚫 ========================================`);
+  console.log(`   WEBHOOK: payment_intent.canceled`);
+  console.log(`   Payment Intent ID: ${paymentIntent.id}`);
+  console.log(`========================================\n`);
+
   try {
     const donation = await Donation.findOneAndUpdate(
       {
@@ -488,25 +618,61 @@ const handlePaymentIntentCanceled = async (
         $inc: { paymentAttempts: 1 },
         lastPaymentAttempt: new Date(),
       }
-    );
+    )
+      .populate<{ donor: IClient }>('donor')
+      .populate<{ organization: IORGANIZATION }>('organization')
+      .populate<{ cuase: ICause }>('cause');
+
     if (!donation && metadata?.donationId) {
       await Donation.findOneAndUpdate(
         { _id: new Types.ObjectId(metadata.donationId) },
         { status: 'canceled', stripePaymentIntentId: paymentIntent.id }
       );
     }
+
+    // Unlock scheduled donation if canceled
+    if (
+      donation?.donationType === 'recurring' &&
+      donation?.scheduledDonationId
+    ) {
+      await updateScheduledDonationAfterFailure(
+        metadata.scheduledDonationId,
+        'Payment canceled by user or system'
+      );
+    }
+
+    try {
+      const donorAuthId = donation?.donor.auth?.toString() as string;
+      // Notify Donor
+      await createNotification(
+        donorAuthId,
+        NOTIFICATION_TYPE.DONATION_CANCELLED,
+        `Your ${donation?.donationType} donation attempt of $${donation?.amount} cancelled successfully!`,
+        donation?._id!.toString()
+      );
+      console.log(`🔔 Cilent notification sucussfully sent!`);
+    } catch (err) {
+      console.log(`❌🔔 Cilent notification Failed!`);
+    }
+
+    console.log(`✅ Payment cancellation processed`);
   } catch (error) {
-    console.error(`Failed to update donation for canceled intent:`, error);
+    console.error(`❌ Failed to update donation for canceled intent:`, error);
   }
 };
 
-// Handle charge.refunded
+// ========================================
+// CHARGE: Refunded Handler
+// ========================================
 const handleChargeRefunded = async (charge: Stripe.Charge) => {
   const paymentIntentId = charge.payment_intent as string;
+
+  console.log(`\n💸 WEBHOOK: charge.refunded - ID: ${paymentIntentId}`);
 
   if (!paymentIntentId) return;
 
   try {
+    // 1. Find and update Donation
     const donation = await Donation.findOneAndUpdate(
       {
         stripePaymentIntentId: paymentIntentId,
@@ -514,7 +680,10 @@ const handleChargeRefunded = async (charge: Stripe.Charge) => {
       },
       { status: 'refunded' },
       { new: true }
-    );
+    )
+      .populate<{ donor: IClient }>('donor')
+      .populate<{ organization: IORGANIZATION }>('organization')
+      .populate<{ cuase: ICause }>('cause');
 
     if (donation) {
       try {
@@ -522,19 +691,350 @@ const handleChargeRefunded = async (charge: Stripe.Charge) => {
           (donation.organization as any)._id?.toString() ||
           donation.organization.toString();
 
-        // ✅ FIX: Pass explicit number
-        await BalanceService.deductRefund(orgId, donation?._id?.toString() as string);
-        console.log(`✅ Refund deducted from ledger for Org: ${orgId}`);
+        await BalanceService.logRefundTransaction(
+          orgId,
+          donation._id!.toString()
+        );
+        console.log(`✅ Refund logged for Org: ${orgId}`);
       } catch (err: any) {
-        console.error(`❌ Failed to update ledger for refund:`, err.message);
+        console.error(`❌ Failed to log refund:`, err.message);
       }
+
+      try {
+        const donorAuthId = donation?.donor.auth?.toString() as string;
+        // Notify Donor
+        await createNotification(
+          donorAuthId,
+          NOTIFICATION_TYPE.DONATION_REFUNDED,
+          `Your donation of $${donation?.amount} has been refunded. Please check your payment method for details.`,
+          donation?._id!.toString()
+        );
+        console.log(`🔔 Cilent notification sucussfully sent!`);
+      } catch (err) {
+        console.log(`❌🔔 Cilent notification Failed!`);
+      }
+    } else {
+      console.warn(
+        `⚠️ Donation not found or not eligible for refund via webhook (PI: ${paymentIntentId})`
+      );
     }
+
+    console.log(`✅ Donation status updated to REFUNDED.`);
   } catch (error) {
-    console.error(`Failed to update donation status to refunded:`, error);
+    console.error(`❌ Failed to update donation status to refunded:`, error);
   }
 };
 
-// Main Stripe webhook handler
+// ========================================
+// PAYOUT: Paid Handler (Success Confirmation)
+// ========================================
+const handlePayoutPaid = async (payoutEvent: Stripe.Payout) => {
+  console.log(`\n💸 WEBHOOK: payout.paid - ID: ${payoutEvent.id}`);
+
+  try {
+    // 1. Find Payout by the ID stored during the Cron Job execution
+    const payout = await Payout.findOne({ stripePayoutId: payoutEvent.id });
+
+    if (!payout) {
+      console.warn(`⚠️ Payout not found for Stripe ID: ${payoutEvent.id}`);
+      return;
+    }
+
+    // 2. Ensure status is COMPLETED
+    if (payout.status !== PAYOUT_STATUS.COMPLETED) {
+      payout.status = PAYOUT_STATUS.COMPLETED;
+      payout.stripeTransferId = payoutEvent.balance_transaction as string;
+      payout.completedAt = new Date(); // Update with actual webhook time
+      await payout.save();
+      console.log(
+        `✅ Payout ${payout.payoutNumber} confirmed as COMPLETED via Webhook.`
+      );
+    } else {
+      console.log(
+        `ℹ️ Payout ${payout.payoutNumber} was already marked COMPLETED.`
+      );
+    }
+  } catch (error) {
+    console.error(`❌ Error handling payout.paid:`, error);
+  }
+};
+
+// ========================================
+// PAYOUT: Failed Handler (Status Update Logic Only)
+// ========================================
+const handlePayoutFailed = async (payoutEvent: Stripe.Payout) => {
+  console.log(`\n❌ WEBHOOK: payout.failed - ID: ${payoutEvent.id}`);
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const payout = await Payout.findOne({
+      stripePayoutId: payoutEvent.id,
+    }).session(session);
+
+    if (!payout) {
+      console.warn(`⚠️ Payout not found for Stripe ID: ${payoutEvent.id}`);
+      await session.abortTransaction();
+      return;
+    }
+
+    // 1. Mark Payout as FAILED
+    payout.status = PAYOUT_STATUS.FAILED;
+    payout.stripeTransferId = payoutEvent.balance_transaction as string;
+    payout.failureReason =
+      payoutEvent.failure_code ||
+      payoutEvent.failure_message ||
+      'Bank transfer failed';
+    await payout.save({ session });
+
+    // 2. Ledger Entry (Log only - no balance restoration needed as Stripe handles the money return)
+    await BalanceTransaction.create(
+      [
+        {
+          organization: payout.organization,
+          type: 'credit', // Log as credit to indicate money returned conceptually
+          category: 'payout_failed',
+          amount: payout.netAmount,
+          payout: payout._id,
+          description: `Payout Failed: ${payout.payoutNumber} - Stripe balance reversed automatically`,
+          metadata: {
+            stripePayoutId: payoutEvent.id,
+            reason: payout.failureReason,
+            originalAmount: payout.requestedAmount,
+          },
+          idempotencyKey: `pay_fail_${payout._id}_${Date.now()}`,
+        },
+      ],
+      { session }
+    );
+
+    await session.commitTransaction();
+    console.log(
+      `✅ Payout ${payout.payoutNumber} marked FAILED. Transaction logged.`
+    );
+  } catch (error) {
+    await session.abortTransaction();
+    console.error(`❌ Error handling payout.failed:`, error);
+  } finally {
+    session.endSession();
+  }
+};
+
+// ========================================
+// ACCOUNT: Updated Handler (KYC & Bank Status)
+// ========================================
+const handleAccountUpdated = async (stripeAccountData: Stripe.Account) => {
+  const accountId = stripeAccountData.id;
+
+  console.log(`\n👤 [STRIPE WEBHOOK] account.updated - ID: ${accountId}`);
+
+  try {
+    let internalStatus: 'active' | 'pending' | 'restricted' | 'rejected' =
+      'pending';
+
+    const requirements = stripeAccountData.requirements;
+    const isChargesEnabled = stripeAccountData.charges_enabled;
+    const isPayoutsEnabled = stripeAccountData.payouts_enabled;
+    const isDisabled = !!requirements?.disabled_reason;
+    const hasOverdueRequirements =
+      (requirements?.currently_due || []).length > 0;
+
+    if (isDisabled) {
+      internalStatus = 'rejected';
+    } else if (isChargesEnabled && isPayoutsEnabled) {
+      internalStatus = 'active';
+    } else if (hasOverdueRequirements) {
+      internalStatus = 'restricted';
+    } else if (stripeAccountData.details_submitted) {
+      internalStatus = 'pending';
+    }
+
+    console.log(`   Mapped Status: ${internalStatus}`);
+    console.log(`   Charges Enabled: ${isChargesEnabled}`);
+    console.log(`   Payouts Enabled: ${isPayoutsEnabled}`);
+
+    const updatedAccount = await StripeAccount.findOneAndUpdate(
+      { stripeAccountId: accountId },
+      {
+        $set: {
+          status: internalStatus,
+          chargesEnabled: isChargesEnabled,
+          payoutsEnabled: isPayoutsEnabled,
+          detailsSubmitted: stripeAccountData.details_submitted,
+          requirements: {
+            currently_due: requirements?.currently_due || [],
+            eventually_due: requirements?.eventually_due || [],
+            disabled_reason: requirements?.disabled_reason || null,
+          },
+        },
+      },
+      { new: true }
+    );
+
+    if (!updatedAccount) {
+      console.warn(
+        `⚠️  Received webhook for unknown Stripe Account ID: ${accountId}. No matching record in Database.`
+      );
+      return;
+    }
+
+    console.log(`✅ Database successfully synced for account: ${accountId}`);
+
+    // If account just became active, you could trigger a notification here
+    if (internalStatus === 'active') {
+      console.log(
+        `🎉 Organization linked to ${accountId} is now FULLY ACTIVE.`
+      );
+    }
+  } catch (error: any) {
+    // We log the error but don't re-throw to ensure the webhook returns 200 to Stripe
+    console.error(
+      `❌ Error processing account.updated webhook:`,
+      error.message
+    );
+  }
+};
+
+/**
+ * Handle Subscription Created/Updated/Deleted
+ * Use Stripe.Subscription for the parameter type
+ */
+const handleSubscriptionSync = async (stripeSub: Stripe.Subscription) => {
+  const userId = stripeSub.metadata?.userId;
+  const planType = stripeSub.metadata?.planType as TPlanType;
+
+  if (!userId) return;
+
+  console.log({ stripeSub });
+
+  if (!userId) {
+    console.error(
+      `[STRIPE ERROR] No userId in metadata for sub: ${stripeSub.id}`
+    );
+    return;
+  }
+
+  // price id is inside items.data array
+  const stripeSubItem = stripeSub.items.data[0];
+  const stripeSubPlan = stripeSubItem.plan;
+
+  // Update logic
+  await Subscription.findOneAndUpdate(
+    { user: new Types.ObjectId(userId) },
+    {
+      $set: {
+        stripeSubscriptionId: stripeSub.id,
+        stripeCustomerId: stripeSub.customer as string,
+        stripePriceId: stripeSubPlan.id,
+        status: stripeSub.status,
+        planType: planType || PLAN_TYPE.MONTHLY,
+        trialEndsAt: stripeSub.trial_end
+          ? new Date(stripeSub.trial_end * 1000)
+          : null,
+        currentPeriodStart: new Date(stripeSubItem.current_period_start * 1000),
+        currentPeriodEnd: new Date(stripeSubItem.current_period_end * 1000),
+        cancelAtPeriodEnd:
+          stripeSub.cancel_at_period_end ?? stripeSub.cancel_at ?? false,
+      },
+    },
+    { upsert: true, new: true }
+  );
+};
+
+const handleInvoicePaid = async (invoice: Stripe.Invoice) => {
+  const subscriptionDetails = invoice.parent?.subscription_details;
+  const stripeSubscriptionId = subscriptionDetails?.subscription;
+  const userId = subscriptionDetails?.metadata?.userId;
+
+  if (!stripeSubscriptionId) {
+    console.error(
+      `[STRIPE ERROR] No subscription ID found in invoice: ${invoice.id}`
+    );
+    return;
+  }
+
+  // Find the Mongoose record using the alias to avoid confusion with Stripe.Subscription
+  const sub = await Subscription.findOne({
+    stripeSubscriptionId,
+    user: userId,
+  });
+  if (!sub) {
+    console.warn(
+      `[WEBHOOK WARN] Subscription ${stripeSubscriptionId} not found in DB`
+    );
+    return;
+  }
+
+  // Create Ledger Entry
+  await SubscriptionHistory.create({
+    user: sub.user,
+    subscription: sub._id,
+    stripeInvoiceId: invoice.id,
+    stripePaymentIntentId: '',
+    amount: (invoice.amount_paid || 0) / 100,
+    currency: invoice.currency,
+    status: 'succeeded',
+    billingReason: invoice.billing_reason || 'subscription_cycle',
+    planType: sub.planType,
+    invoiceUrl: invoice.hosted_invoice_url || '',
+    transactionDate: new Date(),
+  });
+
+  // Update Main Subscription Dates from the actual Invoice period
+  if (invoice.lines?.data[0]?.period) {
+    sub.status = SUBSCRIPTION_STATUS.ACTIVE;
+    sub.currentPeriodStart = new Date(
+      invoice.lines.data[0].period.start * 1000
+    );
+    sub.currentPeriodEnd = new Date(invoice.lines.data[0].period.end * 1000);
+    await sub.save();
+  }
+};
+
+/**
+ * Handle Failed Subscription Payment
+ * Standard: invoice.payment_failed
+ */
+const handleInvoiceFailed = async (invoice: Stripe.Invoice) => {
+  const subscriptionDetails = invoice.parent?.subscription_details;
+  const stripeSubscriptionId = subscriptionDetails?.subscription;
+  const userId = subscriptionDetails?.metadata?.userId;
+
+  if (!stripeSubscriptionId) {
+    console.error(
+      `[STRIPE ERROR] No subscription ID found in invoice: ${invoice.id}`
+    );
+    return;
+  }
+
+  if (!stripeSubscriptionId) return;
+
+  const sub = await Subscription.findOne({
+    stripeSubscriptionId,
+    user: userId,
+  });
+  if (!sub) return;
+
+  await SubscriptionHistory.create({
+    user: sub.user,
+    subscription: sub._id,
+    stripeInvoiceId: invoice.id,
+    amount: (invoice.amount_due || 0) / 100,
+    currency: invoice.currency,
+    status: 'failed',
+    billingReason: invoice.billing_reason || 'subscription_cycle',
+    planType: sub.planType,
+    transactionDate: new Date(),
+  });
+
+  sub.status = SUBSCRIPTION_STATUS.PAST_DUE;
+  await sub.save();
+};
+
+// ========================================
+// MAIN WEBHOOK HANDLER
+// ========================================
 const handleStripeWebhook = async (
   req: ExtendedRequest,
   res: Response,
@@ -554,32 +1054,54 @@ const handleStripeWebhook = async (
       signature
     );
 
+    console.log(`\n📨 Webhook Received: ${event.type}`);
+
     switch (event.type) {
-      case 'checkout.session.completed':
-        await handleCheckoutSessionCompleted(
-          event.data.object as Stripe.Checkout.Session
-        );
-        break;
       case 'payment_intent.succeeded':
         await handlePaymentIntentSucceeded(
           event.data.object as Stripe.PaymentIntent
         );
         break;
+
       case 'payment_intent.payment_failed':
         await handlePaymentIntentFailed(
           event.data.object as Stripe.PaymentIntent
         );
         break;
+
       case 'payment_intent.canceled':
         await handlePaymentIntentCanceled(
           event.data.object as Stripe.PaymentIntent
         );
         break;
+
       case 'charge.refunded':
         await handleChargeRefunded(event.data.object as Stripe.Charge);
         break;
+
+      case 'payout.paid':
+        await handlePayoutPaid(event.data.object as Stripe.Payout);
+        break;
+
+      case 'payout.failed':
+        await handlePayoutFailed(event.data.object as Stripe.Payout);
+        break;
+      case 'account.updated':
+        await handleAccountUpdated(event.data.object as Stripe.Account);
+        break;
+      case 'customer.subscription.created':
+      case 'customer.subscription.updated':
+      case 'customer.subscription.deleted':
+        await handleSubscriptionSync(event.data.object as Stripe.Subscription);
+        break;
+      case 'invoice.payment_succeeded':
+        await handleInvoicePaid(event.data.object as Stripe.Invoice);
+        break;
+      case 'invoice.payment_failed':
+        await handleInvoiceFailed(event.data.object as Stripe.Invoice);
+        break;
       default:
-        console.log(`Unhandled webhook event type: ${event.type}`);
+        console.log(`ℹ️ Unhandled event type: ${event.type}`);
     }
 
     sendResponse(res, {
@@ -588,7 +1110,7 @@ const handleStripeWebhook = async (
       data: { received: true },
     });
   } catch (error) {
-    console.error('Webhook error:', error);
+    console.error('\n❌ Webhook Error:', error);
     sendResponse(res, {
       statusCode: httpStatus.INTERNAL_SERVER_ERROR,
       message: 'Webhook processing failed',
@@ -597,6 +1119,9 @@ const handleStripeWebhook = async (
   }
 };
 
+// ========================================
+// EXPORTS
+// ========================================
 export const WebhookHandler = {
   handleStripeWebhook,
 };

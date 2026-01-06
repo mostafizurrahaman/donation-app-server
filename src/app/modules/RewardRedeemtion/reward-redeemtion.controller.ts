@@ -29,7 +29,6 @@ const claimReward = asyncHandler(
         redemption: result.redemption,
         code: result.code,
         availableMethods: result.availableMethods,
-        isRetry: result.isRetry || false,
       },
     });
   }
@@ -67,16 +66,11 @@ const cancelClaimedReward = asyncHandler(
  */
 const redeemReward = asyncHandler(
   async (req: ExtendedRequest, res: Response) => {
-    const staffId = req.user?._id?.toString();
+    const { staffAuthId, code, method } = req.body;
 
-    const { redemptionId, code, location, notes, method } = req.body;
-
-    const result = await rewardRedemptionService.redeemReward({
-      redemptionId, // Can be from params OR body
-      code, // Can be from body
-      staffId,
-      location,
-      notes,
+    const result = await rewardRedemptionService.redeemRewardByCode({
+      code,
+      staffAuthId,
       method,
     });
 
@@ -105,27 +99,16 @@ const getUserClaimedRewards = asyncHandler(
       throw new AppError(httpStatus.NOT_FOUND, 'Client not found');
     }
 
-    const { includeExpired, page, limit } = req.query;
-
     const result = await rewardRedemptionService.getUserClaimedRewards(
       client?._id?.toString(),
-      {
-        includeExpired: includeExpired === 'true',
-        page: page ? Number(page) : 1,
-        limit: limit ? Number(limit) : 20,
-      }
+      req.query
     );
 
     sendResponse(res, {
       statusCode: httpStatus.OK,
       message: 'Claimed rewards retrieved successfully',
-      data: result.redemptions,
-      meta: {
-        total: result.total,
-        page: page ? Number(page) : 1,
-        limit: limit ? Number(limit) : 20,
-        totalPage: Math.ceil(result.total / (limit ? Number(limit) : 20)),
-      },
+      data: result.data,
+      meta: result.meta,
     });
   }
 );

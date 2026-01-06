@@ -35,7 +35,11 @@ const onlineRedemptionMethodsSchema = z
 export const createRewardSchema = z.object({
   body: z
     .object({
-      businessId: z.string().min(1, 'Business ID is required'),
+      businessId: z
+        .string({
+          message: 'Business ID is reuired!',
+        })
+        .min(2, 'Business ID is required'),
       title: z
         .string()
         .min(1, 'Title is required')
@@ -104,7 +108,7 @@ export const updateRewardSchema = z.object({
   body: z.object({
     title: z.string().max(MAX_TITLE_LENGTH).optional(),
     description: z.string().max(MAX_DESCRIPTION_LENGTH).optional(),
-    image: z.string().url().optional(),
+    image: z.string().optional().nullable(),
     category: z
       .enum(REWARD_CATEGORY_VALUES as [string, ...string[]])
       .optional(),
@@ -227,7 +231,11 @@ const getAdminRewardsSchema = z.object({
     businessId: z.string().optional(),
     fromDate: z.string().optional(), // Date string validation handled in service/querybuilder if needed
     toDate: z.string().optional(),
-    search: z.string().optional(),
+    isActive: z
+      .string()
+      .transform((val) => Boolean(val))
+      .optional(),
+    searchTerm: z.string().optional(),
     page: z.coerce.number().min(1).default(1),
     limit: z.coerce.number().min(1).max(100).default(20),
   }),
@@ -238,9 +246,11 @@ const toggleRewardStatusSchema = z.object({
     id: z.string().min(1, 'Reward ID is required'),
   }),
   body: z.object({
-    isActive: z.boolean({
-      error: 'isActive is required',
-    }),
+    isActive: z
+      .boolean({
+        message: 'Is Active should be boolean',
+      })
+      .transform((val) => Boolean(val)),
   }),
 });
 // Export validation object

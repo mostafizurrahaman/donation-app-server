@@ -1,70 +1,8 @@
 import { Schema, model } from 'mongoose';
-import {
-  IOrganizationBalanceModel,
-  IBalanceTransactionModel,
-} from './balance.interface';
+import { IBalanceTransactionModel } from './balance.interface';
 
 // ==========================================
-// Organization Balance Schema
-// ==========================================
-const organizationBalanceSchema = new Schema<IOrganizationBalanceModel>(
-  {
-    organization: {
-      type: Schema.Types.ObjectId,
-      ref: 'Organization',
-      required: true,
-      unique: true,
-      index: true,
-    },
-
-    // Lifetime Totals
-    lifetimeEarnings: { type: Number, default: 0 },
-    lifetimePaidOut: { type: Number, default: 0 },
-    lifetimePlatformFees: { type: Number, default: 0 },
-    lifetimeTaxDeducted: { type: Number, default: 0 },
-    lifetimeRefunds: { type: Number, default: 0 },
-
-    // Current Balances
-    pendingBalance: { type: Number, default: 0 },
-    availableBalance: { type: Number, default: 0 },
-    reservedBalance: { type: Number, default: 0 },
-
-    // Pending Breakdown
-    pendingByType_oneTime: { type: Number, default: 0 },
-    pendingByType_recurring: { type: Number, default: 0 },
-    pendingByType_roundUp: { type: Number, default: 0 },
-
-    // Available Breakdown
-    availableByType_oneTime: { type: Number, default: 0 },
-    availableByType_recurring: { type: Number, default: 0 },
-    availableByType_roundUp: { type: Number, default: 0 },
-
-    // Configuration
-    clearingPeriodDays: { type: Number, default: 7 },
-
-    // Tracking
-    lastTransactionAt: { type: Date },
-    lastPayoutAt: { type: Date },
-    lastReconciliationAt: { type: Date },
-  },
-  {
-    timestamps: true,
-    versionKey: false,
-  }
-);
-
-// Indexes
-organizationBalanceSchema.index({ availableBalance: 1 });
-organizationBalanceSchema.index({ pendingBalance: 1 });
-organizationBalanceSchema.index({ lastTransactionAt: -1 });
-
-export const OrganizationBalance = model<IOrganizationBalanceModel>(
-  'OrganizationBalance',
-  organizationBalanceSchema
-);
-
-// ==========================================
-// Balance Transaction Schema
+// Balance Transaction Schema (History/Analytics Only)
 // ==========================================
 const balanceTransactionSchema = new Schema<IBalanceTransactionModel>(
   {
@@ -74,7 +12,6 @@ const balanceTransactionSchema = new Schema<IBalanceTransactionModel>(
       required: true,
       index: true,
     },
-
     type: {
       type: String,
       enum: ['credit', 'debit'],
@@ -84,16 +21,10 @@ const balanceTransactionSchema = new Schema<IBalanceTransactionModel>(
       type: String,
       enum: [
         'donation_received',
-        'donation_cleared',
-        'payout_reserved',
         'payout_completed',
         'payout_failed',
-        'payout_cancelled',
-        'platform_fee',
-        'tax_deducted',
         'refund_issued',
-        'adjustment_credit',
-        'adjustment_debit',
+        'adjustment',
       ],
       required: true,
     },
@@ -102,13 +33,6 @@ const balanceTransactionSchema = new Schema<IBalanceTransactionModel>(
       required: true,
       min: 0,
     },
-
-    // Snapshots
-    balanceAfter_pending: { type: Number, required: true },
-    balanceAfter_available: { type: Number, required: true },
-    balanceAfter_reserved: { type: Number, required: true },
-    balanceAfter_total: { type: Number, required: true },
-
     // References
     donation: { type: Schema.Types.ObjectId, ref: 'Donation', index: true },
     payout: { type: Schema.Types.ObjectId, ref: 'Payout', index: true },
@@ -130,7 +54,7 @@ const balanceTransactionSchema = new Schema<IBalanceTransactionModel>(
     },
   },
   {
-    timestamps: { createdAt: true, updatedAt: false }, // Only createdAt needed for ledger
+    timestamps: { createdAt: true, updatedAt: false },
     versionKey: false,
   }
 );
@@ -142,7 +66,6 @@ balanceTransactionSchema.index({
   donationType: 1,
   createdAt: -1,
 });
-balanceTransactionSchema.index({ organization: 1, category: 1, createdAt: -1 });
 
 export const BalanceTransaction = model<IBalanceTransactionModel>(
   'BalanceTransaction',

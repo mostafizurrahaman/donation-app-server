@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import mongoose, { Types } from 'mongoose';
 import httpStatus from 'http-status';
 
@@ -21,6 +22,9 @@ import { AppError } from '../../utils';
 import Client from '../Client/client.model';
 import { Logger } from '../../utils/logger';
 import { OrganizationModel } from '../Organization/organization.model';
+import { StripeAccount } from '../OrganizationAccount/stripe-account.model';
+import { createNotification } from '../Notification/notification.service';
+import { NOTIFICATION_TYPE } from '../Notification/notification.constant';
 
 // Check and reset monthly total at the beginning of each month
 const checkAndResetMonthlyTotal = async (
@@ -39,7 +43,9 @@ const checkAndResetMonthlyTotal = async (
   }
 };
 
-// Trigger donation when threshold is met (webhook-based approach with Donation record first)
+// ==========================================
+// ⚡ TRIGGER DONATION (Automatic - Destination Charge)
+// ==========================================
 const triggerDonation = async (
   roundUpConfig: IRoundUpDocument
 ): Promise<{ paymentIntentId: string; donationId: string }> => {
@@ -49,10 +55,29 @@ const triggerDonation = async (
   ).padStart(2, '0')}`;
   const previousMonthTotal = roundUpConfig.currentMonthTotal || 0;
 
-  console.log({ roundUpConfig });
-
   try {
-    // Get all pending round-up transactions for this user/month AND specific roundUp config
+    // 1. Fetch Organization to get Stripe ID
+    const organization = await OrganizationModel.findById(
+      roundUpConfig.organization
+    );
+    if (!organization) {
+      throw new AppError(httpStatus.BAD_REQUEST, 'Organization not found!');
+    }
+
+    // check is stripe account exists :
+    const stripeAccount = await StripeAccount.findOne({
+      organization: organization._id,
+      status: 'active',
+    });
+
+    if (!stripeAccount || !stripeAccount.chargesEnabled) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        'This organization is not set up to receive payments (Stripe account inactive).'
+      );
+    }
+
+    // 2. Gather Transactions
     const pendingTransactions = await RoundUpTransactionModel.find({
       user: roundUpConfig.user,
       bankConnection: roundUpConfig.bankConnection,
@@ -62,70 +87,55 @@ const triggerDonation = async (
     });
 
     if (pendingTransactions.length === 0) {
-      console.warn(
-        `⚠️ No processed transactions found for RoundUp ${roundUpConfig._id}`
-      );
       throw new Error('No processed transactions found for donation');
     }
 
-    // Calculate total amount for donation (Base Amount)
     const baseAmount = pendingTransactions.reduce(
       (sum, transaction) => sum + (transaction as any).roundUpAmount,
       0
     );
 
-    if (baseAmount <= 0) {
-      console.warn(
-        `⚠️ Invalid donation amount: $${baseAmount} for RoundUp ${roundUpConfig._id}`
-      );
-      throw new Error('Invalid donation amount');
-    }
+    if (baseAmount <= 0) throw new Error('Invalid donation amount');
 
-    // ✅ Apply Australian Fee Logic
+    // 3.  Calculate Fees (Destination Charge Logic)
     const financials = calculateAustralianFees(
       baseAmount,
       roundUpConfig.coverFees || false
     );
 
-    console.log(
-      `\n🎯 Creating donation record for RoundUp ${roundUpConfig._id}`
-    );
-    console.log(`   User: ${roundUpConfig.user}`);
-    console.log(`   Organization: ${roundUpConfig.organization}`);
-    console.log(`   Base Amount: $${financials.baseAmount.toFixed(2)}`);
-    console.log(`   Stripe Fee: $${financials.stripeFee.toFixed(2)}`);
+    // Platform Fee + GST
+    const applicationFee = financials.platformFeeWithStripe;
+
+    console.log(`\n🎯 Triggering RoundUp Donation (Destination Charge):`);
+    console.log(`   Base: $${financials.baseAmount.toFixed(2)}`);
+    console.log(`   App Fee: $${applicationFee.toFixed(2)}`);
     console.log(`   Total Charged: $${financials.totalCharge.toFixed(2)}`);
+    console.log(`   Destination: ${stripeAccount.stripeAccountId}`);
 
+    // 4. Validate Donor & Cause
     const cause = await Cause.findById(roundUpConfig.cause);
-    if (!cause) {
-      throw new AppError(httpStatus.NOT_FOUND, 'Cause not found!');
+    if (!cause || cause.status !== CAUSE_STATUS_TYPE.VERIFIED) {
+      throw new AppError(httpStatus.BAD_REQUEST, 'Cause not valid.');
     }
-    if (cause.status !== CAUSE_STATUS_TYPE.VERIFIED) {
-      throw new AppError(
-        httpStatus.BAD_REQUEST,
-        `Cannot create donation for cause with status: ${cause.status}. Only verified causes can receive donations.`
-      );
-    }
+    const idempotencyKey = `roundup_auto_${roundUpConfig._id}_${Date.now()}`;
 
-    // ✅ Find Client by auth ID (roundUpConfig.user is Auth._id)
     const donor = await Client.findOne({ auth: roundUpConfig.user });
-    if (!donor?._id) {
+    if (!donor?._id)
       throw new AppError(httpStatus.NOT_FOUND, 'Donor not found!');
-    }
 
-    // STEP 1: Create Donation record with PENDING status
+    // 5. Create Donation Record
     const donation = await Donation.create({
       donor: donor._id,
       organization: roundUpConfig.organization,
       cause: roundUpConfig.cause,
       donationType: 'round-up',
 
-      // ✅ Breakdown
+      //  Store Breakdown
       amount: financials.baseAmount,
       coverFees: financials.coverFees,
       platformFee: financials.platformFee,
       gstOnFee: financials.gstOnFee,
-      stripeFee: financials.stripeFee, // ✅ NEW
+      stripeFee: financials.stripeFee,
       netAmount: financials.netToOrg,
       totalAmount: financials.totalCharge,
 
@@ -134,53 +144,47 @@ const triggerDonation = async (
       donationDate: new Date(),
       specialMessage:
         roundUpConfig.specialMessage || `Round-up donation for ${currentMonth}`,
-      pointsEarned: Math.round(financials.baseAmount * 100), // Points on Base
+      pointsEarned: Math.round(financials.baseAmount * 100),
       roundUpId: roundUpConfig._id,
       roundUpTransactionIds: pendingTransactions.map((t) => t._id),
       receiptGenerated: false,
+      idempotencyKey,
       metadata: {
         userId: String(roundUpConfig.user),
         roundUpId: String(roundUpConfig._id),
-        month: currentMonth,
-        year: now.getFullYear().toString(),
-        type: 'roundup_donation',
-        transactionCount: pendingTransactions.length,
       },
     });
 
-    console.log(`✅ Donation record created with ID: ${donation._id}`);
-    console.log(`   Status: ${donation.status}`);
-
-    // STEP 2: Create Stripe Payment Intent with donationId in metadata
     let paymentResult;
     try {
+      // 6. Create Payment Intent (Destination Charge)
       paymentResult = await StripeService.createRoundUpPaymentIntent({
         roundUpId: String(roundUpConfig._id),
         userId: String(roundUpConfig.user),
         charityId: String(roundUpConfig.organization),
         causeId: String(roundUpConfig.cause),
-        amount: baseAmount, // Base Amount
 
-        // ✅ Fee Breakdown
+        amount: financials.baseAmount,
+        totalAmount: financials.totalCharge,
+
+        //  Destination Charge Params
+        applicationFee: applicationFee,
+
+        // Metadata Breakdown
         coverFees: financials.coverFees,
         platformFee: financials.platformFee,
         gstOnFee: financials.gstOnFee,
-        stripeFee: financials.stripeFee, // ✅ NEW
+        stripeFee: financials.stripeFee,
         netToOrg: financials.netToOrg,
-        totalAmount: financials.totalCharge, // Total Charge
 
         month: currentMonth,
         year: now.getFullYear(),
-        specialMessage: roundUpConfig.specialMessage,
+        specialMessage: roundUpConfig.specialMessage as string,
         donationId: String(donation._id),
-        paymentMethodId: roundUpConfig.paymentMethod,
+        paymentMethodId: roundUpConfig.paymentMethod as string,
       });
-
-      console.log(
-        `✅ PaymentIntent created: ${paymentResult.payment_intent_id}`
-      );
     } catch (error) {
-      // If PaymentIntent creation fails, update donation to failed
+      // Error Handling: Mark as failed and revert
       const donationDoc = donation.toObject();
       await Donation.findByIdAndUpdate(donation._id, {
         status: 'failed',
@@ -194,14 +198,13 @@ const triggerDonation = async (
         },
       });
 
-      // Also mark round-up as failed
       await roundUpConfig.markAsFailed(
         error instanceof Error
           ? error.message
           : 'Payment intent creation failed'
       );
 
-      // Update transactions back to 'processed' status so they can be retried
+      // Revert transactions to 'processed' so they are picked up again later
       await RoundUpTransactionModel.updateMany(
         {
           roundUp: roundUpConfig._id,
@@ -218,7 +221,7 @@ const triggerDonation = async (
       throw error;
     }
 
-    // STEP 3: Update Donation status to PROCESSING after PaymentIntent created
+    // 7. Success Updates
     const donationDoc = donation.toObject();
     await Donation.findByIdAndUpdate(donation._id, {
       status: 'processing',
@@ -229,9 +232,6 @@ const triggerDonation = async (
       },
     });
 
-    console.log(`✅ Donation ${donation._id} updated to 'processing' status`);
-
-    // STEP 4: Mark transactions as processing (payment initiated)
     await RoundUpTransactionModel.updateMany(
       {
         roundUp: roundUpConfig._id,
@@ -244,11 +244,6 @@ const triggerDonation = async (
       }
     );
 
-    console.log(
-      `✅ ${pendingTransactions.length} transactions updated to 'processing' status`
-    );
-
-    // STEP 5: Update round-up configuration book-keeping
     roundUpConfig.status = 'processing';
     roundUpConfig.lastDonationAttempt = new Date();
     roundUpConfig.currentMonthTotal = Math.max(
@@ -257,38 +252,22 @@ const triggerDonation = async (
     );
     await roundUpConfig.save();
 
-    console.log(
-      `✅ RoundUp ${roundUpConfig._id} updated to 'processing' status with ${roundUpConfig.currentMonthTotal} remaining`
-    );
-
-    Logger.info('\n🔄 RoundUp donation flow completed:');
-    Logger.info(`   RoundUp ID: ${roundUpConfig._id}`);
-    Logger.info(`   Donation ID: ${donation._id}`);
-    Logger.info(`   Payment Intent ID: ${paymentResult.payment_intent_id}`);
-    Logger.info(`   Base Amount: $${baseAmount.toFixed(2)}`);
-    Logger.info(`   Total Charged: $${financials.totalCharge.toFixed(2)}`);
-    Logger.info(`   Charity: ${roundUpConfig.organization}`);
-    Logger.info(`   Status: Awaiting webhook confirmation...\n`);
-
     return {
       paymentIntentId: paymentResult.payment_intent_id,
       donationId: String(donation._id),
     };
   } catch (error) {
-    console.error(
-      `❌ Error triggering RoundUp donation for ${roundUpConfig._id}:`,
-      error
-    );
-
-    // Restore the tracked month total so threshold math stays accurate if donation setup fails
+    console.log({ error });
+    // Final safety catch: revert config total
     roundUpConfig.currentMonthTotal = previousMonthTotal;
     await roundUpConfig.save();
-
     throw error;
   }
 };
 
-// Process Plaid transactions and create round-up entries
+// ==========================================
+// 3. PROCESS TRANSACTIONS FROM PLAID (Core Engine)
+// ==========================================
 const processTransactionsFromPlaid = async (
   userId: string,
   bankConnectionId: string,
@@ -302,22 +281,25 @@ const processTransactionsFromPlaid = async (
   };
 
   try {
-    // Get user's round-up configuration
+    // 1. Get user's active round-up configuration
     const roundUpConfig = await RoundUpModel.findOne({
       user: userId,
       bankConnection: bankConnectionId,
       isActive: true,
       enabled: true,
+      status: 'pending',
     });
 
     if (!roundUpConfig) {
-      throw new Error('No active round-up configuration found');
+      // Not an error, just means no config active for this bank
+      console.log('No active round-up configuration found');
+      return result;
     }
 
-    // Reset monthly total if needed
+    // 2. Reset monthly total if new month
     await checkAndResetMonthlyTotal(roundUpConfig);
 
-    // Check if monthly threshold is already met
+    // 3. Check if monthly threshold is already met (Skip processing if cap reached)
     if (
       roundUpConfig.monthlyThreshold !== 'no-limit' &&
       typeof roundUpConfig.monthlyThreshold === 'number' &&
@@ -327,56 +309,46 @@ const processTransactionsFromPlaid = async (
       return result;
     }
 
-    // Process each transaction
+    // 4. Process each transaction
     for (const plaidTransaction of plaidTransactions) {
       try {
-        // Skip transactions without a valid transaction_id
+        // Validation: Must have ID
         if (
           !plaidTransaction.transaction_id ||
           plaidTransaction.transaction_id.trim() === ''
         ) {
-          console.warn(
-            `Skipping transaction without transaction_id: ${
-              plaidTransaction.name || 'Unknown'
-            } (Date: ${plaidTransaction.date})`
-          );
           result.skipped++;
           continue;
         }
 
-        // Check if transaction already processed
+        // Deduplication: Check if already processed
         const existingRoundUp = await RoundUpTransactionModel.findOne({
           transactionId: plaidTransaction.transaction_id,
         }).lean();
 
         if (existingRoundUp) {
-          console.log(
-            `⏭️ Skipping duplicate transaction (found in DB): ${
-              plaidTransaction.transaction_id
-            } - ${plaidTransaction.name || 'Unknown'}`
-          );
           result.skipped++;
           continue;
         }
 
-        // Check if transaction is eligible for round-up
+        // Eligibility Check: Must be a purchase/debit, not transfer/income
         if (!RoundUpTransactionModel.isTransactionEligible(plaidTransaction)) {
           result.skipped++;
           continue;
         }
 
-        // Calculate round-up amount
+        //  Calculate round-up (e.g., $4.50 -> $0.50)
         const roundUpAmount = RoundUpTransactionModel.calculateRoundUpAmount(
           plaidTransaction.amount
         );
 
-        // Skip if no round-up needed (exact dollar amount)
+        // Skip exact dollar amounts (0.00 round up)
         if (roundUpAmount === 0) {
           result.skipped++;
           continue;
         }
 
-        // Check if adding this would exceed monthly threshold
+        // Limit Check: Will this specific transaction push over the monthly limit?
         const newMonthlyTotal = roundUpConfig.currentMonthTotal + roundUpAmount;
         if (
           roundUpConfig.monthlyThreshold !== 'no-limit' &&
@@ -387,7 +359,7 @@ const processTransactionsFromPlaid = async (
           continue;
         }
 
-        // Extract Categories
+        // Extract Categories for reporting
         const categories: string[] = [];
         if (plaidTransaction.personal_finance_category?.primary) {
           categories.push(plaidTransaction.personal_finance_category.primary);
@@ -396,27 +368,27 @@ const processTransactionsFromPlaid = async (
           categories.push(plaidTransaction.personal_finance_category.detailed);
         }
 
-        // Create round-up transaction
+        // 5. Create the Record
         const roundUpTransaction = new RoundUpTransactionModel({
           user: userId,
           bankConnection: bankConnectionId,
           roundUp: roundUpConfig._id,
           transactionId: plaidTransaction.transaction_id,
-          plaidTransactionId: plaidTransaction.transaction_id, // Legacy field
+          plaidTransactionId: plaidTransaction.transaction_id, // Legacy support
           originalAmount: plaidTransaction.amount,
           roundUpAmount,
-          currency: plaidTransaction.iso_currency_code || 'USD',
+          currency: plaidTransaction.iso_currency_code || 'USD', // Plaid US default
           organization: roundUpConfig.organization,
           transactionDate: new Date(plaidTransaction.date),
           transactionName: plaidTransaction.name,
           transactionCategory:
             categories.length > 0 ? categories : ['Uncategorized'],
-          status: 'processed',
+          status: 'processed', // Ready for aggregation
         });
 
         await roundUpTransaction.save();
 
-        // Update round-up configuration totals
+        // 6. Update Accumulator on Config
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const thresholdReached = (roundUpConfig as any).addRoundUpAmount(
           roundUpAmount
@@ -425,12 +397,11 @@ const processTransactionsFromPlaid = async (
         result.processed++;
         result.roundUpsCreated.push(roundUpTransaction as IRoundUpTransaction);
 
-        // If threshold reached, trigger donation
+        // 7. Auto-Donate Trigger (If limit reached)
         if (thresholdReached && roundUpConfig.monthlyThreshold !== 'no-limit') {
           console.log(`\n🎯 THRESHOLD REACHED for user ${userId}!`);
           console.log(`   Current total: $${roundUpConfig.currentMonthTotal}`);
           console.log(`   Threshold: $${roundUpConfig.monthlyThreshold}`);
-          console.log(`   Triggering donation process...\n`);
 
           result.thresholdReached = {
             roundUpId: String(roundUpConfig._id),
@@ -438,44 +409,35 @@ const processTransactionsFromPlaid = async (
             charityId: String(roundUpConfig.organization),
           };
 
-          // Trigger immediate donation processing with Donation record creation
-          const donationResult = await triggerDonation(roundUpConfig);
-
+          // ⚡ Trigger Donation Immediately (Destination Charge)
+          // This calls the refactored function we defined earlier
+          await triggerDonation(roundUpConfig);
           console.log(`✅ Donation triggered successfully`);
-          console.log(`   Donation ID: ${donationResult.donationId}`);
-          console.log(`   Payment Intent: ${donationResult.paymentIntentId}`);
 
-          break; // Stop processing further transactions
+          try {
+            await createNotification(
+              userId,
+              NOTIFICATION_TYPE.THRESHOLD_REACHED,
+              `Your Round-Up balance reached $${roundUpConfig.monthlyThreshold}. A donation has been triggered!`,
+              roundUpConfig?._id!.toString()
+            );
+            console.log('✅ Round up Triggered notification sent');
+          } catch (err) {
+            console.log('❌ Failed to sent roundup triggered notification');
+          }
+          // Stop processing further transactions to prevent over-charging in this batch
+          break;
         }
-      } catch (error: unknown) {
-        console.log({ error });
-        // Handle duplicate key errors specifically
-        const isMongoDuplicateKeyError = (
-          err: unknown
-        ): err is { code?: number; codeName?: string } => {
-          if (!err || typeof err !== 'object') return false;
-          const e = err as any;
-          return (
-            (typeof e.code === 'number' && e.code === 11000) ||
-            (typeof e.codeName === 'string' && e.codeName === 'DuplicateKey')
-          );
-        };
-
-        if (isMongoDuplicateKeyError(error)) {
-          console.warn(
-            `Duplicate transaction detected (skipping): ${
-              plaidTransaction.transaction_id || 'N/A'
-            } - ${plaidTransaction.name || 'Unknown'}`
-          );
+      } catch (error: any) {
+        // Handle race condition on unique index (duplicate transaction ID)
+        if (error?.code === 11000) {
           result.skipped++;
         } else {
-          console.error('Error processing transaction:', error);
+          console.error('Error processing individual transaction:', error);
           result.failed++;
         }
       }
     }
-
-    console.log('✅ Finished processing Plaid transactions for RoundUp');
 
     return result;
   } catch (error) {
@@ -659,13 +621,16 @@ const getTransactionById = async (
   }
 };
 
-// Process Monthly Donation - Updated for Platform Holding
+// ==========================================
+// 2. PROCESS MONTHLY DONATION (Manual - Destination Charge)
+// ==========================================
 const processMonthlyDonation = async (
   userId: string,
   payload: { roundUpId?: string; specialMessage?: string }
 ) => {
   const { roundUpId, specialMessage } = payload;
 
+  // 1. Find and validate the RoundUp configuration
   const roundUpConfig = await RoundUpModel.findOne({
     _id: roundUpId,
     user: userId,
@@ -676,28 +641,29 @@ const processMonthlyDonation = async (
     return {
       success: false,
       message: 'Round-up configuration not found',
-      data: null,
       statusCode: httpStatus.NOT_FOUND,
+      data: null,
     };
   }
 
+  // Check if it's currently enabled (not paused)
   if (!roundUpConfig.enabled) {
     return {
       success: false,
       message:
         'Round-up is currently paused. Please resume it to process donation.',
-      data: null,
       statusCode: httpStatus.BAD_REQUEST,
+      data: null,
     };
   }
 
-  if (roundUpConfig.status === 'completed') {
+  // Prevent multiple donations if one is already in flight
+  if (roundUpConfig.status === 'processing') {
     return {
       success: false,
-      message:
-        'Round-up donation already completed for this cycle. Please wait for next cycle.',
-      data: null,
+      message: 'A donation is already being processed for this configuration.',
       statusCode: httpStatus.BAD_REQUEST,
+      data: null,
     };
   }
 
@@ -706,26 +672,26 @@ const processMonthlyDonation = async (
     now.getMonth() + 1
   ).padStart(2, '0')}`;
 
+  // 2. Check if this month's donation was already finalized
   if (
     await isDonationAlreadyProcessed(String(roundUpConfig._id), currentMonth)
   ) {
     return {
       success: false,
       message: 'Donation already processed for this month',
-      data: null,
       statusCode: httpStatus.CONFLICT,
+      data: null,
     };
   }
 
-  const processedTransactions = await roundUpTransactionService.getTransactions(
-    {
-      user: userId,
-      bankConnection: roundUpConfig.bankConnection,
-      status: 'processed',
-      month: String(now.getMonth() + 1),
-      year: now.getFullYear(),
-    }
-  );
+  // 3. Gather eligible transactions for this month/year that haven't been charged
+  const processedTransactions = await getTransactions({
+    user: userId,
+    bankConnection: roundUpConfig.bankConnection,
+    status: 'processed',
+    month: String(now.getMonth() + 1),
+    year: now.getFullYear(),
+  });
 
   const eligibleTransactions = processedTransactions.filter(
     (transaction: IRoundUpTransaction) => !transaction.stripePaymentIntentId
@@ -735,76 +701,95 @@ const processMonthlyDonation = async (
     return {
       success: false,
       message: 'No processed transactions found for this month',
-      data: null,
       statusCode: httpStatus.BAD_REQUEST,
+      data: null,
     };
   }
 
+  // 4. Calculate total base amount (sum of round-ups)
   const baseAmount = eligibleTransactions.reduce(
     (sum: number, transaction: IRoundUpTransaction) =>
       sum + transaction.roundUpAmount,
     0
   );
 
-  // ✅ Apply Fee Calculation
-  const coverFees = roundUpConfig.coverFees || false;
-  const financials = calculateAustralianFees(baseAmount, coverFees);
+  // 5. ✅ Calculate Australian Fees & Split
+  const financials = calculateAustralianFees(
+    baseAmount,
+    roundUpConfig.coverFees || false
+  );
 
-  Logger.info(`\n💰 Manual RoundUp Donation Breakdown:`);
-  Logger.info(`   Base Amount: $${financials.baseAmount.toFixed(2)}`);
-  Logger.info(`   Total Charge: $${financials.totalCharge.toFixed(2)}`);
+  // applicationFee = Platform Revenue + GST component
+  const applicationFee = financials.platformFeeWithStripe;
+
+  Logger.info(`\n💰 Manual RoundUp Breakdown (Destination Charge):`);
+  Logger.info(`   Base: $${financials.baseAmount.toFixed(2)}`);
+  Logger.info(`   App Fee: $${applicationFee.toFixed(2)}`);
+  Logger.info(`   Total: $${financials.totalCharge.toFixed(2)}`);
 
   const session = await mongoose.startSession();
 
   try {
     await session.startTransaction();
 
+    // 6. Fetch Org & Validate Stripe Connection
     const organization = await OrganizationModel.findById(
       roundUpConfig.organization
     ).session(session);
+
     if (!organization) {
       await session.abortTransaction();
       return {
         success: false,
-        message: 'Organization not found',
-        data: null,
-        statusCode: httpStatus.NOT_FOUND,
-      };
-    }
-
-    const cause = await Cause.findById(roundUpConfig.cause).session(session);
-    if (!cause) {
-      await session.abortTransaction();
-      return {
-        success: false,
-        message: 'Cause not found!',
-        data: null,
-        statusCode: httpStatus.NOT_FOUND,
-      };
-    }
-    if (cause.status !== CAUSE_STATUS_TYPE.VERIFIED) {
-      await session.abortTransaction();
-      return {
-        success: false,
-        message: `Cannot create donation for cause with status: ${cause.status}.`,
-        data: null,
+        message: 'Organization not found!',
         statusCode: httpStatus.BAD_REQUEST,
+        data: null,
       };
     }
 
+    // check is stripe account exists :
+    const stripeAccount = await StripeAccount.findOne({
+      organization: organization._id,
+      status: 'active',
+    });
+
+    if (!stripeAccount || !stripeAccount.chargesEnabled) {
+      return {
+        success: false,
+        message:
+          'This organization is not set up to receive payments (Stripe account inactive).',
+        statusCode: httpStatus.BAD_REQUEST,
+        data: null,
+      };
+    }
+
+    // 7. Validate Cause
+    const cause = await Cause.findById(roundUpConfig.cause).session(session);
+    if (!cause || cause.status !== CAUSE_STATUS_TYPE.VERIFIED) {
+      await session.abortTransaction();
+      return {
+        success: false,
+        message: 'The selected cause is no longer verified or exists.',
+        statusCode: httpStatus.BAD_REQUEST,
+        data: null,
+      };
+    }
+
+    // 8. Validate Donor
     const donor = await Client.findOne({ auth: userId }).session(session);
     if (!donor?._id) {
       await session.abortTransaction();
       return {
         success: false,
-        message: 'Donor not found!',
-        data: null,
+        message: 'Donor profile not found',
         statusCode: httpStatus.NOT_FOUND,
+        data: null,
       };
     }
 
     const donationUniqueId = new Types.ObjectId();
 
+    // 9. Create Main Donation Record
     const donation = new Donation({
       _id: donationUniqueId,
       donor: new Types.ObjectId(donor._id),
@@ -812,12 +797,12 @@ const processMonthlyDonation = async (
       cause: roundUpConfig.cause,
       donationType: 'round-up',
 
-      // ✅ Breakdown
+      //  Store Financial Breakdown
       amount: financials.baseAmount,
       coverFees: financials.coverFees,
       platformFee: financials.platformFee,
       gstOnFee: financials.gstOnFee,
-      stripeFee: financials.stripeFee, // ✅ NEW
+      stripeFee: financials.stripeFee,
       netAmount: financials.netToOrg,
       totalAmount: financials.totalCharge,
 
@@ -826,7 +811,6 @@ const processMonthlyDonation = async (
       specialMessage:
         specialMessage || `Manual round-up donation - ${currentMonth}`,
       pointsEarned: Math.round(baseAmount * 100),
-
       roundUpId: roundUpConfig._id,
       roundUpTransactionIds: eligibleTransactions.map(
         (t: IRoundUpTransaction) => t.transactionId
@@ -835,43 +819,50 @@ const processMonthlyDonation = async (
       createdAt: new Date(),
     });
 
-    const savedDonation = await donation.save({ session });
+    await donation.save({ session });
 
-    // NOTE: StripeService updated to hold funds in platform
+    // 10. Create Stripe Payment Intent (Destination Charge)
     const paymentResult = await StripeService.createRoundUpPaymentIntent({
       roundUpId: String(roundUpConfig._id),
       userId,
-      charityId: roundUpConfig.organization,
-      causeId: roundUpConfig.cause,
-      amount: baseAmount,
+      charityId: String(roundUpConfig.organization),
+      causeId: String(roundUpConfig.cause),
 
-      // ✅ Pass Breakdown
+      amount: financials.baseAmount,
+      totalAmount: financials.totalCharge,
+
+      // Pass Destination Params
+      applicationFee,
+
       coverFees: financials.coverFees,
       platformFee: financials.platformFee,
       gstOnFee: financials.gstOnFee,
-      stripeFee: financials.stripeFee, // ✅ NEW
+      stripeFee: financials.stripeFee,
       netToOrg: financials.netToOrg,
-      totalAmount: financials.totalCharge,
 
       month: currentMonth,
       year: now.getFullYear(),
       specialMessage:
         specialMessage || `Manual round-up donation - ${currentMonth}`,
       donationId: String(donationUniqueId),
+      paymentMethodId: roundUpConfig.paymentMethod as string,
     });
 
-    savedDonation.stripePaymentIntentId = paymentResult.payment_intent_id;
-    savedDonation.status = 'processing';
-    await savedDonation.save({ session });
+    // 11. Update Success States
+    donation.stripePaymentIntentId = paymentResult.payment_intent_id;
+    donation.status = 'processing';
+    await donation.save({ session });
 
     roundUpConfig.status = 'processing';
     roundUpConfig.lastDonationAttempt = new Date();
+    // Reduce current tracking balance by what was just charged
     roundUpConfig.currentMonthTotal = Math.max(
       (roundUpConfig.currentMonthTotal || 0) - baseAmount,
       0
     );
     await roundUpConfig.save({ session });
 
+    // Link the Stripe PI to individual micro-transactions
     await RoundUpTransactionModel.updateMany(
       {
         user: userId,
@@ -896,12 +887,11 @@ const processMonthlyDonation = async (
     return {
       success: true,
       message:
-        'Manual RoundUp donation initiated successfully. Payment processing in progress.',
+        'Manual RoundUp donation initiated successfully. Payment is processing.',
       data: {
         donationId: String(donationUniqueId),
         paymentIntentId: paymentResult.payment_intent_id,
         baseAmount,
-        taxAmount: financials.gstOnFee,
         totalAmount: financials.totalCharge,
         status: 'processing',
       },
@@ -910,17 +900,18 @@ const processMonthlyDonation = async (
   } catch (error) {
     await session.abortTransaction();
 
+    // Mark config as failed so user sees there was an issue
     await roundUpConfig.markAsFailed(
       error instanceof Error ? error.message : 'Unknown payment error'
     );
 
     return {
       success: false,
-      message: 'Payment processing failed. Round-up marked as failed.',
+      message: 'Payment processing failed. Please check your payment method.',
       data: {
         roundUpId: String(roundUpConfig._id),
         status: 'failed',
-        error: error instanceof Error ? error.message : 'Unknown payment error',
+        error: error instanceof Error ? error.message : 'Error',
       },
       statusCode: httpStatus.BAD_GATEWAY,
     };

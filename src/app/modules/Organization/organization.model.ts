@@ -1,5 +1,6 @@
 import { model, now, Schema } from 'mongoose';
 import { IORGANIZATION } from './organization.interface';
+import { organizationServiceTypeValues } from './organization.constants';
 
 const organizationSchema = new Schema<IORGANIZATION>(
   {
@@ -16,6 +17,7 @@ const organizationSchema = new Schema<IORGANIZATION>(
     },
     serviceType: {
       type: String,
+      enum: organizationServiceTypeValues,
     },
     address: {
       type: String,
@@ -43,8 +45,10 @@ const organizationSchema = new Schema<IORGANIZATION>(
       optional: true,
     },
 
-    // Verify Your registration
     tfnOrAbnNumber: {
+      type: String,
+    },
+    acncNumber: {
       type: String,
     },
     zakatLicenseHolderNumber: {
@@ -52,13 +56,6 @@ const organizationSchema = new Schema<IORGANIZATION>(
       default: null,
     },
 
-    // Stripe Connect account for receiving donations
-    stripeConnectAccountId: {
-      type: String,
-      required: false,
-    },
-
-    //  Extra fields added:
     country: {
       type: String,
       default: '',
@@ -72,7 +69,6 @@ const organizationSchema = new Schema<IORGANIZATION>(
       default: now(),
     },
 
-    // Extra Access Fields :
     registeredCharityName: {
       type: String,
       default: '',
@@ -82,8 +78,19 @@ const organizationSchema = new Schema<IORGANIZATION>(
       default: true,
     },
   },
-  { timestamps: true, versionKey: false }
+  {
+    timestamps: true,
+    toJSON: { virtuals: true }, // Enable virtuals
+    toObject: { virtuals: true },
+  }
 );
+
+organizationSchema.virtual('stripeAccount', {
+  ref: 'StripeAccount',
+  localField: '_id',
+  foreignField: 'organization',
+  justOne: true,
+});
 
 const Organization = model<IORGANIZATION>('Organization', organizationSchema);
 

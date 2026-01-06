@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Types } from 'mongoose';
 import mongoose from 'mongoose';
 import { Donation } from './donation.model';
@@ -16,13 +17,13 @@ import {
   MonthlyTrend,
   TTimeFilter,
   IClientDonationStats,
+  IDonationWithTracking,
 } from './donation.interface';
 import { TCreateOneTimeDonationPayload } from './donation.validation';
 import { AppError } from '../../utils';
 import httpStatus from 'http-status';
 import { StripeService } from '../Stripe/stripe.service';
 import { ICheckoutSessionResponse } from '../Stripe/stripe.interface';
-import { IDonationWithTracking } from './donation.interface';
 import Organization from '../Organization/organization.model';
 import { PaymentMethodService } from '../PaymentMethod/paymentMethod.service';
 import Client from '../Client/client.model';
@@ -38,34 +39,30 @@ import { IAuth } from '../Auth/auth.interface';
 import Cause from '../Causes/causes.model';
 import { CAUSE_STATUS_TYPE } from '../Causes/causes.constant';
 import {
-  calculateAustralianFees, //
+  calculateAustralianFees,
   monthAbbreviations,
   REFUND_WINDOW_DAYS,
 } from './donation.constant';
 import { ScheduledDonation } from '../ScheduledDonation/scheduledDonation.model';
 import { RoundUpModel } from '../RoundUp/roundUp.model';
-import { IORGANIZATION } from '../Organization/organization.interface';
+import { StripeAccount } from '../OrganizationAccount/stripe-account.model';
+import { Subscription } from '../Subscription/subscription.model';
+import { SubscriptionService } from '../Subscription/subscription.service';
 
 // Helper function to generate unique idempotency key
 const generateIdempotencyKey = (): string => {
   return `don-${new Types.ObjectId().toString()}-${Date.now()}`;
 };
 
-// 1. Create one-time donation with Payment Intent (direct charge with saved payment method)
+// 1. Create one-time donation with Payment Intent (Destination Charge)
 const createOneTimeDonation = async (
   payload: TCreateOneTimeDonationPayload & {
     userId: string;
   }
-): Promise<{
-  donation: IDonation;
-  paymentIntent: {
-    client_secret: string;
-    payment_intent_id: string;
-  };
-}> => {
+) => {
   const {
     amount,
-    coverFees = false, // Default to true (Opt-out model)
+    coverFees = false,
     causeId,
     organizationId,
     userId,
@@ -73,52 +70,47 @@ const createOneTimeDonation = async (
     specialMessage,
   } = payload;
 
-  // ✅ Apply Australian Financial Logic (Includes Stripe Fee)
-  const financials = calculateAustralianFees(amount, coverFees);
-
-  console.log(`💰 Donation Amount Breakdown:`);
-  console.log(`   Base Amount: $${financials.baseAmount.toFixed(2)}`);
-  console.log(`   Platform Fee: $${financials.platformFee.toFixed(2)}`);
-  console.log(`   GST on Fee: $${financials.gstOnFee.toFixed(2)}`);
-  console.log(`   Stripe Fee: $${financials.stripeFee.toFixed(2)}`);
-  console.log(`   Total Charged: $${financials.totalCharge.toFixed(2)}`);
-  console.log(`   Net To Org: $${financials.netToOrg.toFixed(2)}`);
-
-  // Generate idempotency key on backend
-  const idempotencyKey = generateIdempotencyKey();
-
-  // Check if donor exists
-  const donor = await Client?.findOne({
-    auth: userId,
-  });
+  // 1. Check if donor exists
+  const donor = await Client.findOne({ auth: userId });
   if (!donor?._id) {
     throw new AppError(httpStatus.NOT_FOUND, 'Donor not found!');
   }
 
-  // Validate organization exists
+  // 2. Validate organization exists
   const organization = await Organization.findById(organizationId);
   if (!organization) {
     throw new AppError(httpStatus.NOT_FOUND, 'Organization not found!');
   }
 
-  // Validate causeId is provided
-  if (!causeId || causeId.trim() === '') {
-    throw new AppError(httpStatus.BAD_REQUEST, 'Cause ID is required!');
-  }
+  // 3. Get Stripe Account from dedicated model
+  const stripeAccount = await StripeAccount.findOne({
+    organization: organizationId,
+    status: 'active',
+  });
 
-  // Validate cause exists and is verified
-  const cause = await Cause.findById(causeId);
-  if (!cause) {
-    throw new AppError(httpStatus.NOT_FOUND, 'Cause not found!');
-  }
-  if (cause.status !== CAUSE_STATUS_TYPE.VERIFIED) {
+  if (!stripeAccount || !stripeAccount.chargesEnabled) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      `Cannot create donation for cause with status: ${cause.status}. Only verified causes can receive donations.`
+      'This organization is not set up to receive payments (Stripe account inactive).'
     );
   }
 
-  // Verify payment method exists and belongs to user
+  // 4. Validate cause exists and is verified
+  let cause = null;
+  if (causeId) {
+    cause = await Cause.findById(causeId);
+    if (!cause) {
+      throw new AppError(httpStatus.NOT_FOUND, 'Cause not found!');
+    }
+    if (cause.status !== CAUSE_STATUS_TYPE.VERIFIED) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        `Cannot create donation for cause with status: ${cause.status}.`
+      );
+    }
+  }
+
+  // 5. Validate Payment Method
   const paymentMethod = await PaymentMethodService.getPaymentMethodById(
     paymentMethodId,
     userId
@@ -128,36 +120,45 @@ const createOneTimeDonation = async (
     throw new AppError(httpStatus.BAD_REQUEST, 'Payment method is not active!');
   }
 
-  // Start mongoose session for transaction
+  // 6. Calculate Fees
+  const financials = calculateAustralianFees(amount, coverFees);
+  const applicationFee = financials.platformFeeWithStripe;
+  console.log(`💰 Donation Breakdown (Destination Charge):`);
+  console.log(`   Base: $${financials.baseAmount.toFixed(2)}`);
+  console.log(`   App Fee: $${applicationFee.toFixed(2)}`);
+  console.log(`   Stripe Fee: $${financials.stripeFee.toFixed(2)}`);
+  console.log(`   Total Charged: $${financials.totalCharge.toFixed(2)}`);
+  console.log(`   Net To Org: $${financials.netToOrg.toFixed(2)}`);
+  // Generate idempotency key
+  const idempotencyKey = generateIdempotencyKey();
+
   const session = await mongoose.startSession();
 
   try {
     await session.startTransaction();
 
-    // Generate unique ID for the donation
     const donationUniqueId = new Types.ObjectId();
 
-    // Create donation record with financial breakdown
+    // 7. Create Donation Record
     const donation = new Donation({
       _id: donationUniqueId,
-      donor: new Types.ObjectId(donor?._id),
+      donor: new Types.ObjectId(donor._id),
       organization: new Types.ObjectId(organizationId),
-      cause: new Types.ObjectId(causeId),
+      cause: cause ? new Types.ObjectId(cause._id) : undefined,
       donationType: 'one-time',
 
-      // ✅ Financials
       amount: financials.baseAmount,
       coverFees: financials.coverFees,
       platformFee: financials.platformFee,
       gstOnFee: financials.gstOnFee,
-      stripeFee: financials.stripeFee, // ✅ NEW
+      stripeFee: financials.stripeFee,
       netAmount: financials.netToOrg,
       totalAmount: financials.totalCharge,
 
       currency: 'USD',
       status: 'pending',
       specialMessage,
-      pointsEarned: Math.floor(financials.baseAmount * 100), // Points based on base amount
+      pointsEarned: Math.floor(financials.baseAmount * 100),
 
       stripeCustomerId: paymentMethod.stripeCustomerId,
       stripePaymentMethodId: paymentMethod.stripePaymentMethodId,
@@ -165,54 +166,48 @@ const createOneTimeDonation = async (
       createdAt: new Date(),
     });
 
-    // Save donation within transaction
     const savedDonation = await donation.save({ session });
 
-    // Create payment intent with TOTAL AMOUNT
+    // 8. Create Payment Intent (Destination Charge)
     const paymentIntent = await StripeService.createPaymentIntentWithMethod({
       amount: financials.baseAmount,
       totalAmount: financials.totalCharge,
+      applicationFee: applicationFee,
 
-      // Pass breakdown to Stripe for metadata
+      orgStripeAccountId: stripeAccount.stripeAccountId,
+
       coverFees: financials.coverFees,
       platformFee: financials.platformFee,
       gstOnFee: financials.gstOnFee,
-      stripeFee: financials.stripeFee, // ✅ NEW
+      stripeFee: financials.stripeFee,
       netToOrg: financials.netToOrg,
 
-      currency: 'usd',
+      currency: 'USD',
       customerId: paymentMethod.stripeCustomerId,
       paymentMethodId: paymentMethod.stripePaymentMethodId,
       donationId: donationUniqueId.toString(),
       organizationId,
-      causeId,
+      causeId: causeId || '',
       specialMessage,
     });
 
-    // Update donation with payment intent ID
     savedDonation.stripePaymentIntentId = paymentIntent.payment_intent_id;
     savedDonation.status = 'processing';
     await savedDonation.save({ session });
 
-    // Commit transaction
     await session.commitTransaction();
-
-    console.log(`✅ One-time donation created successfully:`);
-    console.log(`   Donation ID: ${savedDonation._id}`);
 
     return {
       donation: savedDonation,
       paymentIntent,
     };
   } catch (error: unknown) {
-    // Rollback on any error
     await session.abortTransaction();
-
     const errorMessage =
-      error instanceof Error ? error.message : 'Unknown error occurred';
+      error instanceof Error ? error.message : 'Unknown error';
     throw new AppError(
       httpStatus.INTERNAL_SERVER_ERROR,
-      `Failed to create donation and process payment: ${errorMessage}`
+      `Failed to create donation: ${errorMessage}`
     );
   } finally {
     await session.endSession();
@@ -226,9 +221,10 @@ const getDonationById = async (donationId: string): Promise<IDonation> => {
   }
 
   const donation = await Donation.findById(donationId)
-    .populate('donor', '_id name auth address state postalCode image')
+    .populate('donor', '_id name auth address state postalCode image ')
     .populate('organization', 'name')
-    .populate('cause', 'name description');
+    .populate('cause', 'name description')
+    .populate('receiptId', '_id receiptNumber pdfKey pdfUrl');
 
   if (!donation) {
     throw new AppError(httpStatus.NOT_FOUND, 'Donation not found!');
@@ -377,41 +373,152 @@ const getDonationsByOrganization = async (
   }
 
   try {
-    const modifiedQuery = { ...query };
-    if (modifiedQuery.status === 'all') delete modifiedQuery.status;
-    if (modifiedQuery.donationType === 'all') delete modifiedQuery.donationType;
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 10;
+    const skip = (page - 1) * limit;
+    const sortBy = (query.sort as string) || '-createdAt';
+    const searchTerm = (query.searchTerm as string) || '';
 
-    const baseQuery = Donation.find({ organization: organizationId })
-      .populate({
-        path: 'donor',
-        select: '_id name auth image',
-        populate: {
-          path: 'auth',
-          select: 'email',
+    // 1. Build the Match stage for primary filters
+    const matchQuery: any = {
+      organization: new Types.ObjectId(organizationId),
+    };
+
+    // Apply filters from query (excluding special keys)
+    if (query.status && query.status !== 'all') {
+      matchQuery.status = query.status;
+    }
+    if (query.donationType && query.donationType !== 'all') {
+      matchQuery.donationType =
+        query.donationType === 'roundup' ? 'round-up' : query.donationType;
+    }
+
+    const pipeline: any[] = [
+      { $match: matchQuery },
+
+      // 2. Lookup Donor (Client) details
+      {
+        $lookup: {
+          from: 'clients',
+          localField: 'donor',
+          foreignField: '_id',
+          as: 'donorData',
         },
-      })
-      .populate('cause', 'name')
-      .populate(
-        'receiptId',
-        'receiptNumber amount currency donationType pdfUrl pdfKey emailSent emailAttempts createdAt updatedAt generatedAt'
-      );
+      },
+      { $unwind: { path: '$donorData', preserveNullAndEmptyArrays: true } },
 
-    const donationSearchFields = ['specialMessage', 'status', 'donationType'];
+      // 3. Lookup Donor Auth (for Email)
+      {
+        $lookup: {
+          from: 'auths',
+          localField: 'donorData.auth',
+          foreignField: '_id',
+          as: 'authData',
+        },
+      },
+      { $unwind: { path: '$authData', preserveNullAndEmptyArrays: true } },
 
-    const donationQuery = new QueryBuilder<IDonationModel>(
-      baseQuery,
-      modifiedQuery
-    )
-      .search(donationSearchFields)
-      .filter()
-      .sort()
-      .paginate()
-      .fields();
+      // 4. Lookup Cause
+      {
+        $lookup: {
+          from: 'causes',
+          localField: 'cause',
+          foreignField: '_id',
+          as: 'causeData',
+        },
+      },
+      { $unwind: { path: '$causeData', preserveNullAndEmptyArrays: true } },
 
-    const donations = await donationQuery.modelQuery;
-    const meta = await donationQuery.countTotal();
+      // 5. Lookup Receipt
+      {
+        $lookup: {
+          from: 'receipts',
+          localField: 'receiptId',
+          foreignField: '_id',
+          as: 'receiptData',
+        },
+      },
+      { $unwind: { path: '$receiptData', preserveNullAndEmptyArrays: true } },
 
-    return { donations, meta };
+      // 6. Search Filter (Applies to Name, Email, and Special Message)
+      ...(searchTerm
+        ? [
+            {
+              $match: {
+                $or: [
+                  { 'donorData.name': { $regex: searchTerm, $options: 'i' } },
+                  { 'authData.email': { $regex: searchTerm, $options: 'i' } },
+                  { specialMessage: { $regex: searchTerm, $options: 'i' } },
+                ],
+              },
+            },
+          ]
+        : []),
+
+      // 7. Facet for pagination and total count
+      {
+        $facet: {
+          metadata: [{ $count: 'total' }],
+          data: [
+            // Handle Sorting
+            {
+              $sort: {
+                [sortBy.startsWith('-') ? sortBy.substring(1) : sortBy]:
+                  sortBy.startsWith('-') ? -1 : 1,
+              },
+            },
+            { $skip: skip },
+            { $limit: limit },
+            // Project into the exact structure expected by the frontend
+            {
+              $project: {
+                _id: 1,
+                amount: 1,
+                totalAmount: 1,
+                netAmount: 1,
+                currency: 1,
+                status: 1,
+                donationType: 1,
+                donationDate: 1,
+                specialMessage: 1,
+                coverFees: 1,
+                platformFee: 1,
+                gstOnFee: 1,
+                stripeFee: 1,
+                donor: {
+                  _id: '$donorData._id',
+                  name: '$donorData.name',
+                  image: '$donorData.image',
+                  auth: {
+                    email: '$authData.email',
+                  },
+                },
+                cause: {
+                  _id: '$causeData._id',
+                  name: '$causeData.name',
+                },
+                receiptId: '$receiptData',
+              },
+            },
+          ],
+        },
+      },
+    ];
+
+    const aggregationResult = await Donation.aggregate(pipeline);
+
+    const donations = aggregationResult[0]?.data || [];
+    const total = aggregationResult[0]?.metadata[0]?.total || 0;
+
+    return {
+      donations,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPage: Math.ceil(total / limit),
+      },
+    };
   } catch (error: unknown) {
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error occurred';
@@ -522,7 +629,7 @@ const updateDonationPaymentStatus = async (
     .populate('cause', 'name description')) as unknown as IDonation;
 };
 
-// 10. Retry failed payment
+// 10. Retry failed payment (Refactored for Destination Charge)
 const retryFailedPayment = async (
   donationId: string
 ): Promise<{ donation: IDonation; session: ICheckoutSessionResponse }> => {
@@ -555,26 +662,51 @@ const retryFailedPayment = async (
     );
   }
 
+  // Fetch Organization to get Connected Account ID
   const organization = await Organization.findById(donation.organization);
-  if (!organization?.stripeConnectAccountId) {
+  if (!organization) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      'Organization payment setup not found'
+      'Organization not found. Cannot process retry.'
     );
   }
 
-  // Create a new payment intent for retry
-  // ✅ Reuse the calculated values from the failed donation
-  const paymentIntent = await StripeService.createPaymentIntentWithMethod({
-    amount: donation.amount,
-    totalAmount: donation.totalAmount, // Use existing total
+  const stripeAccount = await StripeAccount.findOne({
+    organization: organization._id,
+    status: 'active',
+  });
 
-    // Pass existing metadata
-    coverFees: donation.coverFees,
-    platformFee: donation.platformFee,
-    gstOnFee: donation.gstOnFee,
-    stripeFee: donation.stripeFee || 0, // ✅ Pass Stripe Fee
-    netToOrg: donation.netAmount,
+  if (!stripeAccount) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'Stripe Account either not connected or exist!'
+    );
+  }
+
+  //  Recalculate fees to ensure consistency
+  const financials = calculateAustralianFees(
+    donation.amount,
+    donation.coverFees
+  );
+
+  // Platform Fee = Platform Revenue + GST + Stripe Fee
+  const applicationFee = financials.platformFeeWithStripe;
+
+  // Create a new payment intent for retry (Destination Charge)
+  const paymentIntent = await StripeService.createPaymentIntentWithMethod({
+    amount: financials.baseAmount,
+    totalAmount: financials.totalCharge,
+
+    // Fee Params for Destination Charge
+    applicationFee: applicationFee,
+    orgStripeAccountId: stripeAccount.stripeAccountId,
+
+    // Pass existing metadata + Fee Breakdown
+    coverFees: financials.coverFees,
+    platformFee: financials.platformFee,
+    gstOnFee: financials.gstOnFee,
+    stripeFee: financials.stripeFee,
+    netToOrg: financials.netToOrg,
 
     currency: 'usd',
     customerId: donation.stripeCustomerId,
@@ -664,6 +796,7 @@ const cancelDonation = async (
     try {
       await StripeService.cancelPaymentIntent(donation.stripePaymentIntentId);
     } catch (error) {
+      // eslint-disable-next-line no-console
       console.error(
         `Failed to cancel payment intent ${donation.stripePaymentIntentId}:`,
         error
@@ -715,7 +848,7 @@ const refundDonation = async (
     );
   }
 
-  // 5. ✅ NEW: 7-Day Time Limit Check
+  // 5. 7-Day Time Limit Check
   const now = new Date();
   const donationDate = new Date(donation.donationDate || donation.createdAt);
 
@@ -774,7 +907,7 @@ const getTotalDonatedAmount = async (
           donationDate: { $gte: current.startDate, $lte: current.endDate },
         },
       },
-      { $group: { _id: null, total: { $sum: '$amount' } } },
+      { $group: { _id: null, total: { $sum: '$netAmount' } } },
     ]),
     Donation.aggregate([
       {
@@ -783,7 +916,7 @@ const getTotalDonatedAmount = async (
           donationDate: { $gte: previous.startDate, $lte: previous.endDate },
         },
       },
-      { $group: { _id: null, total: { $sum: '$amount' } } },
+      { $group: { _id: null, total: { $sum: '$netAmount' } } },
     ]),
   ]);
 
@@ -816,7 +949,7 @@ const getAverageDonationPerUser = async (
       {
         $group: {
           _id: null,
-          totalAmount: { $sum: '$amount' },
+          totalAmount: { $sum: '$netAmount' },
           uniqueDonors: { $addToSet: '$donor' },
         },
       },
@@ -842,7 +975,7 @@ const getAverageDonationPerUser = async (
       {
         $group: {
           _id: null,
-          totalAmount: { $sum: '$amount' },
+          totalAmount: { $sum: '$netAmount' },
           uniqueDonors: { $addToSet: '$donor' },
         },
       },
@@ -928,7 +1061,7 @@ const getTopCause = async (
     {
       $group: {
         _id: '$cause',
-        totalAmount: { $sum: '$amount' },
+        totalAmount: { $sum: '$netAmount' },
       },
     },
     { $sort: { totalAmount: -1 } },
@@ -972,7 +1105,7 @@ const getDonationTypeBreakdown = async (
       {
         $group: {
           _id: '$donationType',
-          total: { $sum: '$amount' },
+          total: { $sum: '$netAmount' },
         },
       },
     ]),
@@ -986,7 +1119,7 @@ const getDonationTypeBreakdown = async (
       {
         $group: {
           _id: '$donationType',
-          total: { $sum: '$amount' },
+          total: { $sum: '$netAmount' },
         },
       },
     ]),
@@ -1036,7 +1169,7 @@ const getTopDonors = async (
       {
         $group: {
           _id: '$donor',
-          totalAmount: { $sum: '$amount' },
+          totalAmount: { $sum: '$netAmount' },
           donationCount: { $sum: 1 },
         },
       },
@@ -1053,7 +1186,7 @@ const getTopDonors = async (
       {
         $group: {
           _id: '$donor',
-          totalAmount: { $sum: '$amount' },
+          totalAmount: { $sum: '$netAmount' },
         },
       },
     ]),
@@ -1122,7 +1255,7 @@ const getRecentDonors = async (
       $group: {
         _id: '$donor',
         lastDonationDate: { $first: '$donationDate' },
-        lastDonationAmount: { $first: '$amount' },
+        lastDonationAmount: { $first: '$netAmount' },
       },
     },
     { $sort: { lastDonationDate: -1 } },
@@ -1173,7 +1306,7 @@ const getOrganizationCauseStats = async (
     {
       $group: {
         _id: '$cause',
-        totalAmount: { $sum: '$amount' },
+        totalAmount: { $sum: '$netAmount' },
       },
     },
     {
@@ -1298,7 +1431,7 @@ const getOrganizationCauseMonthlyStats = async (
     {
       $group: {
         _id: { month: { $month: '$donationDate' } },
-        totalAmount: { $sum: '$amount' },
+        totalAmount: { $sum: '$netAmount' },
       },
     },
   ])) as CauseMonthlyAggregateResult[];
@@ -1332,6 +1465,23 @@ const getDonationAnalytics = async (
       : donationType === 'roundup'
       ? 'round-up'
       : donationType;
+
+  if (
+    ['round-up', 'recurring'].includes(
+      donationTypeFilter as 'round-up' | 'recurring'
+    )
+  ) {
+    const hasSubscription = await SubscriptionService.checkHasSubscription(
+      organizationId!
+    );
+
+    if (!hasSubscription) {
+      throw new AppError(
+        httpStatus.PAYMENT_REQUIRED,
+        'This organization is not eligible for RoundUp or recurring donations because it has no active subscription.'
+      );
+    }
+  }
 
   const [
     totalDonatedAmount,
@@ -1418,7 +1568,7 @@ const getOrganizationYearlyTrends = async (
         },
         oneTimeTotal: {
           $sum: {
-            $cond: [{ $eq: ['$donationType', 'one-time'] }, '$amount', 0],
+            $cond: [{ $eq: ['$donationType', 'one-time'] }, '$netAmount', 0],
           },
         },
         recurringCount: {
@@ -1426,7 +1576,7 @@ const getOrganizationYearlyTrends = async (
         },
         recurringTotal: {
           $sum: {
-            $cond: [{ $eq: ['$donationType', 'recurring'] }, '$amount', 0],
+            $cond: [{ $eq: ['$donationType', 'recurring'] }, '$netAmount', 0],
           },
         },
         roundupCount: {
@@ -1434,7 +1584,7 @@ const getOrganizationYearlyTrends = async (
         },
         roundUpTotal: {
           $sum: {
-            $cond: [{ $eq: ['$donationType', 'round-up'] }, '$amount', 0],
+            $cond: [{ $eq: ['$donationType', 'round-up'] }, '$netAmount', 0],
           },
         },
       },
@@ -1472,7 +1622,7 @@ const getOrganizationYearlyTrends = async (
   return monthlyTrends;
 };
 
-// Cient Dashboard Stats :
+// Client Dashboard Stats :
 const getClientStats = async (
   userId: string,
   timeFilter: TTimeFilter

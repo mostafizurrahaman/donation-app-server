@@ -55,7 +55,7 @@ export interface IReward {
     giftCard: boolean;
   };
 
-  codes: IRewardCode[];
+  codePrefix: string;
 
   featured: boolean;
   priority: number;
@@ -67,6 +67,19 @@ export interface IReward {
 
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface IHardDeleteResult {
+  success: boolean;
+  deletedReward: {
+    id: string;
+    title: string;
+  };
+  cleanup: {
+    codesDeleted: number;
+    viewsDeleted: number;
+    redemptionsHidden: number;
+  };
 }
 
 // Reward Redemption Interface
@@ -106,6 +119,9 @@ export interface IRewardRedemption {
   refundTransactionId?: Types.ObjectId;
 
   idempotencyKey?: string;
+  isHidden: boolean;
+  hiddenAt?: Date;
+  hiddenReason?: string;
 
   createdAt: Date;
   updatedAt: Date;
@@ -163,6 +179,7 @@ export interface ICreateRewardPayload {
   type: 'in-store' | 'online';
   category: string;
   redemptionLimit: number;
+  codePrefix?: string;
   startDate?: Date;
   expiryDate?: Date;
   inStoreRedemptionMethods?: {

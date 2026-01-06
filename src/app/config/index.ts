@@ -1,6 +1,9 @@
 import dotenv from 'dotenv';
+import path from 'path';
 
-dotenv.config();
+dotenv.config({
+  path: path.join(process.cwd(), '.env'),
+});
 
 interface IConfig {
   port: number;
@@ -8,11 +11,12 @@ interface IConfig {
   host: string;
   dbUrl: string;
   clientUrl: string;
+  serverUrl: string;
   paymentSetting: {
     platformFeePercent: number;
     gstPercentage: number;
-    stripeFeePercent: number; // ✅ NEW: Stripe % (e.g. 0.0175)
-    stripeFixedFee: number; // ✅ NEW: Stripe Fixed (e.g. 0.30)
+    stripeFeePercent: number;
+    stripeFixedFee: number;
     clearingPeriodDays: number;
   };
   jwt: {
@@ -65,6 +69,10 @@ interface IConfig {
     onboardingRefreshUrl: string;
     onboardingReturnUrl: string;
     connectClientId: string;
+    orgMonthlyPriceId: string;
+    orgYearlyPriceId: string;
+    bizMonthlyPriceId: string;
+    bizYearlyPriceId: string;
   };
   plaid: {
     clientId: string;
@@ -81,6 +89,11 @@ interface IConfig {
     secretAccessKey: string;
     s3BucketName: string;
   };
+  basiq: {
+    apiKey: string;
+    baseUrl: string;
+    clientRedirectUrl: string;
+  };
 }
 
 const config: IConfig = {
@@ -89,13 +102,13 @@ const config: IConfig = {
   host: process.env.HOST || 'localhost',
   dbUrl: process.env.DB_URL || 'mongodb://localhost:27017/crescent_change',
   clientUrl: process.env.CLIENT_URL || 'http://localhost:3000',
+  serverUrl: process.env.SERVER_URL || '',
   paymentSetting: {
-    platformFeePercent: Number(process.env.PLATFORM_FEE_PERCENTAGE) || 0.05, // 5%
-    gstPercentage: Number(process.env.GST_PERCENTAGE) || 0.1, // 10% GST
-    // Standard Stripe AU pricing: 1.75% + 30c
-    stripeFeePercent: Number(process.env.STRIPE_FEE_PERCENTAGE) || 0.0175,
-    stripeFixedFee: Number(process.env.STRIPE_FIXED_FEE) || 0.3,
-    clearingPeriodDays: Number(process.env.CLEARING_PERIOD_DAYS) ?? 7,
+    platformFeePercent: Number(process.env.PLATFORM_FEE_PERCENTAGE), // 5%
+    gstPercentage: Number(process.env.GST_PERCENTAGE), // 10% GST in Australia
+    stripeFeePercent: Number(process.env.STRIPE_FEE_PERCENTAGE), // 1.75% Domestic
+    stripeFixedFee: Number(process.env.STRIPE_FIXED_FEE), // $0.30
+    clearingPeriodDays: Number(process.env.CLEARING_PERIOD_DAYS),
   },
   jwt: {
     accessTokenSecret: process.env.JWT_ACCESS_SECRET || 'default_access_secret',
@@ -111,8 +124,8 @@ const config: IConfig = {
   },
   email: {
     contactUsEmail: process.env.CONTACT_US_EMAIL || 'contact@example.com',
-    nodemailerEmail: process.env.EMAIL_FOR_NODEMAILER || '',
-    nodemailerPassword: process.env.PASSWORD_FOR_NODEMAILER || '',
+    nodemailerEmail: process.env.EMAIL_FOR_NODEMAILER?.trim() || '',
+    nodemailerPassword: process.env.PASSWORD_FOR_NODEMAILER?.trim() || '',
   },
   admin: {
     email: process.env.ADMIN_EMAIL || 'admin@example.com',
@@ -149,6 +162,11 @@ const config: IConfig = {
     onboardingRefreshUrl: process.env.STRIPE_ONBOARDING_REFRESH_URL || '',
     onboardingReturnUrl: process.env.STRIPE_ONBOARDING_RETURN_URL || '',
     connectClientId: process.env.STRIPE_CONNECT_CLIENT_ID || '',
+    // price ids:
+    orgMonthlyPriceId: process.env.STRIPE_ORG_MONTHLY_PRICE_ID || '',
+    orgYearlyPriceId: process.env.STRIPE_ORG_YEARLY_PRICE_ID || '',
+    bizMonthlyPriceId: process.env.STRIPE_BIZ_MONTHLY_PRICE_ID || '',
+    bizYearlyPriceId: process.env.STRIPE_BIZ_YEARLY_PRICE_ID || '',
   },
   plaid: {
     clientId: process.env.PLAID_CLIENT_ID || '',
@@ -157,6 +175,13 @@ const config: IConfig = {
     webhookUrl: process.env.PLAID_WEBHOOK_URL || '',
     webhookKey: process.env.PLAID_WEBHOOK_KEY || '',
     redirectUri: process.env.PLAID_REDIRECT_URI!,
+  },
+  basiq: {
+    apiKey: process.env.BASIQ_API_KEY || '',
+    baseUrl: process.env.BASIQ_BASE_URL || 'https://au-api.basiq.io',
+    clientRedirectUrl:
+      process.env.BASIQ_CLIENT_REDIRECT_URL ||
+      `${process.env.CLIENT_URL || 'http://localhost:3000'}/bank-connection/success`,
   },
   encryptionKey: process.env.ENCRYPTION_KEY || '',
   awsConfig: {

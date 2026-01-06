@@ -1,7 +1,7 @@
 import z from 'zod';
 import {
   ORGANIZATION_STATUS,
-  organizationStatusValues,
+  organizationServiceTypeValues,
 } from './organization.constants';
 
 // Tab 1: Organization Details (without images)
@@ -44,8 +44,8 @@ const getAllOrganizationsSchema = z.object({
 
       // Status filter (from Auth model)
       status: z
-        .enum(organizationStatusValues as [string, ...string[]], {
-          message: `Status must be one of: ${organizationStatusValues.join(
+        .enum(organizationServiceTypeValues as [string, ...string[]], {
+          message: `Status must be one of: ${organizationServiceTypeValues.join(
             ', '
           )}`,
         })
@@ -59,7 +59,7 @@ const getAllOrganizationsSchema = z.object({
       address: z.string().trim().optional(),
 
       // Organization type filters
-      serviceType: z.string().trim().optional(),
+      serviceType: z.enum(organizationServiceTypeValues).optional(),
 
       // Visibility filter
       isProfileVisible: z

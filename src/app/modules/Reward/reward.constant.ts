@@ -104,6 +104,11 @@ export const REWARD_MESSAGES = {
   INVALID_DATES: 'Invalid date configuration',
   START_DATE_PAST: 'Start date cannot be in the past for new rewards',
   EXPIRY_BEFORE_START: 'Expiry date must be after start date',
+
+  CANNOT_DELETE_ACTIVE: 'Cannot delete an active reward. Deactivate it first.',
+  CANNOT_DELETE_WITH_ACTIVE_CLAIMS:
+    'Cannot delete reward with active claims. Wait for all claims to be redeemed, expired, or cancelled.',
+  REWARD_NOT_DELETABLE: 'This reward cannot be deleted at this time',
 } as const;
 
 // URL validation regex

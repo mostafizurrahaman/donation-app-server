@@ -7,7 +7,7 @@ import { DonationService } from './donation.service';
 import { TRetryFailedPaymentParams } from './donation.validation';
 import Client from '../Client/client.model';
 import { ROLE } from '../Auth/auth.constant';
-import { OrganizationModel } from '../Organization/organization.model';
+import Organization, { OrganizationModel } from '../Organization/organization.model';
 import { TTimeFilter } from './donation.interface';
 
 // 1. Create one-time donation with Payment Intent
@@ -124,6 +124,10 @@ const getOrganizationDonations = asyncHandler(
 
     // Get query parameters
     const query = req.query as Record<string, unknown>;
+
+    if (query.donationType && query.donationType === 'roundup') {
+      query.donationType = 'round-up';
+    }
 
     const organization = await OrganizationModel.findById(organizationId);
 
@@ -382,8 +386,7 @@ const getDonationAnalyticsController = asyncHandler(
     // If user is an ORGANIZATION, get their organization ID
     if (userRole === ROLE.ORGANIZATION) {
       // Find the organization associated with this auth user
-      const Organization = (await import('../Organization/organization.model'))
-        .default;
+     
       const organization = await Organization.findOne({ auth: userId });
 
       if (!organization) {
@@ -447,7 +450,7 @@ const getClientStats = asyncHandler(
     if (!userId) {
       throw new AppError(httpStatus.UNAUTHORIZED, 'User not authenticated');
     }
-
+    
     // Extract query from validated request or raw query
     const timeFilter = (req.query.timeFilter as TTimeFilter) || 'this_month';
 

@@ -6,7 +6,7 @@ import config from '../config';
  * Logic:
  * 1. Platform Fee (e.g. 5%) is calculated on the Base Amount.
  * 2. GST (e.g. 10%) is calculated on the Platform Fee.
- * 3. Stripe Fee (e.g. 1.75% + 30c) is calculated on the TOTAL charged amount.
+ * 3. Stripe Fee (e.g. 2.9% + 30c) is calculated on the TOTAL charged amount.
  *
  * @param baseAmount The amount the charity should receive (if coverFees is true) OR the amount the user enters.
  * @param coverFees Whether the donor agreed to pay the fees on top.
@@ -19,7 +19,8 @@ export const calculateAustralianFees = (
     Number(config.paymentSetting.platformFeePercent) || 0.05;
   const gstRate = Number(config.paymentSetting.gstPercentage) || 0.1;
   const stripeFeePercent =
-    Number(config.paymentSetting.stripeFeePercent) || 0.0175;
+    Number(config.paymentSetting.stripeFeePercent) || 0.029;
+  console.log({ stripeFeePercent });
   const stripeFixedFee = Number(config.paymentSetting.stripeFixedFee) || 0.3;
 
   // 1. Calculate Platform Fee & GST (Always based on Base Amount)
@@ -61,6 +62,17 @@ export const calculateAustralianFees = (
 
   // Total internal cost (Platform + GST + Stripe)
   const totalFeeCost = Number((platformFee + gstOnFee + stripeFee).toFixed(2));
+
+  console.log({
+    baseAmount, // Tax Deductible amount
+    platformFee, // Platform Revenue
+    gstOnFee, // GST Liability
+    stripeFee, // Stripe Cost
+    totalFeeCost, // Total Fees
+    totalCharge, // Amount to Charge Card
+    netToOrg, // Amount to Credit Organization
+    coverFees,
+  });
 
   return {
     baseAmount, // Tax Deductible amount

@@ -27,8 +27,6 @@ const scheduledDonationSchema = new Schema<IScheduledDonationModel>(
       required: [true, 'Base Amount is required'],
       min: [0.01, 'Amount must be at least 0.01'],
     },
-
-    // ✅ NEW: Store fee preference for future executions
     coverFees: {
       type: Boolean,
       default: true,
@@ -94,15 +92,6 @@ const scheduledDonationSchema = new Schema<IScheduledDonationModel>(
       required: [true, 'Next donation date is required'],
       index: true,
     },
-    endDate: {
-      type: Date,
-      validate: {
-        validator: function (this: IScheduledDonationModel, value: Date) {
-          return !value || value > this.startDate;
-        },
-        message: 'End date must be after start date',
-      },
-    },
 
     // Status & Execution Tracking
     isActive: {
@@ -110,9 +99,19 @@ const scheduledDonationSchema = new Schema<IScheduledDonationModel>(
       default: true,
       index: true,
     },
+
+    status: {
+      type: String,
+      enum: ['active', 'processing', 'paused'],
+      default: 'active',
+      index: true,
+    },
+
     lastExecutedDate: {
       type: Date,
+      index: true,
     },
+
     totalExecutions: {
       type: Number,
       default: 0,
@@ -127,7 +126,7 @@ const scheduledDonationSchema = new Schema<IScheduledDonationModel>(
 // Compound indexes for efficient queries
 scheduledDonationSchema.index({ user: 1, isActive: 1 });
 scheduledDonationSchema.index({ organization: 1, isActive: 1 });
-scheduledDonationSchema.index({ nextDonationDate: 1, isActive: 1 });
+scheduledDonationSchema.index({ nextDonationDate: 1, isActive: 1, status: 1 });
 scheduledDonationSchema.index({ stripeCustomerId: 1, isActive: 1 });
 
 export const ScheduledDonation = model<IScheduledDonationModel>(

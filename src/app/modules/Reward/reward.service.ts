@@ -1,7 +1,7 @@
 // src/app/modules/Reward/reward.service.ts
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Types } from 'mongoose';
+import mongoose, { Types } from 'mongoose';
 import crypto from 'crypto';
 import httpStatus from 'http-status';
 import fs from 'fs';
@@ -12,18 +12,17 @@ import { RewardRedemption } from '../RewardRedeemtion/reward-redeemtion.model';
 import Business from '../Business/business.model';
 import { pointsServices } from '../Points/points.service';
 
-import { AppError } from '../../utils';
-import { getFileUrl, deleteFile } from '../../lib/upload';
+import { AppError, uploadToS3 } from '../../utils';
 
 import {
   ICreateRewardPayload,
   IUpdateRewardPayload,
   IRewardFilterQuery,
-  IRewardStatistics,
   IRewardAvailability,
   IParsedCodeFromCSV,
   IRewardDocument,
   IRewardsListResult,
+  IHardDeleteResult,
 } from './reward.interface';
 
 import {
@@ -35,24 +34,71 @@ import {
 import QueryBuilder from '../../builders/QueryBuilder';
 import Client from '../Client/client.model';
 import Auth from '../Auth/auth.model';
-import { ROLE } from '../Auth/auth.constant';
+import { AUTH_STATUS, ROLE } from '../Auth/auth.constant';
+import {
+  calculatePercentageChange,
+  getDateRanges,
+} from '../../lib/filter-helper';
+import { createNotification } from '../Notification/notification.service';
+import { NOTIFICATION_TYPE } from '../Notification/notification.constant';
+import { generateUniqueRWDPrefix } from './reward.utils';
+import { RewardCode } from '../RewardCode/reward-code.model';
+import { deleteFromS3, getS3KeyFromUrl } from '../../utils/s3.utils';
+import { FavoriteReward } from '../FavoriteReward/FavoriteReward.model';
 
 // ==========================================
 // HELPER FUNCTIONS
 // ==========================================
 
 /**
- * Generate unique codes for in-store rewards
+ * Generate unique codes for in-store rewards with Database lookup
+ * Format: PREFIX-SUFFIX (e.g., RWD7F21-A1B2C3)
  */
-const generateInStoreCodes = (count: number): string[] => {
+const generateInStoreCodes = async (
+  prefix: string,
+  count: number
+): Promise<string[]> => {
   const codes: string[] = [];
-  const generatedSet = new Set<string>();
+  const localSet = new Set<string>();
 
+  // We continue until the 'codes' array reaches the requested 'count'
   while (codes.length < count) {
-    const code = crypto.randomBytes(3).toString('hex').toUpperCase(); // 6 chars
-    if (!generatedSet.has(code)) {
-      generatedSet.add(code);
-      codes.push(code);
+    const batchNeeded = count - codes.length;
+    const currentBatch: string[] = [];
+
+    // 1. Generate a batch of unique suffixes locally first
+    while (currentBatch.length < batchNeeded) {
+      const suffix = crypto.randomBytes(3).toString('hex').toUpperCase(); // 6 chars
+      const fullCode = `${prefix}-${suffix}`;
+
+      if (!localSet.has(fullCode)) {
+        localSet.add(fullCode);
+        currentBatch.push(fullCode);
+      }
+    }
+
+    // 2. Check the Database for any collisions across the entire batch in one query
+    const existingCodesInDb = await RewardCode.find({
+      code: { $in: currentBatch },
+    })
+      .select('code')
+      .lean();
+
+    // 3. Filter out codes that already exist in the DB
+    if (existingCodesInDb.length > 0) {
+      const existingSet = new Set(existingCodesInDb.map((doc) => doc.code));
+
+      for (const candidate of currentBatch) {
+        if (!existingSet.has(candidate)) {
+          codes.push(candidate);
+        } else {
+          // Remove from localSet so it can be re-attempted in next loop if needed
+          localSet.delete(candidate);
+        }
+      }
+    } else {
+      // No collisions found in DB, add the whole batch
+      codes.push(...currentBatch);
     }
   }
 
@@ -141,16 +187,17 @@ const parseSingleCodesFile = async (
   }
 };
 
-// ==========================================
-// REWARD CRUD OPERATIONS
-// ==========================================
-
+/**
+ * Main: Create Reward Service (Updated for S3)
+ */
 const createReward = async (
   rewardData: ICreateRewardPayload,
   imageFile?: Express.Multer.File,
   codesFiles?: Express.Multer.File[]
 ): Promise<IRewardDocument> => {
   const businessId = new Types.ObjectId(rewardData.businessId as string);
+
+  // 1. Validate Business Existence
   const business = await Business.findById(businessId);
   if (!business) {
     throw new AppError(
@@ -159,6 +206,7 @@ const createReward = async (
     );
   }
 
+  // 2. Validate Reward Title Uniqueness
   const existingReward = await Reward.findOne({
     business: businessId,
     title: rewardData.title,
@@ -167,6 +215,7 @@ const createReward = async (
     throw new AppError(httpStatus.CONFLICT, REWARD_MESSAGES.ALREADY_EXISTS);
   }
 
+  // 3. Validate Date Logic
   if (rewardData.expiryDate && rewardData.startDate) {
     if (new Date(rewardData.expiryDate) <= new Date(rewardData.startDate)) {
       throw new AppError(
@@ -176,95 +225,300 @@ const createReward = async (
     }
   }
 
+  // 4. Validate Redemption Methods
   if (rewardData.type === 'in-store' && !rewardData.inStoreRedemptionMethods) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      'In-store redemption methods are required for in-store rewards'
+      'In-store methods (QR/Static) are required'
     );
   }
 
   if (rewardData.type === 'online' && !rewardData.onlineRedemptionMethods) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      'Online redemption methods are required for online rewards'
+      'Online methods (Discount/GiftCard) are required'
     );
   }
 
-  let imageUrl: string | undefined = rewardData.image;
+  // 5. Handle Image Upload to S3
+  let uploadedImageUrl = '';
   if (imageFile) {
-    imageUrl = getFileUrl(imageFile);
+    const uploadResult = await uploadToS3({
+      buffer: imageFile.buffer,
+      key: `reward-${Date.now()}`,
+      contentType: imageFile.mimetype,
+      folder: 'rewards',
+    });
+    uploadedImageUrl = uploadResult.url;
+    rewardData.image = uploadedImageUrl;
   }
 
-  let generatedCodes: Array<{
-    code: string;
-    isGiftCard: boolean;
-    isDiscountCode: boolean;
-    isUsed: boolean;
-  }> = [];
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-  let redemptionLimit = rewardData.redemptionLimit;
+  try {
+    // 6. Auto-generate Unique RWD Prefix
+    const autoPrefix = await generateUniqueRWDPrefix();
+    rewardData.codePrefix = autoPrefix;
 
-  if (rewardData.type === 'in-store') {
-    const codeStrings = generateInStoreCodes(redemptionLimit);
-    generatedCodes = codeStrings.map((code) => ({
-      code,
-      isGiftCard: false,
-      isDiscountCode: false,
-      isUsed: false,
-    }));
-  } else if (rewardData.type === 'online') {
-    if (!codesFiles || codesFiles.length === 0) {
-      throw new AppError(httpStatus.BAD_REQUEST, REWARD_MESSAGES.FILE_REQUIRED);
-    }
-    const { codes: parsedCodes } = await parseCodesFiles(codesFiles);
-
-    const isUnique = await Reward.checkCodeUniqueness(
-      parsedCodes.map((c) => c.code)
+    // 7. Create the Reward Configuration
+    const [reward] = await Reward.create(
+      [
+        {
+          ...rewardData,
+          business: businessId,
+          pointsCost: STATIC_POINTS_COST,
+          remainingCount: rewardData.redemptionLimit,
+          redeemedCount: 0,
+          isActive: true,
+        },
+      ],
+      { session }
     );
-    if (!isUnique) {
-      throw new AppError(httpStatus.CONFLICT, REWARD_MESSAGES.DUPLICATE_CODES);
-    }
-    if (!redemptionLimit) {
-      redemptionLimit = parsedCodes.length;
-    }
-    if (parsedCodes.length < redemptionLimit) {
-      throw new AppError(
-        httpStatus.BAD_REQUEST,
-        `${REWARD_MESSAGES.LIMIT_EXCEEDS_CODES}. Uploaded: ${parsedCodes.length}, Required: ${redemptionLimit}`
+
+    let codesToInsert = [];
+
+    // 8. Type-Specific Code Logic
+    if (reward.type === 'in-store') {
+      const codes = await generateInStoreCodes(
+        reward?.codePrefix,
+        reward.redemptionLimit
       );
+      codesToInsert = codes.map((code) => ({
+        reward: reward._id,
+        business: reward.business,
+        code,
+        isUsed: false,
+      }));
+    } else {
+      // ONLINE VALIDATIONS
+      if (!codesFiles || codesFiles.length === 0) {
+        throw new AppError(
+          httpStatus.BAD_REQUEST,
+          REWARD_MESSAGES.FILE_REQUIRED
+        );
+      }
+
+      const { codes: parsedCodes } = await parseCodesFiles(codesFiles);
+
+      if (parsedCodes.length < reward.redemptionLimit) {
+        throw new AppError(
+          httpStatus.BAD_REQUEST,
+          `Insufficient codes in CSV. Required: ${reward.redemptionLimit}`
+        );
+      }
+
+      const rawCodeStrings = parsedCodes.map((c) => c.code);
+      const duplicateInDb = await RewardCode.findOne({
+        code: { $in: rawCodeStrings },
+      });
+
+      if (duplicateInDb) {
+        throw new AppError(
+          httpStatus.CONFLICT,
+          'One or more codes already used in another reward.'
+        );
+      }
+
+      codesToInsert = parsedCodes.slice(0, reward.redemptionLimit).map((c) => ({
+        reward: reward._id,
+        business: reward.business,
+        code: c.code,
+        isGiftCard: c.isGiftCard,
+        isDiscountCode: c.isDiscountCode,
+        isUsed: false,
+      }));
     }
-    generatedCodes = parsedCodes.slice(0, redemptionLimit).map((c) => ({
+
+    // 9. Bulk Insert into RewardCode collection
+    await RewardCode.insertMany(codesToInsert, { session });
+
+    await session.commitTransaction();
+
+    // 10. Broadcast notification
+    broadcastNewReward(reward);
+
+    return reward;
+  } catch (error: any) {
+    await session.abortTransaction();
+
+    // Optional: Cleanup S3 if DB transaction fails
+    if (uploadedImageUrl) {
+      const key = getS3KeyFromUrl(uploadedImageUrl);
+      if (key) await deleteFromS3(key).catch(() => null);
+    }
+
+    throw error;
+  } finally {
+    session.endSession();
+  }
+};
+
+/**
+ * Create Online Reward Service
+ * Dynamically sets redemptionLimit based on the number of codes in the uploaded files.
+ */
+const createOnlineReward = async (
+  rewardData: Omit<ICreateRewardPayload, 'redemptionLimit'>, // Limit comes from file, not payload
+  imageFile?: Express.Multer.File,
+  codesFiles?: Express.Multer.File[]
+): Promise<IRewardDocument> => {
+  const businessId = new Types.ObjectId(rewardData.businessId as string);
+  // 1. Validate Business Existence
+  const business = await Business.findById(businessId);
+
+  if (!business) {
+    throw new AppError(
+      httpStatus.NOT_FOUND,
+      REWARD_MESSAGES.BUSINESS_NOT_FOUND
+    );
+  }
+
+  // 2. Validate Reward Title Uniqueness
+  const existingReward = await Reward.findOne({
+    business: business?._id,
+    title: rewardData.title,
+  });
+  if (existingReward) {
+    throw new AppError(httpStatus.CONFLICT, REWARD_MESSAGES.ALREADY_EXISTS);
+  }
+
+  // 3. Ensure Code Files are provided
+  if (!codesFiles || codesFiles.length === 0) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'You must upload a CSV/Excel file containing the reward codes.'
+    );
+  }
+
+  // 4. Parse Codes First to determine the limit
+  const { codes: parsedCodes } = await parseCodesFiles(codesFiles);
+
+  if (!parsedCodes || parsedCodes.length === 0) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'The uploaded files contain no valid codes.'
+    );
+  }
+
+  // Calculate the limit from the file
+  const calculatedRedemptionLimit = parsedCodes.length ?? 0;
+
+  // 5. Check for global code duplicates in Database
+  const rawCodeStrings = parsedCodes.map((c) => c.code);
+  const duplicateInDb = await RewardCode.findOne({
+    code: { $in: rawCodeStrings },
+  });
+
+  if (duplicateInDb) {
+    throw new AppError(
+      httpStatus.CONFLICT,
+      `One or more codes (e.g., ${duplicateInDb.code}) are already in use in another reward.`
+    );
+  }
+
+  // 6. Handle Image Upload to S3
+  let uploadedImageUrl = '';
+  if (imageFile) {
+    const uploadResult = await uploadToS3({
+      buffer: imageFile.buffer,
+      key: `reward-online-${Date.now()}`,
+      contentType: imageFile.mimetype,
+      folder: 'rewards',
+    });
+    uploadedImageUrl = uploadResult.url;
+  }
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    // 7. Auto-generate Unique RWD Prefix
+    const autoPrefix: string = await generateUniqueRWDPrefix();
+
+    // 8. Create the Reward Configuration
+    const [reward] = await Reward.create(
+      [
+        {
+          ...rewardData,
+          business: businessId,
+          type: 'online',
+          image: uploadedImageUrl,
+          codePrefix: autoPrefix,
+          redemptionLimit: calculatedRedemptionLimit,
+          remainingCount: calculatedRedemptionLimit,
+          redeemedCount: 0,
+          pointsCost: STATIC_POINTS_COST,
+          isActive: true,
+        },
+      ],
+      { session }
+    );
+
+    // 9. Prepare and Bulk Insert Reward Codes
+    const codesToInsert = parsedCodes.map((c) => ({
+      reward: reward._id,
+      business: business?._id,
       code: c.code,
       isGiftCard: c.isGiftCard,
       isDiscountCode: c.isDiscountCode,
       isUsed: false,
     }));
+
+    await RewardCode.insertMany(codesToInsert, { session });
+
+    await session.commitTransaction();
+
+    // 10. Broadcast notification
+    broadcastNewReward(reward);
+
+    return reward;
+  } catch (error: any) {
+    await session.abortTransaction();
+
+    // Cleanup S3 if DB transaction fails
+    if (uploadedImageUrl) {
+      const key = getS3KeyFromUrl(uploadedImageUrl);
+      if (key) await deleteFromS3(key).catch(() => null);
+    }
+
+    throw error;
+  } finally {
+    session.endSession();
   }
-
-  const reward = await Reward.create({
-    business: businessId,
-    title: rewardData.title,
-    description: rewardData.description,
-    image: imageUrl,
-    type: rewardData.type,
-    category: rewardData.category,
-    pointsCost: STATIC_POINTS_COST,
-    redemptionLimit,
-    redeemedCount: 0,
-    remainingCount: redemptionLimit,
-    startDate: rewardData.startDate || new Date(),
-    expiryDate: rewardData.expiryDate,
-    inStoreRedemptionMethods: rewardData.inStoreRedemptionMethods,
-    onlineRedemptionMethods: rewardData.onlineRedemptionMethods,
-    codes: generatedCodes,
-    featured: rewardData.featured || false,
-    priority: rewardData.featured ? 10 : 1,
-    isActive: true,
-    redemptions: 0,
-  });
-
-  return reward.populate('business', 'name category coverImage');
 };
+
+/**
+ * Helper: Broadcast to all clients
+ */
+const broadcastNewReward = async (reward: any) => {
+  try {
+    const clients = await Auth.find({
+      isActive: true,
+      status: AUTH_STATUS.VERIFIED,
+      role: ROLE.CLIENT,
+    }).select('_id');
+
+    if (clients.length > 0) {
+      const promises = clients.map((client) =>
+        createNotification(
+          client._id.toString(),
+          NOTIFICATION_TYPE.NEW_REWARD,
+          `New Reward: "${reward.title}" is now available!`,
+          reward._id.toString(),
+          { rewardId: reward._id.toString() }
+        )
+      );
+      await Promise.all(promises);
+    }
+  } catch (err) {
+    console.error('Broadcast failed:', err);
+  }
+};
+
+/**
+ * Update Reward Details and Inventory (Migrated to AWS S3)
+ */
 
 const updateReward = async (
   rewardId: string,
@@ -273,11 +527,13 @@ const updateReward = async (
   imageFile?: Express.Multer.File,
   codesFiles?: Express.Multer.File[]
 ): Promise<IRewardDocument> => {
+  // 1. Fetch current reward state
   const reward = await Reward.findById(rewardId);
   if (!reward) {
     throw new AppError(httpStatus.NOT_FOUND, REWARD_MESSAGES.NOT_FOUND);
   }
 
+  // 2. Validation: Prevent extending an already expired reward
   if (payload.expiryDate && reward.status === 'expired') {
     throw new AppError(
       httpStatus.BAD_REQUEST,
@@ -285,156 +541,214 @@ const updateReward = async (
     );
   }
 
-  if (imageFile) {
-    if (reward.image && reward.image.startsWith('/')) {
-      deleteFile(`public${reward.image}`);
-    }
-    payload.image = getFileUrl(imageFile);
-  }
-
-  if (codesFiles && codesFiles.length > 0 && reward.type === 'online') {
-    const { codes: newParsedCodes } = await parseCodesFiles(codesFiles);
-    const existingCodes = new Set(reward.codes.map((c) => c.code));
-    const uniqueNewCodes = newParsedCodes.filter(
-      (c) => !existingCodes.has(c.code)
-    );
-
-    if (uniqueNewCodes.length > 0) {
-      const isUnique = await Reward.checkCodeUniqueness(
-        uniqueNewCodes.map((c) => c.code),
-        reward._id as Types.ObjectId
-      );
-      if (!isUnique) {
-        throw new AppError(
-          httpStatus.CONFLICT,
-          REWARD_MESSAGES.DUPLICATE_CODES
-        );
-      }
-      const codesToAdd = uniqueNewCodes.map((c) => ({
-        code: c.code,
-        isGiftCard: c.isGiftCard,
-        isDiscountCode: c.isDiscountCode,
-        isUsed: false,
-      }));
-      reward.codes.push(...codesToAdd);
-      reward.redemptionLimit += uniqueNewCodes.length;
-      reward.remainingCount += uniqueNewCodes.length;
-      if (reward.status === 'sold-out') {
-        reward.status = 'active';
-      }
-    }
-  }
-
-  if (payload.redemptionLimit !== undefined) {
-    const newLimit = payload.redemptionLimit;
-    const currentRedeemed = reward.redeemedCount;
-
-    if (reward.lastLimitUpdate) {
-      const hoursSinceUpdate =
-        (Date.now() - reward.lastLimitUpdate.getTime()) / (1000 * 60 * 60);
-      if (hoursSinceUpdate < LIMIT_UPDATE_COOLDOWN_HOURS) {
-        throw new AppError(
-          httpStatus.TOO_MANY_REQUESTS,
-          REWARD_MESSAGES.UPDATE_COOLDOWN
-        );
-      }
-    }
-
-    if (newLimit < currentRedeemed) {
+  // 3. Validation: 24-Hour Limit Update Cooldown
+  if (payload.redemptionLimit !== undefined && reward.lastLimitUpdate) {
+    const hoursSinceUpdate =
+      (Date.now() - reward.lastLimitUpdate.getTime()) / (1000 * 60 * 60);
+    if (hoursSinceUpdate < LIMIT_UPDATE_COOLDOWN_HOURS) {
       throw new AppError(
-        httpStatus.BAD_REQUEST,
-        `${REWARD_MESSAGES.LIMIT_BELOW_REDEEMED}. Minimum: ${currentRedeemed}`
+        httpStatus.TOO_MANY_REQUESTS,
+        REWARD_MESSAGES.UPDATE_COOLDOWN
       );
     }
+  }
 
-    if (reward.type === 'online' && reward.codes.length > 0) {
-      const unusedCodesCount = reward.codes.filter((c) => !c.isUsed).length;
-      const maxPossible = currentRedeemed + unusedCodesCount;
-      if (newLimit > maxPossible) {
+  // 4. Handle S3 Image Update (Outside the DB Transaction)
+  if (imageFile) {
+    // A. Delete old image from S3 if it exists
+    if (reward.image) {
+      const oldKey = getS3KeyFromUrl(reward.image);
+      if (oldKey) {
+        await deleteFromS3(oldKey).catch((err) =>
+          console.error('Failed to delete old reward image from S3:', err)
+        );
+      }
+    }
+
+    // B. Upload new image buffer to S3
+    const uploadResult = await uploadToS3({
+      buffer: imageFile.buffer,
+      key: `reward-${Date.now()}`,
+      contentType: imageFile.mimetype,
+      folder: 'rewards',
+    });
+    payload.image = uploadResult.url;
+  }
+
+  // Start MongoDB Transaction
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    // 5. Handle Redemption Limit Increase Logic
+    if (payload.redemptionLimit !== undefined) {
+      const newLimit = payload.redemptionLimit;
+      const currentLimit = reward.redemptionLimit;
+
+      if (newLimit < reward.redeemedCount) {
         throw new AppError(
           httpStatus.BAD_REQUEST,
-          `Cannot increase limit beyond available codes. Maximum: ${maxPossible}`
+          `${REWARD_MESSAGES.LIMIT_BELOW_REDEEMED}. Minimum required: ${reward.redeemedCount}`
         );
       }
+
+      // CASE: In-Store Limit Increase
+      if (newLimit > currentLimit && reward.type === 'in-store') {
+        const diff = newLimit - currentLimit;
+        const codes = await generateInStoreCodes(reward.codePrefix, diff);
+
+        const newCodes = codes.map((code) => ({
+          reward: reward._id,
+          business: reward.business,
+          code,
+          isUsed: false,
+        }));
+
+        await RewardCode.insertMany(newCodes, { session });
+      }
+
+      // CASE: Online Limit Increase (Processing CSV buffers)
+      else if (newLimit > currentLimit && reward.type === 'online') {
+        if (!codesFiles || codesFiles.length === 0) {
+          throw new AppError(
+            httpStatus.BAD_REQUEST,
+            'A CSV file with new codes is required to increase the limit for online rewards.'
+          );
+        }
+
+        const { codes: parsedCodes } = await parseCodesFiles(codesFiles);
+        const neededCount = newLimit - currentLimit;
+
+        if (parsedCodes.length < neededCount) {
+          throw new AppError(
+            httpStatus.BAD_REQUEST,
+            `File only contains ${parsedCodes.length} codes, but ${neededCount} are required.`
+          );
+        }
+
+        const codeStrings = parsedCodes.map((c) => c.code);
+        const duplicate = await RewardCode.findOne({
+          code: { $in: codeStrings },
+        }).session(session);
+        if (duplicate) {
+          throw new AppError(
+            httpStatus.CONFLICT,
+            `Code "${duplicate.code}" already exists in the system.`
+          );
+        }
+
+        const codesToInsert = parsedCodes.slice(0, neededCount).map((c) => ({
+          reward: reward._id,
+          business: reward.business,
+          code: c.code,
+          isGiftCard: c.isGiftCard,
+          isDiscountCode: c.isDiscountCode,
+          isUsed: false,
+        }));
+
+        await RewardCode.insertMany(codesToInsert, { session });
+      }
+
+      // Record update history
+      reward.limitUpdateHistory!.push({
+        previousLimit: currentLimit,
+        newLimit,
+        changedBy: new Types.ObjectId(userId),
+        changedAt: new Date(),
+        reason: payload.updateReason || 'Manual Update',
+      });
+
+      reward.redemptionLimit = newLimit;
+      reward.remainingCount = newLimit - reward.redeemedCount;
+      reward.lastLimitUpdate = new Date();
     }
 
-    if (reward.type === 'in-store' && newLimit > reward.redemptionLimit) {
-      const additionalCodesNeeded = newLimit - reward.redemptionLimit;
-      const newCodes = generateInStoreCodes(additionalCodesNeeded);
-      const newCodeObjects = newCodes.map((code) => ({
-        code,
-        isGiftCard: false,
-        isDiscountCode: false,
-        isUsed: false,
-      }));
-      reward.codes.push(...newCodeObjects);
+    // 6. Update Featured/Priority
+    if (payload.featured !== undefined) {
+      reward.featured = payload.featured;
+      reward.priority = payload.featured ? 10 : 1;
     }
 
-    reward.limitUpdateHistory = reward.limitUpdateHistory || [];
-    reward.limitUpdateHistory.push({
-      previousLimit: reward.redemptionLimit,
-      newLimit,
-      changedBy: new Types.ObjectId(userId),
-      changedAt: new Date(),
-      reason: payload.updateReason,
-    });
+    // 7. Map General Fields
+    if (payload.title) reward.title = payload.title;
+    if (payload.description) reward.description = payload.description;
+    if (payload.image) reward.image = payload.image;
+    if (payload.category) reward.category = payload.category;
+    if (payload.startDate) reward.startDate = payload.startDate;
+    if (payload.expiryDate) reward.expiryDate = payload.expiryDate;
+    if (payload.isActive !== undefined) reward.isActive = payload.isActive;
 
-    reward.redemptionLimit = newLimit;
-    reward.remainingCount = newLimit - currentRedeemed;
-    reward.lastLimitUpdate = new Date();
-
-    if (reward.remainingCount === 0) {
-      reward.status = 'sold-out';
-    } else if (reward.status === 'sold-out' && reward.remainingCount > 0) {
-      reward.status = 'active';
+    if (reward?.type === 'in-store' && payload?.inStoreRedemptionMethods) {
+      reward.inStoreRedemptionMethods = {
+        qrCode: payload?.inStoreRedemptionMethods.qrCode! || false,
+        nfcTap: payload?.inStoreRedemptionMethods.nfcTap! || false,
+        staticCode: payload?.inStoreRedemptionMethods.staticCode! || false,
+      };
     }
-  }
+    if (reward?.type === 'online' && payload?.onlineRedemptionMethods) {
+      reward.onlineRedemptionMethods = {
+        giftCard: payload?.onlineRedemptionMethods.giftCard! || false,
+        discountCode: payload?.onlineRedemptionMethods.discountCode! || false,
+      };
+    }
 
-  if (payload.title !== undefined) reward.title = payload.title;
-  if (payload.description !== undefined)
-    reward.description = payload.description;
-  if (payload.image !== undefined) reward.image = payload.image;
-  if (payload.category !== undefined) reward.category = payload.category;
-  if (payload.startDate !== undefined) reward.startDate = payload.startDate;
-  if (payload.expiryDate !== undefined) reward.expiryDate = payload.expiryDate;
-  if (payload.featured !== undefined) {
-    reward.featured = payload.featured;
-    reward.priority = payload.featured ? 10 : 1;
-  }
-  if (payload.isActive !== undefined) reward.isActive = payload.isActive;
+    // 8. Finalize Save and Status
+    await reward.save({ session });
+    await reward.updateStatus();
 
-  if (payload.inStoreRedemptionMethods && reward.inStoreRedemptionMethods) {
-    reward.inStoreRedemptionMethods = {
-      ...reward.inStoreRedemptionMethods,
-      ...payload.inStoreRedemptionMethods,
-    };
-  }
-  if (payload.onlineRedemptionMethods && reward.onlineRedemptionMethods) {
-    reward.onlineRedemptionMethods = {
-      ...reward.onlineRedemptionMethods,
-      ...payload.onlineRedemptionMethods,
-    };
-  }
+    // 9. Commit Transaction
+    await session.commitTransaction();
 
-  await reward.save();
-  await reward.updateStatus();
+    const updatedReward = await Reward.findById(reward._id)
+      .populate('business', 'name category coverImage locations')
+      .lean();
 
-  return reward.populate('business', 'name category coverImage');
+    return updatedReward as unknown as IRewardDocument;
+  } catch (error: any) {
+    // Abort on any failure
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    // Cleanly close the session
+    await session.endSession();
+  }
 };
 
+/**
+ * Update Reward Image only (Migrated to AWS S3)
+ */
 const updateRewardImage = async (
   rewardId: string,
   imageFile: Express.Multer.File
 ): Promise<IRewardDocument> => {
+  // 1. Check if reward exists
   const reward = await Reward.findById(rewardId);
   if (!reward) {
     throw new AppError(httpStatus.NOT_FOUND, REWARD_MESSAGES.NOT_FOUND);
   }
-  if (reward.image && reward.image.startsWith('/')) {
-    deleteFile(`public${reward.image}`);
+
+  // 2. Cleanup: Delete the old image from S3 if it exists
+  if (reward.image) {
+    const oldKey = getS3KeyFromUrl(reward.image);
+    if (oldKey) {
+      await deleteFromS3(oldKey).catch((err) =>
+        console.error('Failed to delete old reward image from S3:', err)
+      );
+    }
   }
-  reward.image = getFileUrl(imageFile);
+
+  const uploadResult = await uploadToS3({
+    buffer: imageFile.buffer,
+    key: `reward-${rewardId}-${Date.now()}`,
+    contentType: imageFile.mimetype,
+    folder: 'rewards',
+  });
+
+  // 4. Update the database with the new AWS S3 URL
+  reward.image = uploadResult.url;
   await reward.save();
+
+  // 5. Return the updated and populated document
   return reward.populate('business', 'name category coverImage');
 };
 
@@ -450,17 +764,9 @@ const getRewardById = async (
     throw new AppError(httpStatus.NOT_FOUND, REWARD_MESSAGES.NOT_FOUND);
   }
 
-  console.log({
-    userId,
-    rewardId,
-  });
-
   // Handle Reward Views
   if (userId) {
     const client = await Client.findOne({ auth: userId });
-    console.log({
-      client,
-    });
     if (client) {
       await ViewReward.create({ user: client.auth, reward: rewardId });
     }
@@ -470,39 +776,54 @@ const getRewardById = async (
   let userBalance = 0;
   let hasAlreadyClaimed = false;
   let existingClaimId: Types.ObjectId | undefined;
+  let claimDetails = null;
+  let isAlreadySaved = false;
 
   if (userId) {
+    const client = await Client.findOne({ auth: userId });
     try {
-      const [balance, existingClaim] = await Promise.all([
-        pointsServices.getUserBalance(userId),
+      const [balance, existingClaim, existingFavorite] = await Promise.all([
+        pointsServices.getUserBalance(client!._id.toString()),
         RewardRedemption.findOne({
-          user: userId,
+          user: client?._id,
           reward: rewardId,
           status: { $in: ['claimed', 'redeemed'] },
         }),
+        FavoriteReward.exists({
+          user: userId,
+          reward: rewardId,
+        }),
       ]);
+
       userBalance = balance.currentBalance;
       userCanAfford = balance.canAfford(STATIC_POINTS_COST);
+      if (existingFavorite) {
+        isAlreadySaved = true;
+      }
       if (existingClaim) {
         hasAlreadyClaimed = true;
+        claimDetails = existingClaim;
         existingClaimId = existingClaim._id;
       }
-    } catch {
+    } catch (err) {
+      console.log(err);
+
       userCanAfford = false;
     }
   }
 
   const rewardData = reward.toJSON() as Record<string, unknown>;
-  delete rewardData.codes;
 
   return {
     ...rewardData,
-    availableCodesCount: reward.codes.filter((c) => !c.isUsed).length,
+    availableCodesCount: reward?.remainingCount,
     isAvailable: reward.checkAvailability(),
+    isAlreadySaved,
     userCanAfford,
     userBalance,
     hasAlreadyClaimed,
     existingClaimId,
+    claimDetails,
   };
 };
 
@@ -610,8 +931,8 @@ const toggleRewardStatus = async (
   const business = await Business.findOne({ auth: userId });
 
   if (
-    (user.role === ROLE.BUSINESS && !business) ||
-    reward.business.toString() !== business?._id.toString()
+    user.role === ROLE.BUSINESS &&
+    (!business || reward.business.toString() !== business!._id.toString())
   ) {
     throw new AppError(
       httpStatus.FORBIDDEN,
@@ -636,73 +957,293 @@ const toggleRewardStatus = async (
   return reward;
 };
 
-const deleteReward = async (rewardId: string): Promise<void> => {
+const deleteReward = async (
+  rewardId: string,
+  userId: string
+): Promise<IHardDeleteResult> => {
+  // 1. Find the reward
   const reward = await Reward.findById(rewardId);
+
   if (!reward) {
     throw new AppError(httpStatus.NOT_FOUND, REWARD_MESSAGES.NOT_FOUND);
   }
-  reward.isActive = false;
-  reward.status = REWARD_STATUS.INACTIVE;
-  await reward.save();
+
+  // 2. Check if reward is active
+  if (reward.isActive) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      REWARD_MESSAGES.CANNOT_DELETE_ACTIVE
+    );
+  }
+
+  // 3. Check for active claims (claimed but not yet redeemed/expired/cancelled)
+  const activeClaimsCount = await RewardRedemption.countDocuments({
+    reward: rewardId,
+    status: 'claimed',
+    expiresAt: { $gt: new Date() },
+  });
+
+  if (activeClaimsCount > 0) {
+    throw new AppError(
+      httpStatus.CONFLICT,
+      `${
+        REWARD_MESSAGES.CANNOT_DELETE_WITH_ACTIVE_CLAIMS
+      } (${activeClaimsCount} active claim${
+        activeClaimsCount > 1 ? 's' : ''
+      } remaining)`
+    );
+  }
+
+  // 4. Start transaction for atomic deletion
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    // 5. Delete all RewardCodes for this reward
+    const codesResult = await RewardCode.deleteMany(
+      { reward: reward._id },
+      { session }
+    );
+
+    // 6. Delete all ViewRewards for this reward
+    const viewsResult = await ViewReward.deleteMany(
+      { reward: reward._id },
+      { session }
+    );
+
+    // 7. Hide all RewardRedemptions (keep for audit, but hide from user)
+    const redemptionsResult = await RewardRedemption.updateMany(
+      { reward: reward._id },
+      {
+        $set: {
+          isHidden: true,
+          hiddenAt: new Date(),
+          hiddenReason: 'Reward deleted',
+        },
+      },
+      { session }
+    );
+
+    // 8. Store reward info before deletion
+    const deletedRewardInfo = {
+      id: reward._id.toString(),
+      title: reward.title,
+    };
+
+    // 9. Delete the reward document
+    await Reward.findByIdAndDelete(rewardId).session(session);
+
+    // 10. Commit transaction
+    await session.commitTransaction();
+
+    // 11. Cleanup S3 image (outside transaction - fire and forget)
+    if (reward.image) {
+      const s3Key = getS3KeyFromUrl(reward.image);
+      if (s3Key) {
+        deleteFromS3(s3Key).catch((err) =>
+          console.error('Failed to delete reward image from S3:', err)
+        );
+      }
+    }
+
+    return {
+      success: true,
+      deletedReward: deletedRewardInfo,
+      cleanup: {
+        codesDeleted: codesResult.deletedCount,
+        viewsDeleted: viewsResult.deletedCount,
+        redemptionsHidden: redemptionsResult.modifiedCount,
+      },
+    };
+  } catch (error: any) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    session.endSession();
+  }
 };
 
-const archiveReward = async (rewardId: string): Promise<void> => {
-  const reward = await Reward.findByIdAndDelete(rewardId);
+const deleteRewardImage = async (rewardId: string, userId: string) => {
+  // 1. Find the reward
+  const reward = await Reward.findById(rewardId);
+
   if (!reward) {
     throw new AppError(httpStatus.NOT_FOUND, REWARD_MESSAGES.NOT_FOUND);
   }
-  if (reward.image && reward.image.startsWith('/')) {
-    deleteFile(`public${reward.image}`);
+
+  try {
+    if (reward.image) {
+      const s3Key = getS3KeyFromUrl(reward.image);
+      if (s3Key) {
+        deleteFromS3(s3Key).catch((err) =>
+          console.error('Failed to delete reward image from S3:', err)
+        );
+      }
+    }
+
+    reward.image = '';
+    await reward.save();
+
+    return reward;
+  } catch (error: any) {
+    throw new AppError(httpStatus.INTERNAL_SERVER_ERROR, error.message);
   }
 };
 
+/**
+ * Check if reward can be deleted
+ * Useful for frontend to show/hide delete button or show warning
+ */
+const canDeleteReward = async (
+  rewardId: string
+): Promise<{
+  canDelete: boolean;
+  reason?: string;
+  activeClaimsCount?: number;
+}> => {
+  const reward = await Reward.findById(rewardId);
+
+  if (!reward) {
+    throw new AppError(httpStatus.NOT_FOUND, REWARD_MESSAGES.NOT_FOUND);
+  }
+
+  if (reward.isActive) {
+    return {
+      canDelete: false,
+      reason: 'Reward is still active. Deactivate it first.',
+    };
+  }
+
+  const activeClaimsCount = await RewardRedemption.countDocuments({
+    reward: rewardId,
+    status: 'claimed',
+    expiresAt: { $gt: new Date() },
+  });
+
+  if (activeClaimsCount > 0) {
+    return {
+      canDelete: false,
+      reason: `${activeClaimsCount} active claim${
+        activeClaimsCount > 1 ? 's' : ''
+      } pending. Wait for redemption or expiry.`,
+      activeClaimsCount,
+    };
+  }
+
+  return { canDelete: true };
+};
+
+/**
+ * Upload codes to an Online reward and increase stock.
+ * Online rewards do NOT use the RWD prefix.
+ */
 const uploadCodesToReward = async (
   rewardId: string,
   codesFiles: Express.Multer.File[]
 ) => {
+  // 1. Fetch the Reward document
   const reward = await Reward.findById(rewardId);
-  if (!reward)
+  if (!reward) {
     throw new AppError(httpStatus.NOT_FOUND, REWARD_MESSAGES.NOT_FOUND);
-  if (reward.type !== 'online')
+  }
+
+  // 2. Validation: This endpoint is strictly for Online rewards
+  if (reward.type !== 'online') {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      'Codes can only be uploaded to online rewards'
+      'Manual CSV upload is only for Online rewards. In-store codes are auto-generated by the system.'
     );
+  }
+
+  // 3. Parse the uploaded files
   const { codes: parsedCodes, filesProcessed } = await parseCodesFiles(
     codesFiles
   );
-  const existingCodes = new Set(reward.codes.map((c) => c.code));
-  const newCodes = parsedCodes.filter((c) => !existingCodes.has(c.code));
-  if (newCodes.length === 0)
+  const rawCodeStrings = parsedCodes.map((c) => c.code);
+
+  // 4. Global Uniqueness Validation
+  // Check if ANY of these codes exist anywhere in the RewardCode collection (all rewards, all businesses)
+  const duplicateInDb = await RewardCode.findOne({
+    code: { $in: rawCodeStrings },
+  })
+    .select('code')
+    .lean();
+
+  if (duplicateInDb) {
     throw new AppError(
       httpStatus.CONFLICT,
-      'All codes already exist in this reward'
+      `Upload blocked. The code "${duplicateInDb.code}" already exists in the system (potentially used in another reward).`
     );
-  const isUnique = await Reward.checkCodeUniqueness(
-    newCodes.map((c) => c.code),
-    reward._id as Types.ObjectId
-  );
-  if (!isUnique)
-    throw new AppError(httpStatus.CONFLICT, REWARD_MESSAGES.DUPLICATE_CODES);
-  const codesToAdd = newCodes.map((c) => ({
-    code: c.code,
-    isGiftCard: c.isGiftCard,
-    isDiscountCode: c.isDiscountCode,
-    isUsed: false,
-  }));
-  reward.codes.push(...codesToAdd);
-  reward.redemptionLimit += newCodes.length;
-  reward.remainingCount += newCodes.length;
-  if (reward.status === 'sold-out') reward.status = 'active';
-  await reward.save();
-  return {
-    reward,
-    codesAdded: newCodes.length,
-    codesDuplicated: parsedCodes.length - newCodes.length,
-    filesProcessed,
-  };
+  }
+
+  // 5. Start Session for Atomic Updates
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    // 6. Map parsed codes to the RewardCode schema
+    // Online rewards: We use the raw code from CSV without adding the RWD prefix
+    const codesToInsert = parsedCodes.map((c) => ({
+      reward: reward._id,
+      business: reward.business,
+      code: c.code,
+      isGiftCard: c.isGiftCard,
+      isDiscountCode: c.isDiscountCode,
+      isUsed: false,
+    }));
+
+    // 7. Bulk Insert codes into inventory
+    await RewardCode.insertMany(codesToInsert, { session });
+
+    // 8. Update main Reward document counters
+    const countAdded = codesToInsert.length;
+    reward.redemptionLimit += countAdded;
+    reward.remainingCount += countAdded;
+
+    // 9. Validation: Ensure we are not extending an expired reward
+    if (reward.status === REWARD_STATUS.EXPIRED) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        REWARD_MESSAGES.CANNOT_EXTEND_EXPIRED
+      );
+    }
+
+    // 10. Status Management: If the reward was 'sold-out', move it back to 'active'
+    if (reward.status === REWARD_STATUS.SOLD_OUT && reward.remainingCount > 0) {
+      reward.status = REWARD_STATUS.ACTIVE;
+    }
+
+    // 11. Sync metadata
+    reward.lastLimitUpdate = new Date();
+
+    // 12. Save and Commit
+    await reward.save({ session });
+    await session.commitTransaction();
+
+    return {
+      reward: {
+        _id: reward._id,
+        title: reward.title,
+        status: reward.status,
+        redemptionLimit: reward.redemptionLimit,
+        remainingCount: reward.remainingCount,
+      },
+      codesAdded: countAdded,
+
+      filesProcessed,
+    };
+  } catch (error: any) {
+    // Abort transaction to prevent inconsistent stock counts
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    session.endSession();
+  }
 };
 
+/**
+ * Check availability
+ */
 /**
  * Check availability
  */
@@ -711,8 +1252,11 @@ const checkAvailability = async (
   userId?: string
 ): Promise<IRewardAvailability> => {
   const reward = await Reward.findById(rewardId);
-  if (!reward)
+
+  if (!reward) {
     throw new AppError(httpStatus.NOT_FOUND, REWARD_MESSAGES.NOT_FOUND);
+  }
+
   const now = new Date();
   let isAvailable = true;
   let reason: string | undefined;
@@ -720,6 +1264,8 @@ const checkAvailability = async (
   let userBalance = 0;
   let hasAlreadyClaimed = false;
   let existingClaimId: Types.ObjectId | undefined;
+
+  // 1. Basic Status & Date Checks
   if (!reward.isActive) {
     isAvailable = false;
     reason = REWARD_MESSAGES.INACTIVE;
@@ -732,40 +1278,52 @@ const checkAvailability = async (
   } else if (reward.remainingCount <= 0) {
     isAvailable = false;
     reason = REWARD_MESSAGES.INSUFFICIENT_STOCK;
-  } else if (reward.type === 'online' && reward.codes.length > 0) {
-    const availableCode = reward.codes.find((code) => !code.isUsed);
-    if (!availableCode) {
+  } else {
+    const hasAvailableCode = await RewardCode.exists({
+      reward: reward._id,
+      isUsed: false,
+    });
+
+    if (!hasAvailableCode) {
       isAvailable = false;
       reason = REWARD_MESSAGES.NO_CODES_AVAILABLE;
     }
   }
-  if (userId) {
-    // We check RewardRedemption only for status, logic is moved
+
+  // 4. User-Specific Checks
+  if (userId && isAvailable) {
+    // Only check if general availability passed
+    // Check for previous claims (Unchanged)
     const existingClaim = await RewardRedemption.findOne({
       user: userId,
       reward: rewardId,
       status: { $in: ['claimed', 'redeemed'] },
     });
+
     if (existingClaim) {
       hasAlreadyClaimed = true;
-      existingClaimId = existingClaim._id;
+      existingClaimId = existingClaim._id as Types.ObjectId;
       isAvailable = false;
       reason = REWARD_MESSAGES.ALREADY_CLAIMED;
     }
+
+    // Check Points Balance (Unchanged)
     try {
       const balance = await pointsServices.getUserBalance(userId);
       userBalance = balance.currentBalance;
       userCanAfford = balance.canAfford(STATIC_POINTS_COST);
+
       if (!userCanAfford && isAvailable) {
+        isAvailable = false; // Must set this to false
         reason = REWARD_MESSAGES.INSUFFICIENT_POINTS;
       }
     } catch {
       userCanAfford = false;
     }
   }
+
   return {
-    isAvailable:
-      isAvailable && (!userId || (userCanAfford && !hasAlreadyClaimed)),
+    isAvailable,
     reason,
     remainingCount: reward.remainingCount,
     userCanAfford,
@@ -812,8 +1370,6 @@ const getBusinessRewards = async (
   userId: string,
   query: Record<string, unknown>
 ) => {
-  console.log('Getting business rewards for user:', userId);
-
   const business = await Business.findOne({ auth: userId });
   if (!business)
     throw new AppError(httpStatus.NOT_FOUND, 'Business profile not found');
@@ -919,42 +1475,253 @@ const getUserExploreRewards = async (
  * API 4: For Super Admin - Get All Rewards
  */
 const getAdminRewards = async (query: Record<string, unknown>) => {
-  const {
-    fromDate,
-    toDate,
-    status,
-    search,
-    businessId,
-    page = 1,
-    limit = 20,
-  } = query;
-  const filter: any = {};
+  const serachableFields = ['title', 'description'];
+  const { fromDate, toDate, ...apiQuery } = query;
 
-  if (status) filter.status = status;
-  if (businessId) filter.business = new Types.ObjectId(businessId as string);
-
-  // Date Filtering (Created At range)
   if (fromDate || toDate) {
-    filter.createdAt = {};
-    if (fromDate) filter.createdAt.$gte = new Date(fromDate as string);
-    if (toDate) filter.createdAt.$lte = new Date(toDate as string);
-  }
+    const createdAtFilter: Record<string, unknown> = {};
 
-  if (search) {
-    filter.title = { $regex: search, $options: 'i' };
+    if (fromDate) {
+      createdAtFilter.$gte = new Date(fromDate as string);
+    }
+
+    if (toDate) {
+      createdAtFilter.$lte = new Date(toDate as string);
+    }
+
+    apiQuery.createdAt = createdAtFilter;
   }
 
   const rewardQuery = new QueryBuilder(
-    Reward.find(filter).populate('business', 'name email'),
-    { page, limit }
+    Reward.find({}).populate('business', 'name email').select('-codes'),
+    apiQuery
   )
+    .search(serachableFields)
     .sort()
-    .paginate();
+    .paginate()
+    .filter();
 
   const result = await rewardQuery.modelQuery;
   const meta = await rewardQuery.countTotal();
 
   return { result, meta };
+};
+
+// Reward Analytics For Admin
+const getAdminRewardAnalytics = async () => {
+  const { current, previous } = getDateRanges('this_month');
+
+  const [activeRewards, rewardRedeemed] = await Promise.all([
+    await Reward.aggregate([
+      {
+        $match: {
+          isActive: true,
+          status: 'active',
+        },
+      },
+      {
+        $facet: {
+          currentMonth: [
+            {
+              $match: {
+                createdAt: {
+                  $gte: current.startDate,
+                  $lte: current.endDate,
+                },
+              },
+            },
+            {
+              $count: 'count',
+            },
+          ],
+          previousMonth: [
+            {
+              $match: {
+                createdAt: {
+                  $gte: previous.startDate,
+                  $lte: previous.endDate,
+                },
+              },
+            },
+            {
+              $count: 'count',
+            },
+          ],
+        },
+      },
+    ]),
+    await RewardRedemption.aggregate([
+      {
+        $match: {
+          status: 'redeemed',
+          isHidden: { $ne: true },
+        },
+      },
+      {
+        $facet: {
+          currentMonth: [
+            {
+              $match: {
+                createdAt: {
+                  $gte: current.startDate,
+                  $lte: current.endDate,
+                },
+              },
+            },
+            {
+              $count: 'count',
+            },
+          ],
+          previousMonth: [
+            {
+              $match: {
+                createdAt: {
+                  $gte: previous.startDate,
+                  $lte: previous.endDate,
+                },
+              },
+            },
+            {
+              $count: 'count',
+            },
+          ],
+          topRewards: [
+            {
+              $group: {
+                _id: '$reward',
+                count: {
+                  $sum: 1,
+                },
+              },
+            },
+            {
+              $sort: {
+                count: 1,
+              },
+            },
+            {
+              $limit: 1,
+            },
+            {
+              $project: {
+                _id: 0,
+                reward: '$_id',
+              },
+            },
+            {
+              $lookup: {
+                from: 'rewards',
+                localField: 'reward',
+                foreignField: '_id',
+                as: 'rewardDetails',
+              },
+            },
+            {
+              $unwind: '$rewardDetails',
+            },
+            {
+              $project: {
+                _id: '$rewardDetails._id',
+                business: '$rewardDetails.business',
+                title: '$rewardDetails.title',
+                description: '$rewardDetails.description',
+                type: '$rewardDetails.type',
+                category: '$rewardDetails.category',
+                image: '$reweardDetails.image',
+              },
+            },
+          ],
+        },
+      },
+    ]),
+  ]);
+
+  const currentMonthActiveRewards =
+    activeRewards?.[0]?.currentMonth?.[0]?.count || 0;
+
+  const previousMonthActiveRewards =
+    activeRewards?.[0]?.previousMonth?.[0]?.count || 0;
+  const {
+    isIncrease: rewardPercentageIncrease,
+    percentageChange: rewardPercentageChange,
+  } = calculatePercentageChange(
+    currentMonthActiveRewards,
+    previousMonthActiveRewards
+  );
+
+  // Redeemtion :
+  const currentMonthRedeemedRewards =
+    rewardRedeemed?.[0]?.currentMonth?.[0]?.count || 0;
+
+  const previousMonthRedeemedRewards =
+    rewardRedeemed?.[0]?.previousMonth?.[0]?.count || 0;
+
+  const {
+    isIncrease: redeemedRewardPercentageIncrease,
+    percentageChange: redeemedRewardPercentageChange,
+  } = calculatePercentageChange(
+    currentMonthRedeemedRewards,
+    previousMonthRedeemedRewards
+  );
+
+  // top rewards:
+  const topRewards = rewardRedeemed?.[0]?.topRewards?.[0];
+
+  return {
+    reward: {
+      currentMonthActiveRewards,
+      previousMonthActiveRewards,
+      rewardPercentageChange,
+      rewardPercentageIncrease,
+    },
+    // redeemtion :
+    redeem: {
+      currentMonthRedeemedRewards,
+      previousMonthRedeemedRewards,
+      redeemedRewardPercentageIncrease,
+      redeemedRewardPercentageChange,
+    },
+    topRewards,
+  };
+};
+
+// Get Single Reward Details with Redeemtion and claimed:
+const getRewardDetailsForAdmin = async (rewardId: string) => {
+  const reward = await Reward.findById(rewardId).select(
+    'name description inStoreRedemptionMethods  onlineRedemptionMethods image isActive status'
+  );
+
+  if (!reward) {
+    throw new AppError(httpStatus.NOT_FOUND, 'Reward not found!');
+  }
+
+  const redeemtions = new QueryBuilder(
+    RewardRedemption.find({
+      reward: reward?._id,
+      isHidden: { $ne: true },
+    }).populate({
+      path: 'user',
+      select: 'name image address phoneNumber auth',
+      populate: {
+        path: 'auth',
+        select: 'email status',
+      },
+    }),
+    {}
+  )
+    .sort()
+    .paginate();
+
+  const data = await redeemtions.modelQuery;
+  const meta = await redeemtions.countTotal();
+
+  return {
+    data: {
+      redeemtionList: data,
+      reward,
+    },
+    meta,
+  };
 };
 
 export const rewardService = {
@@ -965,7 +1732,7 @@ export const rewardService = {
   getRewards,
   getRewardsByBusiness,
   deleteReward,
-  archiveReward,
+  canDeleteReward,
   checkAvailability,
   uploadCodesToReward,
   updateExpiredRewards,
@@ -974,4 +1741,8 @@ export const rewardService = {
   getUserExploreRewards,
   getAdminRewards,
   toggleRewardStatus,
+  getAdminRewardAnalytics,
+  getRewardDetailsForAdmin,
+  createOnlineReward,
+  deleteRewardImage,
 };

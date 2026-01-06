@@ -37,7 +37,6 @@ export const generateReceiptPDF = (data: IReceiptPDFData): Promise<Buffer> => {
     // --- DONOR & ORGANIZATION ---
     const startY = 160;
 
-    // Donor Column
     doc
       .text('ISSUED TO:', 50, startY, { underline: true })
       .font('Helvetica-Bold')
@@ -45,7 +44,6 @@ export const generateReceiptPDF = (data: IReceiptPDFData): Promise<Buffer> => {
       .font('Helvetica')
       .text(data.donorEmail, 50, startY + 30);
 
-    // Organization Column
     doc
       .text('RECIPIENT ORGANIZATION:', 300, startY, { underline: true })
       .font('Helvetica-Bold')
@@ -66,7 +64,7 @@ export const generateReceiptPDF = (data: IReceiptPDFData): Promise<Buffer> => {
     generateHr(doc, tableTop + 20);
     doc.font('Helvetica');
 
-    // 1. Base Donation (Tax Deductible)
+    // 1. Base Donation
     tableTop += 30;
     generateTableRow(
       doc,
@@ -75,10 +73,8 @@ export const generateReceiptPDF = (data: IReceiptPDFData): Promise<Buffer> => {
       formatCurrency(data.amount, currencySymbol)
     );
 
-    // 2. Fees (If Covered by Donor)
-    // We check if (Platform Fee > 0 OR Stripe Fee > 0) to display the section
+    // 2. Fees Section
     if (data.coverFees && (data.platformFee > 0 || data.stripeFee > 0)) {
-      // Platform Fee
       if (data.platformFee > 0) {
         tableTop += 25;
         generateTableRow(
@@ -88,8 +84,6 @@ export const generateReceiptPDF = (data: IReceiptPDFData): Promise<Buffer> => {
           formatCurrency(data.platformFee, currencySymbol)
         );
       }
-
-      // Stripe Fee (Transaction Fee)
       if (data.stripeFee > 0) {
         tableTop += 25;
         generateTableRow(
@@ -99,8 +93,6 @@ export const generateReceiptPDF = (data: IReceiptPDFData): Promise<Buffer> => {
           formatCurrency(data.stripeFee, currencySymbol)
         );
       }
-
-      // GST
       if (data.gstOnFee > 0) {
         tableTop += 25;
         generateTableRow(
@@ -110,22 +102,65 @@ export const generateReceiptPDF = (data: IReceiptPDFData): Promise<Buffer> => {
           formatCurrency(data.gstOnFee, currencySymbol)
         );
       }
+    } else {
+      // Fees deducted from the donation
+      if (data.platformFee > 0) {
+        tableTop += 25;
+        generateTableRow(
+          doc,
+          tableTop,
+          'Platform & Service Fee (Deducted)',
+          `-${formatCurrency(data.platformFee, currencySymbol)}`
+        );
+      }
+      if (data.stripeFee > 0) {
+        tableTop += 25;
+        generateTableRow(
+          doc,
+          tableTop,
+          'Transaction Fee (Stripe) (Deducted)',
+          `-${formatCurrency(data.stripeFee, currencySymbol)}`
+        );
+      }
+      if (data.gstOnFee > 0) {
+        tableTop += 25;
+        generateTableRow(
+          doc,
+          tableTop,
+          'GST (10% on Platform Fees) (Deducted)',
+          `-${formatCurrency(data.gstOnFee, currencySymbol)}`
+        );
+      }
     }
 
-    // 3. Total Line
+    // 3. Total Paid by Donor
     tableTop += 35;
     generateHr(doc, tableTop - 10);
     doc.font('Helvetica-Bold');
     generateTableRow(
       doc,
       tableTop,
-      'TOTAL PAID',
+      'TOTAL PAID BY DONOR',
       formatCurrency(data.totalAmount, currencySymbol)
     );
-    doc.font('Helvetica');
+
+    // --- NEW SECTION: AMOUNT RECEIVED BY ORG ---
+    // Calculation: Total Paid - (Platform Fee + Stripe Fee + GST)
+    const netReceived =
+      data.totalAmount - (data.platformFee + data.stripeFee + data.gstOnFee);
+
+    tableTop += 25;
+    doc.font('Helvetica-BoldOblique').fillColor('#2e7d32'); // Dark green color for clarity
+    generateTableRow(
+      doc,
+      tableTop,
+      'NET AMOUNT TO ORGANIZATION',
+      formatCurrency(netReceived, currencySymbol)
+    );
+    doc.fillColor('#444444').font('Helvetica'); // Reset style
 
     // --- FOOTER ---
-    const footerTop = 500;
+    const footerTop = 520; // Adjusted slightly down
 
     if (data.taxDeductible) {
       doc
@@ -152,7 +187,7 @@ export const generateReceiptPDF = (data: IReceiptPDFData): Promise<Buffer> => {
   });
 };
 
-// --- HELPER FUNCTIONS FOR PDF LAYOUT ---
+// --- HELPER FUNCTIONS ---
 
 function generateTableRow(
   doc: PDFKit.PDFDocument,
@@ -163,7 +198,7 @@ function generateTableRow(
   doc
     .fontSize(10)
     .text(item, 50, y)
-    .text(price, 0, y, { align: 'right', width: 540 }); // 595 is A4 width, 50 margin right approx
+    .text(price, 0, y, { align: 'right', width: 540 });
 }
 
 function generateHr(doc: PDFKit.PDFDocument, y: number) {
@@ -171,5 +206,5 @@ function generateHr(doc: PDFKit.PDFDocument, y: number) {
 }
 
 function formatCurrency(amount: number, symbol: string) {
-  return `${symbol}${amount.toFixed(2)}`;
+  return `${symbol}${Math.max(0, amount).toFixed(2)}`;
 }

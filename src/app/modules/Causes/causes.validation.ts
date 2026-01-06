@@ -18,7 +18,7 @@ const createCauseSchema = z.object({
     category: z.enum(causeCategoryTypeValues as [string, ...string[]], {
       message: 'Invalid cause category!',
     }),
-    organization: z
+    organizationId: z
       .string({
         message: 'Organization ID is required!',
       })

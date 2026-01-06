@@ -3,10 +3,10 @@ import { sendResponse } from '../../utils/ResponseHandler';
 import { catchAsync } from '../../errors';
 import { roundUpService } from './roundUp.service';
 import { manualTriggerRoundUpProcessing } from '../../jobs/roundUpTransactions.job';
-
+import httpStatus from 'http-status';
 // Controller functions that handle HTTP requests/responses and call service functions
 const savePlaidConsent = catchAsync(async (req: Request, res: Response) => {
-  const userId = req.user.id;
+  const userId = req.user._id?.toString();
   const payload = req.body;
 
   const result = await roundUpService.savePlaidConsent(userId, payload);
@@ -19,7 +19,7 @@ const savePlaidConsent = catchAsync(async (req: Request, res: Response) => {
 });
 
 const revokeConsent = catchAsync(async (req: Request, res: Response) => {
-  const userId = req.user.id;
+  const userId = req.user._id?.toString();
   const { bankConnectionId } = req.params;
 
   const result = await roundUpService.revokeConsent(userId, bankConnectionId);
@@ -32,7 +32,7 @@ const revokeConsent = catchAsync(async (req: Request, res: Response) => {
 });
 
 const syncTransactions = catchAsync(async (req: Request, res: Response) => {
-  const userId = req.user.id;
+  const userId = req.user._id?.toString();
   const { bankConnectionId } = req.params;
   const payload = req.body;
 
@@ -49,20 +49,35 @@ const syncTransactions = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
-const processMonthlyDonation = catchAsync(
-  async (req: Request, res: Response) => {
-    const userId = req.user.id;
-    const payload = req.body;
+const updateRoundUp = catchAsync(async (req: Request, res: Response) => {
+  const userId = req.user._id?.toString();
+  const { id } = req.params;
+  console.log({
+    userId,
+    user: req.user,
+    id,
+  });
+  const result = await roundUpService.updateRoundUp(userId, id, req.body);
 
-    const result = await roundUpService.processMonthlyDonation(userId, payload);
+  return sendResponse(res, 200, {
+    success: true,
+    message: 'Round-up updated successfully',
+    data: result,
+  });
+});
 
-    return sendResponse(res, result.statusCode, {
-      success: result.success,
-      message: result.message,
-      data: result.data,
-    });
-  }
-);
+const cancelRoundUp = catchAsync(async (req: Request, res: Response) => {
+  const userId = req.user._id?.toString();
+  const { id } = req.params;
+  const { reason } = req.body;
+  const result = await roundUpService.cancelRoundUp(userId, id, reason);
+
+  return sendResponse(res, 200, {
+    success: true,
+    message: 'Round-up cancelled successfully',
+    data: result,
+  });
+});
 
 // Manual cron test endpoint for testing RoundUp processing
 const testRoundUpProcessingCron = catchAsync(
@@ -88,7 +103,7 @@ const testRoundUpProcessingCron = catchAsync(
 );
 
 const resumeRoundUp = catchAsync(async (req: Request, res: Response) => {
-  const userId = req.user.id;
+  const userId = req.user._id?.toString();
   const payload = req.body;
 
   const result = await roundUpService.resumeRoundUp(userId, payload);
@@ -101,7 +116,7 @@ const resumeRoundUp = catchAsync(async (req: Request, res: Response) => {
 });
 
 const switchCharity = catchAsync(async (req: Request, res: Response) => {
-  const userId = req.user.id;
+  const userId = req.user._id?.toString();
   const payload = req.body;
 
   const result = await roundUpService.switchCharity(userId, payload);
@@ -114,7 +129,7 @@ const switchCharity = catchAsync(async (req: Request, res: Response) => {
 });
 
 const getUserDashboard = catchAsync(async (req: Request, res: Response) => {
-  const userId = req.user.id;
+  const userId = req.user._id?.toString();
 
   const result = await roundUpService.getUserDashboard(userId);
 
@@ -125,13 +140,44 @@ const getUserDashboard = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+const getActiveRoundup = catchAsync(async (req: Request, res: Response) => {
+  const userId = req.user._id;
+
+  const result = await roundUpService.getActiveRoundup(userId?.toString());
+
+  return sendResponse(res, httpStatus.OK, {
+    success: true,
+    message: 'Round config fetched successfully!',
+    data: result,
+  });
+});
+
+const getOrganizationForUserRoundup = catchAsync(
+  async (req: Request, res: Response) => {
+    const userId = req.user._id;
+
+    const result = await roundUpService.getOrganizationForUserRoundup(
+      userId?.toString()
+    );
+
+    return sendResponse(res, httpStatus.OK, {
+      success: true,
+      message: 'All organization Fetched successfully for user roundup.',
+      data: result,
+    });
+  }
+);
+
 export const roundUpController = {
   savePlaidConsent,
   revokeConsent,
   syncTransactions,
-  processMonthlyDonation,
   testRoundUpProcessingCron,
   resumeRoundUp,
   switchCharity,
   getUserDashboard,
+  updateRoundUp,
+  cancelRoundUp,
+  getActiveRoundup,
+  getOrganizationForUserRoundup,
 };

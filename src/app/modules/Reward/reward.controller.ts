@@ -35,6 +35,20 @@ const createReward = asyncHandler(async (req: Request, res: Response) => {
   });
 });
 
+const createOnlineRewardController = async (req: Request, res: Response) => {
+  const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+  const imageFile = files['rewardImage']?.[0];
+  const codesFiles = files['codesFiles']; // Array of files
+
+  const result = await rewardService.createOnlineReward(
+    req.body,
+    imageFile,
+    codesFiles
+  );
+
+  res.status(201).json({ success: true, data: result });
+};
+
 /**
  * Update a reward
  */
@@ -195,30 +209,61 @@ const getRewardsByBusiness = asyncHandler(
 );
 
 /**
- * Delete reward (soft delete)
+ * Delete reward (hard delete with cleanup)
  */
-const deleteReward = asyncHandler(async (req: Request, res: Response) => {
-  await rewardService.deleteReward(req.params.id);
+const deleteReward = asyncHandler(
+  async (req: ExtendedRequest, res: Response) => {
+    const userId = req.user?._id?.toString();
 
-  sendResponse(res, {
-    statusCode: httpStatus.OK,
-    message: REWARD_MESSAGES.DELETED,
-    data: null,
-  });
-});
+    if (!userId) {
+      throw new AppError(httpStatus.UNAUTHORIZED, 'User not authenticated');
+    }
+
+    const result = await rewardService.deleteReward(req.params.id, userId);
+
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      message: REWARD_MESSAGES.DELETED,
+      data: result,
+    });
+  }
+);
 
 /**
- * Archive reward (hard delete)
+ * Delete reward (hard delete with cleanup)
  */
-const archiveReward = asyncHandler(async (req: Request, res: Response) => {
-  await rewardService.archiveReward(req.params.id);
+const deleteRewardImage = asyncHandler(
+  async (req: ExtendedRequest, res: Response) => {
+    const userId = req.user?._id?.toString();
 
-  sendResponse(res, {
-    statusCode: httpStatus.OK,
-    message: REWARD_MESSAGES.ARCHIVED,
-    data: null,
-  });
-});
+    if (!userId) {
+      throw new AppError(httpStatus.UNAUTHORIZED, 'User not authenticated');
+    }
+
+    const result = await rewardService.deleteRewardImage(req.params.id, userId);
+
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      message: REWARD_MESSAGES.DELETED,
+      data: result,
+    });
+  }
+);
+
+/**
+ * Check if reward can be deleted
+ */
+const canDeleteReward = asyncHandler(
+  async (req: ExtendedRequest, res: Response) => {
+    const result = await rewardService.canDeleteReward(req.params.id);
+
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      message: 'Delete check completed',
+      data: result,
+    });
+  }
+);
 
 /**
  * Upload codes to reward (supports multiple files)
@@ -237,8 +282,6 @@ const uploadCodes = asyncHandler(async (req: Request, res: Response) => {
     message: REWARD_MESSAGES.CODES_UPLOADED,
     data: {
       codesAdded: result.codesAdded,
-      codesDuplicated: result.codesDuplicated,
-      totalCodes: result.reward.codes.length,
       newRedemptionLimit: result.reward.redemptionLimit,
       filesProcessed: result.filesProcessed,
     },
@@ -334,6 +377,31 @@ const getAdminRewards = asyncHandler(async (req: Request, res: Response) => {
   });
 });
 
+const getAdminRewardsAnalytics = asyncHandler(
+  async (req: Request, res: Response) => {
+    const result = await rewardService.getAdminRewardAnalytics();
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      message: 'Admin rewards analytics retrieved successfully',
+      data: result,
+    });
+  }
+);
+
+const getRewardDetailsForAdmin = asyncHandler(
+  async (req: Request, res: Response) => {
+    const rewardId = req.params.rewardId;
+
+    const result = await rewardService.getRewardDetailsForAdmin(rewardId);
+    sendResponse(res, {
+      statusCode: httpStatus.OK,
+      message: 'Reward details retrieved successfully',
+      data: result.data,
+      meta: result.meta,
+    });
+  }
+);
+
 export const RewardController = {
   // CRUD
   createReward,
@@ -344,7 +412,7 @@ export const RewardController = {
   getFeaturedRewards,
   getRewardsByBusiness,
   deleteReward,
-  archiveReward,
+  canDeleteReward,
   uploadCodes,
   checkAvailability,
 
@@ -355,4 +423,8 @@ export const RewardController = {
   // Admin/Dev Tools
   triggerRewardMaintenance,
   toggleRewardStatus,
+  getAdminRewardsAnalytics,
+  getRewardDetailsForAdmin,
+  createOnlineRewardController,
+  deleteRewardImage,
 };

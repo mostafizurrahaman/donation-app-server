@@ -17,9 +17,7 @@ import {
   MAX_REDEMPTION_LIMIT,
   MAX_TITLE_LENGTH,
   MAX_DESCRIPTION_LENGTH,
-  MAX_CODE_LENGTH,
 } from './reward.constant';
-import { REDEMPTION_METHOD_VALUES } from '../RewardRedeemtion/reward-redeemtion.constant';
 
 // Limit Update History Sub-Schema
 const limitUpdateRecordSchema = new Schema<ILimitUpdateRecord>(
@@ -29,29 +27,6 @@ const limitUpdateRecordSchema = new Schema<ILimitUpdateRecord>(
     changedBy: { type: Schema.Types.ObjectId, ref: 'Auth', required: true },
     changedAt: { type: Date, required: true },
     reason: { type: String, maxlength: 500 },
-  },
-  { _id: false }
-);
-
-// Reward Code Sub-Schema
-const rewardCodeSchema = new Schema<IRewardCode>(
-  {
-    code: {
-      type: String,
-      required: true,
-      maxlength: MAX_CODE_LENGTH,
-      trim: true,
-    },
-    isGiftCard: { type: Boolean, default: false },
-    isDiscountCode: { type: Boolean, default: false },
-    isUsed: { type: Boolean, default: false, index: true },
-    usedBy: { type: Schema.Types.ObjectId, ref: 'Client' },
-    usedAt: { type: Date },
-    redemptionId: { type: Schema.Types.ObjectId, ref: 'RewardRedemption' },
-    redemptionMethod: {
-      type: String,
-      enum: [...REDEMPTION_METHOD_VALUES, undefined],
-    },
   },
   { _id: false }
 );
@@ -172,10 +147,11 @@ const rewardSchema = new Schema<IRewardDocument, IRewardModel>(
     onlineRedemptionMethods: {
       type: onlineRedemptionMethodsSchema,
     },
-
-    codes: {
-      type: [rewardCodeSchema],
-      default: [],
+    codePrefix: {
+      type: String,
+      unique: true,
+      uppercase: true,
+      index: true,
     },
 
     featured: {
@@ -183,6 +159,8 @@ const rewardSchema = new Schema<IRewardDocument, IRewardModel>(
       default: false,
       index: true,
     },
+    
+
     priority: {
       type: Number,
       default: 1,
@@ -325,15 +303,19 @@ rewardSchema.methods.returnCode = async function (code: string): Promise<void> {
 rewardSchema.methods.checkAvailability = function (): boolean {
   const now = new Date();
 
+  // 1. Check if the reward is manually disabled
   if (!this.isActive) return false;
-  if (this.startDate > now) return false;
-  if (this.expiryDate && this.expiryDate < now) return false;
-  if (this.remainingCount <= 0) return false;
 
-  if (this.type === 'online' && this.codes.length > 0) {
-    const availableCode = this.codes.find((code: IRewardCode) => !code.isUsed);
-    if (!availableCode) return false;
-  }
+  // 2. Check if the start date has been reached
+  if (this.startDate > now) return false;
+
+  // 3. Check if the reward has expired
+  if (this.expiryDate && this.expiryDate < now) return false;
+
+  // 4. Check if there is stock remaining
+  // This replaces the need to check the separate 'RewardCode' collection
+  // because 'remainingCount' is the source of truth for available inventory.
+  if (this.remainingCount <= 0) return false;
 
   return true;
 };

@@ -1,5 +1,6 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import httpStatus from 'http-status';
-import { AppError } from '../../utils';
+import { AppError, deleteFromS3, uploadToS3 } from '../../utils';
 import Organization from './organization.model';
 import Auth from '../Auth/auth.model';
 import { StripeService } from '../Stripe/stripe.service';
@@ -7,32 +8,32 @@ import {
   TEditOrgTaxDetails,
   TEditProfileOrgDetails,
 } from './organization.validation';
-import { ROLE } from '../Auth/auth.constant';
+import { ROLE, AUTH_STATUS } from '../Auth/auth.constant';
 import { IAuth } from '../Auth/auth.interface';
-import fs from 'fs';
 import { createAccessToken } from '../../lib';
 import { searchableFields } from './organization.constants';
-import { AUTH_STATUS } from '../Auth/auth.constant';
 import QueryBuilder from '../../builders/QueryBuilder';
-import { is } from 'zod/v4/locales';
 import Cause from '../Causes/causes.model';
-import { DonationService } from '../Donation/donation.service';
 import Donation from '../Donation/donation.model';
+import { StripeAccount } from '../OrganizationAccount/stripe-account.model';
+import { getS3KeyFromUrl } from '../../utils/s3.utils';
+import { CAUSE_STATUS_TYPE } from '../Causes/causes.constant';
+import { SubscriptionService } from '../Subscription/subscription.service';
 
 /**
  * Start Stripe Connect onboarding for an organization
- * Creates a Stripe Connect account and returns onboarding URL
+ * Checks for existing account first to prevent duplicates.
  */
 const startStripeConnectOnboarding = async (
   userId: string
 ): Promise<{ onboardingUrl: string; accountId: string }> => {
-  // Find user
+  // 1. Find user to get email
   const user = await Auth.findById(userId);
   if (!user) {
     throw new AppError(httpStatus.NOT_FOUND, 'User not found!');
   }
 
-  // Find organization
+  // 2. Find organization associated with this user
   const organization = await Organization.findOne({ auth: userId });
   if (!organization) {
     throw new AppError(
@@ -41,29 +42,45 @@ const startStripeConnectOnboarding = async (
     );
   }
 
-  // Check if already has Stripe Connect account
-  if (organization.stripeConnectAccountId) {
-    // Account exists, create new onboarding link
-    const { onboardingUrl } = await StripeService.createAccountLink(
-      organization.stripeConnectAccountId
+  // 3. Check if a Stripe Account ALREADY exists for this org
+  let stripeAccount = await StripeAccount.findOne({
+    organization: organization._id,
+  });
+
+  let accountId = '';
+
+  if (stripeAccount) {
+    console.log(
+      `♻️ Reusing existing Stripe Account: ${stripeAccount.stripeAccountId}`
+    );
+    accountId = stripeAccount.stripeAccountId;
+  } else {
+    console.log(`🆕 Creating new Stripe Connected Account...`);
+
+    // Call Stripe API to create the Express account
+    const stripeResponse = await StripeService.createConnectAccount(
+      user.email,
+      organization.name || 'Organization',
+      'US'
     );
 
-    return {
-      onboardingUrl,
-      accountId: organization.stripeConnectAccountId,
-    };
+    // Save the new ID to our dedicated StripeAccount model
+    stripeAccount = await StripeAccount.create({
+      organization: organization._id,
+      stripeAccountId: stripeResponse.accountId,
+      status: 'pending',
+      country: 'US',
+      requirements: {
+        currently_due: [],
+        eventually_due: [],
+      },
+    });
+
+    accountId = stripeResponse.accountId;
   }
 
-  // Create new Stripe Connect account
-  const { accountId, onboardingUrl } = await StripeService.createConnectAccount(
-    user.email,
-    organization.name || 'Organization',
-    'US' // You can make this configurable
-  );
-
-  // Save account ID to organization
-  organization.stripeConnectAccountId = accountId;
-  await organization.save();
+  // 4. Generate a fresh Onboarding Link
+  const { onboardingUrl } = await StripeService.createAccountLink(accountId);
 
   return {
     onboardingUrl,
@@ -74,6 +91,7 @@ const startStripeConnectOnboarding = async (
 /**
  * Get Stripe Connect account status
  */
+
 const getStripeConnectStatus = async (
   userId: string
 ): Promise<{
@@ -83,29 +101,60 @@ const getStripeConnectStatus = async (
   chargesEnabled: boolean;
   payoutsEnabled: boolean;
   detailsSubmitted: boolean;
+  requirements: string[];
+  status: string;
 }> => {
-  // Find organization
+  // 1. Find Organization
   const organization = await Organization.findOne({ auth: userId });
   if (!organization) {
     throw new AppError(httpStatus.NOT_FOUND, 'Organization not found!');
   }
 
-  // Check if has Stripe Connect account
-  if (!organization.stripeConnectAccountId) {
+  // 2. Find the Stripe Account record
+  const stripeAccount = await StripeAccount.findOne({
+    organization: organization._id,
+  });
+
+  // 3. Return early if no account exists
+  if (!stripeAccount) {
     return {
       hasAccount: false,
       isActive: false,
       chargesEnabled: false,
       payoutsEnabled: false,
       detailsSubmitted: false,
+      requirements: [],
+      status: 'not_connected',
     };
   }
 
-  // Fetch account details from Stripe
+  // 4. Fetch LATEST details directly from Stripe API (Source of Truth)
   try {
     const account = await StripeService.getConnectAccount(
-      organization.stripeConnectAccountId
+      stripeAccount.stripeAccountId
     );
+
+    // 5. Determine Database Status based on Stripe Flags
+    let newStatus = 'pending';
+    if (account.requirements?.disabled_reason) {
+      newStatus = 'rejected';
+    } else if (account.charges_enabled && account.payouts_enabled) {
+      newStatus = 'active';
+    } else if ((account.requirements?.currently_due || []).length > 0) {
+      newStatus = 'restricted';
+    }
+
+    // 6. SYNC: Update local database with fresh data (Self-healing)
+    stripeAccount.chargesEnabled = account.charges_enabled;
+    stripeAccount.payoutsEnabled = account.payouts_enabled;
+    stripeAccount.detailsSubmitted = account.details_submitted;
+    stripeAccount.status = newStatus as any;
+    stripeAccount.requirements = {
+      currently_due: account.requirements?.currently_due || [],
+      eventually_due: account.requirements?.eventually_due || [],
+      disabled_reason: account.requirements?.disabled_reason! || null,
+    };
+    await stripeAccount.save();
 
     return {
       hasAccount: true,
@@ -114,52 +163,48 @@ const getStripeConnectStatus = async (
       chargesEnabled: account.charges_enabled,
       payoutsEnabled: account.payouts_enabled,
       detailsSubmitted: account.details_submitted,
+      requirements: account.requirements?.currently_due || [],
+      status: newStatus,
     };
   } catch (error) {
     throw new AppError(
       httpStatus.INTERNAL_SERVER_ERROR,
-      `Failed to fetch Stripe Connect account status: ${
-        (error as Error).message
-      }`
+      `Failed to fetch Stripe Connect status: ${(error as Error).message}`
     );
   }
 };
 
 /**
  * Refresh Stripe Connect onboarding link
+ * Used when a user's link expires or they return to finish the process.
  */
 const refreshStripeConnectOnboarding = async (
   userId: string
 ): Promise<{ onboardingUrl: string }> => {
-  // Find organization
+  // 1. Find Organization
   const organization = await Organization.findOne({ auth: userId });
   if (!organization) {
     throw new AppError(httpStatus.NOT_FOUND, 'Organization not found!');
   }
 
-  if (!organization.stripeConnectAccountId) {
+  // 2. Find Stripe Account
+  const stripeAccount = await StripeAccount.findOne({
+    organization: organization._id,
+  });
+
+  if (!stripeAccount || !stripeAccount.stripeAccountId) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
       'No Stripe Connect account found! Please start onboarding first.'
     );
   }
 
-  // Create new account link
+  // 3. Create new account link using the existing ID
   const { onboardingUrl } = await StripeService.createAccountLink(
-    organization.stripeConnectAccountId
+    stripeAccount.stripeAccountId
   );
 
   return { onboardingUrl };
-};
-
-const deleteOldImage = async (imagePath: string | undefined) => {
-  if (imagePath) {
-    try {
-      await fs.promises.unlink(imagePath);
-    } catch (error: unknown) {
-      console.error('Error deleting old file:', error);
-    }
-  }
 };
 
 export const updateOrganizationImage = async (
@@ -167,38 +212,54 @@ export const updateOrganizationImage = async (
   file: Express.Multer.File | undefined,
   imageField: 'coverImage' | 'logoImage'
 ) => {
-  if (!file?.path) {
+  // 1. Validation: Since we use memoryStorage, check for the file object
+  if (!file) {
     throw new AppError(httpStatus.BAD_REQUEST, 'File is required!');
   }
 
-  // Find the organization
+  // 2. Find the organization
   const organization = await Organization.findOne({ auth: user?._id });
 
   if (!organization) {
-    await fs.promises.unlink(file?.path);
     throw new AppError(httpStatus.NOT_FOUND, 'Organization not found!');
   }
 
-  // Delete the old image if it exists
-  await deleteOldImage(organization?.[imageField]);
+  // 3. Cleanup: Delete the old image from S3 if it exists
+  const oldImageUrl = organization[imageField];
+  if (oldImageUrl) {
+    const oldKey = getS3KeyFromUrl(oldImageUrl);
+    if (oldKey) {
+      // Delete from S3 (fire and forget or await)
+      await deleteFromS3(oldKey).catch((err) =>
+        console.error('Failed to delete old organization image from S3:', err)
+      );
+    }
+  }
 
-  // Update the image field with the new file path
+  // 4. Upload new image to S3
+  const folderPath = `profiles/organizations`;
+  const fileName = `${user._id}-${Date.now()}`;
+
+  const uploadResult = await uploadToS3({
+    buffer: file.buffer,
+    key: fileName,
+    contentType: file.mimetype,
+    folder: folderPath,
+  });
+
   const updatedOrganization = await Organization.findOneAndUpdate(
     { auth: user?._id },
-    { [imageField]: file.path.replace(/\\/g, '/') }, // Ensure correct path format
+    { [imageField]: uploadResult.url },
     { new: true }
   ).select('name coverImage logoImage');
 
   if (!updatedOrganization) {
-    await fs.promises.unlink(file?.path); // Clean up if update fails
     throw new AppError(
       httpStatus.INTERNAL_SERVER_ERROR,
-      'Something went wrong!'
+      'Failed to update organization image in database'
     );
   }
 
-  // Prepare JWT payload with updated image
-  // Only return access token if coverImage is updated (since it's in JWT payload)
   if (imageField === 'coverImage') {
     const accessTokenPayload = {
       id: user?._id.toString(),
@@ -208,6 +269,7 @@ export const updateOrganizationImage = async (
       role: user?.role,
       isProfile: user?.isProfile,
       isActive: user?.isActive,
+      status: user?.status,
     };
 
     const accessToken = createAccessToken(accessTokenPayload);
@@ -215,7 +277,6 @@ export const updateOrganizationImage = async (
     return { accessToken, organization: updatedOrganization };
   }
 
-  // For logoImage, just return the updated organization
   return { organization: updatedOrganization };
 };
 
@@ -285,6 +346,7 @@ const updateLogoImageIntoDB = async (
 
   return updateOrganizationImage(user, file, 'logoImage');
 };
+
 /**
  * Edit Organization Tax Details (Tab 2)
  * PATCH /api/v1/organization/tax-details
@@ -335,7 +397,7 @@ const editOrgTaxDetailsIntoDB = async (
 };
 
 /**
- * Get verified Carities/ Organizations list
+ * Get verified Charities/ Organizations list
  */
 const getAllOrganizations = async (query: Record<string, unknown>) => {
   // Extract special filters
@@ -350,6 +412,7 @@ const getAllOrganizations = async (query: Record<string, unknown>) => {
   } = query;
 
   // Build base conditions
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const conditions: any = {};
 
   if (dateOfEstablishment) {
@@ -372,12 +435,15 @@ const getAllOrganizations = async (query: Record<string, unknown>) => {
   }
 
   // Handle status filter
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let authIdArray: any[] = [];
   if (status) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const authQuery: any = { role: ROLE.ORGANIZATION };
 
     if (status) {
       authQuery.status = status;
+      // Map active status to isActive flag for legacy support if needed
       authQuery.isActive = status === AUTH_STATUS.VERIFIED;
     }
 
@@ -385,8 +451,6 @@ const getAllOrganizations = async (query: Record<string, unknown>) => {
     authIdArray = authIds.map((auth) => auth._id);
     conditions.auth = { $in: authIdArray };
   }
-
-  console.log('Conditions:', conditions);
 
   // Create base query with conditions
   const organizationQuery = Organization.find(conditions).populate({
@@ -408,6 +472,7 @@ const getAllOrganizations = async (query: Record<string, unknown>) => {
 
   // Populate causes after QueryBuilder execution (if requested)
   if (populateCauses === 'true' || populateCauses === true) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const organizationIds = result.map((org: any) => org._id);
 
     // Get causes for all organizations in one query
@@ -416,8 +481,10 @@ const getAllOrganizations = async (query: Record<string, unknown>) => {
     });
 
     // Map causes to their organizations
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const resultWithCauses = result.map((org: any) => {
       const orgObject = org.toObject();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       orgObject.causes = causes.filter(
         (cause: any) => cause.organization.toString() === org._id.toString()
       );
@@ -450,6 +517,10 @@ const getOrganizationDetailsById = async (organizationId: string) => {
   if (!organization) {
     throw new AppError(httpStatus.NOT_FOUND, 'Organization not found!');
   }
+
+  const hasSubscription = await SubscriptionService.checkHasSubscription(
+    organization._id.toString()
+  );
 
   const organizationDonationStats = await Donation.aggregate([
     {
@@ -504,25 +575,28 @@ const getOrganizationDetailsById = async (organizationId: string) => {
     },
   ]);
 
+  // supported causes:
+  const causes = await Cause.find({
+    organization: organization?._id,
+    status: CAUSE_STATUS_TYPE.VERIFIED,
+  }).select('name category status description');
+
   const organizationStats = organizationDonationStats[0];
-  console.log(organizationStats);
-  const totalDonation = organizationStats?.totalDonations?.[0]?.count;
+
+  const totalDonation = organizationStats?.totalDonations?.[0]?.count || 0;
   const totalDonationAmount =
-    organizationStats?.totalDonationAmount?.[0]?.totalAmount;
-  const recentDonors = organizationStats?.recentDonors;
-  console.log({
-    ...organization.toObject(),
-    totalDonation,
-    totalDonationAmount,
-    recentDonors,
-  });
+    organizationStats?.totalDonationAmount?.[0]?.totalAmount || 0;
+  const recentDonors = organizationStats?.recentDonors || [];
 
   return {
     ...organization.toObject(),
     totalDonation,
     totalDonationAmount,
     recentDonors,
-    // organizationStats,
+    causes,
+    isOnetime: true,
+    isRecurring: hasSubscription,
+    isRoundup: hasSubscription,
   };
 };
 

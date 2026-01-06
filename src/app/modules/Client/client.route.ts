@@ -12,6 +12,7 @@ const router = express.Router();
 // Get roundup stats
 router.get(
   '/roundup-stats',
+  validateRequest(clientValidationSchema?.getUserRoundupForOrganization),
   auth(ROLE.CLIENT),
   clientController.getRoundupStats
 );

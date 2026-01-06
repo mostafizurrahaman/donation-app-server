@@ -1,9 +1,13 @@
 import { Request, Response } from 'express';
-import { StatusCodes } from 'http-status-codes';
-import bankConnectionService from './bankConnection.service';
+import httpStatus from 'http-status';
+import bankConnectionService, {
+  bankConnectionServices,
+} from './bankConnection.service';
 import { IPlaidLinkTokenRequest } from './bankConnection.interface';
 import { sendResponse } from '../../utils/ResponseHandler';
 import { catchAsync } from '../../errors';
+import { asyncHandler } from '../../utils';
+import { basiqService } from './basiq.service';
 
 // Generate Plaid Link token
 const generateLinkToken = catchAsync(async (req: Request, res: Response) => {
@@ -24,7 +28,7 @@ const generateLinkToken = catchAsync(async (req: Request, res: Response) => {
     plaidLinkTokenRequest
   );
 
-  sendResponse(res, StatusCodes.OK, {
+  sendResponse(res, httpStatus.OK, {
     success: true,
     message: hasActiveConnection
       ? 'Link token generated successfully. Note: You already have an active bank connection.'
@@ -60,7 +64,7 @@ const createBankConnection = catchAsync(async (req: Request, res: Response) => {
       userId
     );
 
-  sendResponse(res, StatusCodes.CREATED, {
+  sendResponse(res, httpStatus.CREATED, {
     success: true,
     message: 'Bank connection created successfully',
     data: bankConnection,
@@ -77,7 +81,7 @@ const syncTransactions = catchAsync(async (req: Request, res: Response) => {
     bankConnectionId
   );
   if (!bankConnection || String(bankConnection.user) !== String(userId)) {
-    return sendResponse(res, StatusCodes.NOT_FOUND, {
+    return sendResponse(res, httpStatus.NOT_FOUND, {
       success: false,
       message: 'Bank connection not found',
       data: null,
@@ -90,7 +94,7 @@ const syncTransactions = catchAsync(async (req: Request, res: Response) => {
     req.body.count
   );
 
-  sendResponse(res, StatusCodes.OK, {
+  sendResponse(res, httpStatus.OK, {
     success: true,
     message: 'Transactions synced successfully',
     data: syncResponse,
@@ -107,14 +111,9 @@ const getTransactions = catchAsync(async (req: Request, res: Response) => {
   const bankConnection = await bankConnectionService.getBankConnectionById(
     bankConnectionId
   );
-  console.log({
-    userId,
-    user: req.user,
-    bankConnectionId,
-    bankConnection,
-  });
+
   if (!bankConnection || String(bankConnection.user) !== String(userId)) {
-    return sendResponse(res, StatusCodes.NOT_FOUND, {
+    return sendResponse(res, httpStatus.NOT_FOUND, {
       success: false,
       message: 'Bank connection not found',
       data: null,
@@ -122,7 +121,7 @@ const getTransactions = catchAsync(async (req: Request, res: Response) => {
   }
 
   if (!startDate || !endDate) {
-    return sendResponse(res, StatusCodes.BAD_REQUEST, {
+    return sendResponse(res, httpStatus.BAD_REQUEST, {
       success: false,
       message: 'Start date and end date are required',
       data: null,
@@ -135,7 +134,7 @@ const getTransactions = catchAsync(async (req: Request, res: Response) => {
     new Date(endDate as string)
   );
 
-  sendResponse(res, StatusCodes.OK, {
+  sendResponse(res, httpStatus.OK, {
     success: true,
     message: 'Transactions retrieved successfully',
     data: transactions,
@@ -151,14 +150,14 @@ const getUserBankConnection = catchAsync(
       await bankConnectionService.getBankConnectionByUserId(userId);
 
     if (!bankConnection) {
-      return sendResponse(res, StatusCodes.NOT_FOUND, {
+      return sendResponse(res, httpStatus.NOT_FOUND, {
         success: false,
         message: 'No active bank connection found',
         data: null,
       });
     }
 
-    sendResponse(res, StatusCodes.OK, {
+    sendResponse(res, httpStatus.OK, {
       success: true,
       message: 'Bank connection retrieved successfully',
       data: bankConnection,
@@ -177,7 +176,7 @@ const getUserBankAccounts = catchAsync(async (req: Request, res: Response) => {
     );
 
   if (!result.accounts || result.accounts.length === 0) {
-    return sendResponse(res, StatusCodes.OK, {
+    return sendResponse(res, httpStatus.OK, {
       success: true,
       message: 'No bank accounts found',
       data: [],
@@ -185,7 +184,7 @@ const getUserBankAccounts = catchAsync(async (req: Request, res: Response) => {
     });
   }
 
-  sendResponse(res, StatusCodes.OK, {
+  sendResponse(res, httpStatus.OK, {
     success: true,
     message: 'Bank accounts retrieved successfully',
     data: result.accounts,
@@ -203,7 +202,7 @@ const updateBankConnection = catchAsync(async (req: Request, res: Response) => {
     bankConnectionId
   );
   if (!bankConnection || bankConnection.user !== userId) {
-    return sendResponse(res, StatusCodes.NOT_FOUND, {
+    return sendResponse(res, httpStatus.NOT_FOUND, {
       success: false,
       message: 'Bank connection not found',
       data: null,
@@ -215,7 +214,7 @@ const updateBankConnection = catchAsync(async (req: Request, res: Response) => {
     req.body
   );
 
-  sendResponse(res, StatusCodes.OK, {
+  sendResponse(res, httpStatus.OK, {
     success: true,
     message: 'Bank connection updated successfully',
     data: updatedConnection,
@@ -232,7 +231,7 @@ const revokeConsent = catchAsync(async (req: Request, res: Response) => {
     bankConnectionId
   );
   if (!bankConnection || bankConnection.user !== userId) {
-    return sendResponse(res, StatusCodes.NOT_FOUND, {
+    return sendResponse(res, httpStatus.NOT_FOUND, {
       success: false,
       message: 'Bank connection not found',
       data: null,
@@ -244,27 +243,9 @@ const revokeConsent = catchAsync(async (req: Request, res: Response) => {
     isActive: false,
   });
 
-  sendResponse(res, StatusCodes.OK, {
+  sendResponse(res, httpStatus.OK, {
     success: true,
     message: 'Bank connection revoked and disconnected successfully',
-    data: null,
-  });
-});
-
-// Plaid webhook handler
-const handleWebhook = catchAsync(async (req: Request, res: Response) => {
-  const { webhook_type, webhook_code, item_id, error } = req.body;
-
-  await bankConnectionService.handleWebhook(
-    webhook_type,
-    webhook_code,
-    item_id,
-    error
-  );
-
-  sendResponse(res, StatusCodes.OK, {
-    success: true,
-    message: 'Webhook processed successfully',
     data: null,
   });
 });
@@ -281,7 +262,7 @@ const getStoredTransactions = catchAsync(
       bankConnectionId
     );
     if (!bankConnection || bankConnection.user !== userId) {
-      return sendResponse(res, StatusCodes.NOT_FOUND, {
+      return sendResponse(res, httpStatus.NOT_FOUND, {
         success: false,
         message: 'Bank connection not found',
         data: null,
@@ -295,7 +276,7 @@ const getStoredTransactions = catchAsync(
       status as string
     );
 
-    sendResponse(res, StatusCodes.OK, {
+    sendResponse(res, httpStatus.OK, {
       success: true,
       message: 'Stored transactions retrieved successfully',
       data: {
@@ -305,6 +286,69 @@ const getStoredTransactions = catchAsync(
     });
   }
 );
+
+const plaidWebhookHandler = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { webhook_type, webhook_code, item_id } = req.body;
+
+    console.log(
+      `\n🔔 Plaid Webhook Received: ${webhook_type} - ${webhook_code}`
+    );
+
+    // Handle Transaction Updates
+    if (webhook_type === 'TRANSACTIONS') {
+      switch (webhook_code) {
+        case 'SYNC_UPDATES_AVAILABLE':
+        case 'INITIAL_UPDATE':
+        case 'HISTORICAL_UPDATE':
+          bankConnectionServices
+            .handleTransactionsWebhook(item_id)
+            .then((stats) => console.log(`✅ Webhook Sync Complete:`, stats))
+            .catch((err) => console.error(`❌ Webhook Sync Failed:`, err));
+          break;
+
+        case 'TRANSACTIONS_REMOVED':
+          break;
+      }
+    }
+
+    // Always respond 200 to Plaid immediately to prevent retries
+    return res.status(httpStatus.OK).json({ received: true });
+  }
+);
+
+const connectBasiqBankAccount = asyncHandler(async (req, res) => {
+  const userId = req.user._id.toString();
+
+  // 1. Ensure user exists in Basiq
+  const basiqUserId = await basiqService.getOrCreateBasiqUser(userId);
+
+  // 2. Generate the login URL
+  const authLink = await basiqService.generateBasiqAuthLink(basiqUserId);
+
+  // 3. Return to frontend
+  sendResponse(res, httpStatus.OK, {
+    success: true,
+    message: 'Basiq Auth Link generated successfully',
+    data: {
+      url: authLink, // Frontend will do: window.location.href = data.url
+    },
+  });
+});
+
+const getBasiqAccounts = asyncHandler(async (req, res) => {
+  const userId = req.user._id.toString();
+
+  console.log('Fetching Basiq accounts for user:', userId);
+
+  const basiqAccounts = await basiqService.getBasiqAccounts(userId);
+
+  sendResponse(res, httpStatus.OK, {
+    success: true,
+    message: 'Basiq Accounts retrieved successfully',
+    data: basiqAccounts,
+  });
+});
 
 export const bankConnectionController = {
   generateLinkToken,
@@ -316,5 +360,7 @@ export const bankConnectionController = {
   getUserBankAccounts,
   updateBankConnection,
   revokeConsent,
-  handleWebhook,
+  plaidWebhookHandler,
+  connectBasiqBankAccount,
+  getBasiqAccounts,
 };

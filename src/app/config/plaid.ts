@@ -30,13 +30,6 @@ if (!PLAID_WEBHOOK_KEY) {
 
 // Plaid environment mapping
 const getPlaidEnvironment = () => {
-  console.log({
-    PLAID_WEBHOOK_KEY,
-    PLAID_WEBHOOK_URL,
-    PLAID_SECRET,
-    PLAID_CLIENT_ID,
-    PLAID_ENV,
-  });
   switch (PLAID_ENV) {
     case 'sandbox':
       return PlaidEnvironments.sandbox;
@@ -61,19 +54,13 @@ const plaidConfig = new Configuration({
   },
 });
 
-console.log('Plaid Configuration:', {
-  environment: PLAID_ENV,
-  basePath: getPlaidEnvironment(),
-  clientIdPresent: !!PLAID_CLIENT_ID,
-  secretPresent: !!PLAID_SECRET,
-});
-
 export const plaidClient = new PlaidApi(plaidConfig);
 
 // Helper function to ensure key is exactly 32 bytes for AES-256
 const getEncryptionKey = (): Buffer => {
-  const keyString = config.encryptionKey || 'default32characterlongencryptionkey!';
-  
+  const keyString =
+    config.encryptionKey || 'default32characterlongencryptionkey!';
+
   // Ensure the key is exactly 32 bytes
   if (keyString.length === 32) {
     return Buffer.from(keyString, 'utf8');

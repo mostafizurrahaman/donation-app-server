@@ -34,7 +34,7 @@ const updateBusinessProfile = asyncHandler(async (req, res) => {
   });
 });
 
-// Update Business Profile Controller
+// Get Business Profile Controller
 const getBusinessProfileById = asyncHandler(async (req, res) => {
   const businessId = req.params?.businessId;
 

@@ -37,6 +37,18 @@ export const updateBankConnectionValidation = z.object({
   consentExpiry: z.date().optional(),
 });
 
+export const saveBasiqAccountValidation = z.object({
+  body: z.object({
+  connectionId: z.string().min(1, 'Bank connection ID is required'),
+  accountId: z.string().min(1, 'Account ID is required'),
+  provider: z.string().min(1, 'Provider is required').refine((val) => val === 'basiq', 'Provider must be basiq'),
+  accountName: z.string().min(1, 'Account name is required'),
+  accountType: z.string().min(1, 'Account type is required'),
+  institutionName: z.string().min(1, 'Account number is required'),
+  institutionId: z.string().min(1, 'Balance is required'),
+})
+});
+
 export type CreateBankConnectionInput = z.infer<
   typeof createBankConnectionValidation
 >;

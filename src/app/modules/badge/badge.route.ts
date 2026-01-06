@@ -1,98 +1,116 @@
-// src/app/modules/badge/badge.route.ts
-
 import express from 'express';
-
 import { ROLE } from '../Auth/auth.constant';
-
-import * as badgeController from './badge.controller';
-import * as badgeValidation from './badge.validation';
 import { auth, validateRequest } from '../../middlewares';
+import { badgeController } from './badge.controller';
+import {
+  createBadgeSchema,
+  getBadgesQuerySchema,
+  markBadgeTierAsPreviewedSchema,
+  updateBadgeSchema,
+} from './badge.validation';
+import { upload } from '../../lib';
+import { validateRequestFromFormData } from '../../middlewares/validateRequest';
 
 const router = express.Router();
 
-// Create badge
-router.post(
-  '/',
-  auth(ROLE.ADMIN),
-  validateRequest(badgeValidation.createBadgeSchema),
-  badgeController.createBadge
-);
-
-// Update badge
-router.patch(
-  '/:id',
-  auth(ROLE.ADMIN),
-  validateRequest(badgeValidation.updateBadgeSchema),
-  badgeController.updateBadge
-);
-
-// Get badge by ID
+// Public / User Routes
 router.get(
-  '/:id',
-  validateRequest(badgeValidation.getBadgeByIdSchema),
-  badgeController.getBadgeById
-);
-
-// Get all badges
-router.get(
-  '/',
-  validateRequest(badgeValidation.getBadgesSchema),
-  badgeController.getBadges
-);
-
-// Delete badge
-router.delete(
-  '/:id',
-  auth(ROLE.ADMIN),
-  validateRequest(badgeValidation.deleteBadgeSchema),
-  badgeController.deleteBadge
-);
-
-// Assign badge to user
-router.post(
-  '/assign',
-  auth(ROLE.ADMIN),
-  validateRequest(badgeValidation.assignBadgeSchema),
-  badgeController.assignBadgeToUser
-);
-
-// Get user badges
-router.get(
-  '/user/:userId',
-  auth(ROLE.CLIENT, ROLE.ADMIN),
-  validateRequest(badgeValidation.getUserBadgesSchema),
-  badgeController.getUserBadges
-);
-
-// Get all badges with user progress
-router.get(
-  '/user/:userId/progress',
+  '/user/progress',
   auth(ROLE.CLIENT, ROLE.ADMIN),
   badgeController.getAllBadgesWithProgress
 );
 
-// Get user badge progress for specific badge
-router.get(
-  '/user/:userId/badge/:badgeId',
-  auth(ROLE.CLIENT, ROLE.ADMIN),
-  validateRequest(badgeValidation.getUserBadgeProgressSchema),
-  badgeController.getUserBadgeProgress
-);
-
-// Update user badge progress
 router.patch(
-  '/user/:userId/badge/:badgeId/progress',
-  auth(ROLE.ADMIN),
-  validateRequest(badgeValidation.updateBadgeProgressSchema),
-  badgeController.updateUserBadgeProgress
+  '/mark-as-previewed',
+  auth(ROLE.CLIENT, ROLE.ADMIN),
+  validateRequest(markBadgeTierAsPreviewedSchema),
+  badgeController.markTierVideoPreviewed
 );
 
-// Get badge statistics
 router.get(
-  '/stats',
-  auth(ROLE.ADMIN),
-  validateRequest(badgeValidation.getBadgeStatsSchema),
-  badgeController.getBadgeStats
+  '/:id/history',
+  auth(ROLE.CLIENT, ROLE.ADMIN),
+  badgeController.getBadgeHistory
 );
+
+router.get('/:id', auth(ROLE.CLIENT, ROLE.ADMIN), badgeController.getBadgeById);
+
+router.get(
+  '/',
+  auth(ROLE.CLIENT, ROLE.ADMIN),
+  validateRequest(getBadgesQuerySchema),
+  badgeController.getBadges
+);
+
+// Admin Routes
+router.post(
+  '/',
+  auth(ROLE.ADMIN),
+  upload.fields([
+    { name: 'mainIcon', maxCount: 1 },
+    // colour
+    { name: 'tier_colour', maxCount: 1 },
+    { name: 'tier_colour_animation', maxCount: 1 },
+    { name: 'tier_colour_smallIcon', maxCount: 1 },
+
+    // bronze
+    { name: 'tier_bronze', maxCount: 1 },
+    { name: 'tier_bronze_animation', maxCount: 1 },
+    { name: 'tier_bronze_smallIcon', maxCount: 1 },
+
+    // silver
+    { name: 'tier_silver', maxCount: 1 },
+    { name: 'tier_silver_animation', maxCount: 1 },
+    { name: 'tier_silver_smallIcon', maxCount: 1 },
+
+    // gold
+    { name: 'tier_gold', maxCount: 1 },
+    { name: 'tier_gold_animation', maxCount: 1 },
+    { name: 'tier_gold_smallIcon', maxCount: 1 },
+
+    // one-tier
+    { name: 'tier_one-tier', maxCount: 1 },
+    { name: 'tier_one-tier_animation', maxCount: 1 },
+    { name: 'tier_one-tier_smallIcon', maxCount: 1 },
+  ]),
+  validateRequestFromFormData(createBadgeSchema),
+  badgeController.createBadge
+);
+
+router.patch(
+  '/:id',
+  auth(ROLE.ADMIN),
+  upload.fields([
+    { name: 'mainIcon', maxCount: 1 },
+    // colour
+    { name: 'tier_colour', maxCount: 1 },
+    { name: 'tier_colour_animation', maxCount: 1 },
+    { name: 'tier_colour_smallIcon', maxCount: 1 },
+
+    // bronze
+    { name: 'tier_bronze', maxCount: 1 },
+    { name: 'tier_bronze_animation', maxCount: 1 },
+    { name: 'tier_bronze_smallIcon', maxCount: 1 },
+
+    // silver
+    { name: 'tier_silver', maxCount: 1 },
+    { name: 'tier_silver_animation', maxCount: 1 },
+    { name: 'tier_silver_smallIcon', maxCount: 1 },
+
+    // gold
+    { name: 'tier_gold', maxCount: 1 },
+    { name: 'tier_gold_animation', maxCount: 1 },
+    { name: 'tier_gold_smallIcon', maxCount: 1 },
+
+    // one-tier
+    { name: 'tier_one-tier', maxCount: 1 },
+    { name: 'tier_one-tier_animation', maxCount: 1 },
+    { name: 'tier_one-tier_smallIcon', maxCount: 1 },
+  ]),
+  validateRequestFromFormData(updateBadgeSchema),
+  badgeController.updateBadge
+);
+
+router.delete('/:id', auth(ROLE.ADMIN), badgeController.deleteBadge);
 
 export const BadgeRoutes = router;

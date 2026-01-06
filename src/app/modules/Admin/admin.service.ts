@@ -1,9 +1,11 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import Auth from '../Auth/auth.model';
 import Donation from '../Donation/donation.model';
 import Organization from '../Organization/organization.model';
-import { Connection, Model } from 'mongoose';
+import { Connection, Model, PipelineStage, Types } from 'mongoose';
 import Cause from '../Causes/causes.model';
 import Business from '../Business/business.model';
+import Client from '../Client/client.model';
 
 // Utility function to get date ranges based on filter type
 const getDateRange = (filter?: 'today' | 'week' | 'month') => {
@@ -45,7 +47,11 @@ const getPreviousPeriodRange = (filter?: 'today' | 'week' | 'month') => {
   switch (filter) {
     case 'today': {
       // Yesterday
-      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+      startDate = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() - 1
+      );
       endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       endDate.setMilliseconds(-1); // End of yesterday
       break;
@@ -135,7 +141,8 @@ const getAdminStatesFromDb = async (params?: AdminStatesParams) => {
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
     const previousMonth = currentMonth === 0 ? 11 : currentMonth - 1;
-    const previousMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+    const previousMonthYear =
+      currentMonth === 0 ? currentYear - 1 : currentYear;
 
     currentPeriodStart = new Date(currentYear, currentMonth, 1);
     currentPeriodEnd = new Date(currentYear, currentMonth + 1, 1);
@@ -153,12 +160,19 @@ const getAdminStatesFromDb = async (params?: AdminStatesParams) => {
   const previousPeriodActiveOrgs = await Organization.countDocuments({
     createdAt: { $gte: previousPeriodStart, $lt: previousPeriodEnd },
   });
-  const orgChangePct = calcPct(previousPeriodActiveOrgs, currentPeriodActiveOrgs);
+  const orgChangePct = calcPct(
+    previousPeriodActiveOrgs,
+    currentPeriodActiveOrgs
+  );
   const orgChangeText = formatPct(orgChangePct);
 
   // donation amounts for current vs previous period
   const currentPeriodAmountAgg = await Donation.aggregate([
-    { $match: { createdAt: { $gte: currentPeriodStart, $lt: currentPeriodEnd } } },
+    {
+      $match: {
+        createdAt: { $gte: currentPeriodStart, $lt: currentPeriodEnd },
+      },
+    },
     { $group: { _id: null, totalAmount: { $sum: '$amount' } } },
   ]);
   const previousPeriodAmountAgg = await Donation.aggregate([
@@ -274,7 +288,11 @@ const getAdminStatesFromDb = async (params?: AdminStatesParams) => {
   ]);
 
   const currentByCauseAgg = await Donation.aggregate([
-    { $match: { createdAt: { $gte: currentPeriodStart, $lt: currentPeriodEnd } } },
+    {
+      $match: {
+        createdAt: { $gte: currentPeriodStart, $lt: currentPeriodEnd },
+      },
+    },
     { $group: { _id: '$cause', totalAmount: { $sum: '$amount' } } },
     {
       $lookup: {
@@ -358,7 +376,11 @@ const getAdminStatesFromDb = async (params?: AdminStatesParams) => {
   ]);
 
   const currentDonorAgg = await Donation.aggregate([
-    { $match: { createdAt: { $gte: currentPeriodStart, $lt: currentPeriodEnd } } },
+    {
+      $match: {
+        createdAt: { $gte: currentPeriodStart, $lt: currentPeriodEnd },
+      },
+    },
     { $group: { _id: '$donor', totalAmount: { $sum: '$amount' } } },
     {
       $lookup: {
@@ -546,8 +568,8 @@ const getDonationsReportFromDb = async (params?: DonationsReportParams) => {
     ? timeFilter === 'today'
       ? 'vs yesterday'
       : timeFilter === 'week'
-        ? 'vs last week'
-        : 'vs last month'
+      ? 'vs last week'
+      : 'vs last month'
     : 'vs last month';
 
   const formatPct = (pct: number | null) =>
@@ -930,17 +952,6 @@ const getSubscriptionsReportFromDb = async (
   };
 };
 
-const getRewardsReportFromDb = async () => {
-  // Placeholder implementation for rewards report
-  // You can replace this with actual logic to fetch rewards data from the database
-  const totalRewardsIssued = 5000; // Example static data
-  const totalActiveRewardUsers = 150; // Example static data
-  return {
-    totalRewardsIssued,
-    totalActiveRewardUsers,
-  };
-};
-
 type UsersReportParams = {
   page?: number;
   limit?: number;
@@ -1101,6 +1112,10 @@ const getUsersReportFromDb = async (params?: UsersReportParams) => {
     userFilter.roles = role.toUpperCase();
   }
 
+  userFilter.status = {
+    $ne: 'pending',
+  };
+
   if (status) {
     userFilter.status = status;
   }
@@ -1233,7 +1248,6 @@ const changeUserStatusInDb = async (
   userId: string,
   status: 'verified' | 'suspended' | 'pending'
 ) => {
-
   const user = await Auth.findById(userId);
   if (!user) {
     throw new Error('User not found');
@@ -1242,7 +1256,7 @@ const changeUserStatusInDb = async (
   user.status = status;
   await user.save();
   return user;
-}
+};
 
 const deleteUserFromDb = async (userId: string) => {
   // delete the user softly
@@ -1253,8 +1267,7 @@ const deleteUserFromDb = async (userId: string) => {
   user.isDeleted = true;
   await user.save();
   return user;
-}
-
+};
 
 const getPendingUsersReportFromDb = async (
   params?: PendingUsersReportParams
@@ -1395,13 +1408,15 @@ type UsersEngagementReportParams = {
   role?: 'CLIENT' | 'BUSINESS' | 'ORGANIZATION';
 };
 
-const getUsersEngagementReportFromDb = async (params?: UsersEngagementReportParams) => {
+const getUsersEngagementReportFromDb = async (
+  params?: UsersEngagementReportParams
+) => {
   const { timeFilter, role } = params || {};
 
   // Get date range based on filter
   const dateRange = getDateRange(timeFilter);
   const previousDateRange = getPreviousPeriodRange(timeFilter);
-  
+
   // Build base filter for the selected period
   const baseFilter: Record<string, unknown> = {
     status: 'verified',
@@ -1409,14 +1424,20 @@ const getUsersEngagementReportFromDb = async (params?: UsersEngagementReportPara
   };
 
   if (dateRange) {
-    baseFilter.createdAt = { $gte: dateRange.startDate, $lte: dateRange.endDate };
+    baseFilter.createdAt = {
+      $gte: dateRange.startDate,
+      $lte: dateRange.endDate,
+    };
   }
 
   // Build previous period filter
   const previousFilter: Record<string, unknown> = {
     status: 'verified',
     role: role ? role : { $ne: 'ADMIN' },
-    createdAt: { $gte: previousDateRange.startDate, $lte: previousDateRange.endDate },
+    createdAt: {
+      $gte: previousDateRange.startDate,
+      $lte: previousDateRange.endDate,
+    },
   };
 
   // Determine comparison label based on filter
@@ -1449,9 +1470,12 @@ const getUsersEngagementReportFromDb = async (params?: UsersEngagementReportPara
   const activeUsersChangePct = previousActiveUsers
     ? ((totalActiveUsers - previousActiveUsers) / previousActiveUsers) * 100
     : null;
-  const activeUsersChangeText = activeUsersChangePct !== null
-    ? `${activeUsersChangePct >= 0 ? '+' : ''}${activeUsersChangePct.toFixed(1)}% ${comparisonLabel}`
-    : null;
+  const activeUsersChangeText =
+    activeUsersChangePct !== null
+      ? `${activeUsersChangePct >= 0 ? '+' : ''}${activeUsersChangePct.toFixed(
+          1
+        )}% ${comparisonLabel}`
+      : null;
 
   // new users (current period)
   const totalNewUsers = await Auth.countDocuments(baseFilter);
@@ -1462,9 +1486,12 @@ const getUsersEngagementReportFromDb = async (params?: UsersEngagementReportPara
   const newUsersChangePct = previousNewUsers
     ? ((totalNewUsers - previousNewUsers) / previousNewUsers) * 100
     : null;
-  const newUsersChangeText = newUsersChangePct !== null
-    ? `${newUsersChangePct >= 0 ? '+' : ''}${newUsersChangePct.toFixed(1)}% ${comparisonLabel}`
-    : null;
+  const newUsersChangeText =
+    newUsersChangePct !== null
+      ? `${newUsersChangePct >= 0 ? '+' : ''}${newUsersChangePct.toFixed(
+          1
+        )}% ${comparisonLabel}`
+      : null;
 
   // total returning users (current period)
   const totalReturningUsers = await Auth.countDocuments({
@@ -1479,11 +1506,16 @@ const getUsersEngagementReportFromDb = async (params?: UsersEngagementReportPara
   });
 
   const returningUsersChangePct = previousReturningUsers
-    ? ((totalReturningUsers - previousReturningUsers) / previousReturningUsers) * 100
+    ? ((totalReturningUsers - previousReturningUsers) /
+        previousReturningUsers) *
+      100
     : null;
-  const returningUsersChangeText = returningUsersChangePct !== null
-    ? `${returningUsersChangePct >= 0 ? '+' : ''}${returningUsersChangePct.toFixed(1)}% ${comparisonLabel}`
-    : null;
+  const returningUsersChangeText =
+    returningUsersChangePct !== null
+      ? `${
+          returningUsersChangePct >= 0 ? '+' : ''
+        }${returningUsersChangePct.toFixed(1)}% ${comparisonLabel}`
+      : null;
 
   return {
     timeFilter: timeFilter || 'all',
@@ -1502,7 +1534,9 @@ type DonationsEngagementReportParams = {
   year?: number;
 };
 
-const getDonationsEngagementReportFromDb = async (params?: DonationsEngagementReportParams) => {
+const getDonationsEngagementReportFromDb = async (
+  params?: DonationsEngagementReportParams
+) => {
   const { donationType, year } = params || {};
 
   // total donations for a full calendar year (always 12 months Jan-Dec).
@@ -1543,11 +1577,16 @@ const getDonationsEngagementReportFromDb = async (params?: DonationsEngagementRe
   };
 
   // Build a map: donationType -> (month -> {totalAmount, count})
-  const typeMonthMap = new Map<string, Map<number, { totalAmount: number; count: number }>>();
+  const typeMonthMap = new Map<
+    string,
+    Map<number, { totalAmount: number; count: number }>
+  >();
   (agg as AggItem[]).forEach((d) => {
     const type = d._id.donationType ?? 'unknown';
     const month = d._id.month ?? 1; // 1-12
-    const inner = typeMonthMap.get(type) ?? new Map<number, { totalAmount: number; count: number }>();
+    const inner =
+      typeMonthMap.get(type) ??
+      new Map<number, { totalAmount: number; count: number }>();
     inner.set(month, {
       totalAmount: d.totalAmount ?? 0,
       count: d.count ?? 0,
@@ -1665,7 +1704,9 @@ type OrganizationsReportParams = {
   sortOrder?: 'asc' | 'desc';
 };
 
-const getOrganizationsReportFromDb = async (params?: OrganizationsReportParams) => {
+const getOrganizationsReportFromDb = async (
+  params?: OrganizationsReportParams
+) => {
   const {
     page = 1,
     limit = 10,
@@ -2097,6 +2138,8 @@ const getBusinessesReportFromDb = async (params?: BusinessesReportParams) => {
       state: 1,
       postalCode: 1,
       website: 1,
+      logoImage: 1,
+      coverImage: 1,
       phoneNumber: 1,
       image: 1,
       createdAt: 1,
@@ -2112,6 +2155,8 @@ const getBusinessesReportFromDb = async (params?: BusinessesReportParams) => {
 
   const businesses = await Business.aggregate(searchPipeline);
 
+  console.log(businesses);
+
   return {
     businesses,
     meta: {
@@ -2121,7 +2166,7 @@ const getBusinessesReportFromDb = async (params?: BusinessesReportParams) => {
       totalPages: Math.ceil(totalRecords / limit),
     },
   };
-}
+};
 
 type AdminUpdate = {
   name?: string;
@@ -2259,11 +2304,392 @@ const updateAdminProfileInDb = async (
   return result;
 };
 
+interface IBadgeTier {
+  tier: string;
+  name: string;
+  requiredCount?: number;
+  requiredAmount?: number;
+}
+
+interface UserBadge {
+  _id: string;
+  badge: string;
+  currentTier: string;
+  isCompleted: boolean;
+  tiersUnlocked: IBadgeTier[];
+}
+
+interface Badge {
+  _id: string;
+  name: string;
+  icon: string;
+  unlockType: string;
+  tiers: IBadgeTier[];
+  isSingleTier: boolean;
+}
+
+export const getDonorsFromDB = async (query: Record<string, unknown>) => {
+  const page = Number(query.page) || 1;
+  const limit = Number(query.limit) || 10;
+  const skip = (page - 1) * limit;
+  const searchFields = ['name', 'email'];
+
+  // Aggregation pipeline
+  const pipeline: any[] = [
+    // Lookup auth details
+    {
+      $lookup: {
+        from: 'auths',
+        localField: 'auth',
+        foreignField: '_id',
+        as: 'authDetails',
+      },
+    },
+    { $unwind: '$authDetails' },
+    {
+      $project: {
+        _id: 1,
+        name: 1,
+        image: 1,
+        address: 1,
+        postalCode: 1,
+        state: 1,
+        phoneNumber: 1,
+        createdAt: 1,
+        updatedAt: 1,
+        authId: '$authDetails._id',
+        email: '$authDetails.email',
+        isActive: '$authDetails.isActive',
+        status: '$authDetails.status',
+      },
+    },
+  ];
+
+  // Search filter
+  if (query.searchTerm) {
+    pipeline.push({
+      $match: {
+        $or: searchFields.map((field) => ({
+          [field]: { $regex: query.searchTerm as string, $options: 'i' },
+        })),
+      },
+    });
+  }
+
+  // Status filter
+  if (query.status) {
+    pipeline.push({ $match: { status: query.status } });
+  }
+
+  // Date filter
+  if (query.fromDate || query.toDate) {
+    const dateFilter: any = {};
+    if (query.fromDate) dateFilter.$gte = new Date(query.fromDate as string);
+    if (query.toDate) dateFilter.$lte = new Date(query.toDate as string);
+    pipeline.push({ $match: { createdAt: dateFilter } });
+  }
+
+  // Lookup user badges
+  pipeline.push({
+    $lookup: {
+      from: 'userbadges',
+      localField: '_id',
+      foreignField: 'user',
+      as: 'userBadges',
+      pipeline: [
+        {
+          $project: {
+            badge: 1,
+            currentTier: 1,
+            isCompleted: 1,
+            tiersUnlocked: 1,
+          },
+        },
+      ],
+    },
+  });
+
+  // Lookup badge details
+  pipeline.push({
+    $lookup: {
+      from: 'badges',
+      let: { badgeIds: '$userBadges.badge' },
+      pipeline: [
+        { $match: { $expr: { $in: ['$_id', '$$badgeIds'] } } },
+        {
+          $project: {
+            name: 1,
+            icon: 1,
+            isSingleTier: 1,
+            tiers: 1,
+            unlockType: 1,
+          },
+        },
+      ],
+      as: 'badge',
+    },
+  });
+
+  // Calculate total donation
+  pipeline.push({
+    $lookup: {
+      from: 'donations',
+      localField: '_id',
+      foreignField: 'donor',
+      as: 'totalDonationAmount',
+      pipeline: [
+        { $match: { status: 'completed' } },
+        { $group: { _id: null, total: { $sum: '$amount' } } },
+      ],
+    },
+  });
+
+  pipeline.push({
+    $addFields: {
+      totalDonationAmount: {
+        $ifNull: [{ $arrayElemAt: ['$totalDonationAmount.total', 0] }, 0],
+      },
+    },
+  });
+
+  // Pagination
+  pipeline.push({ $skip: skip }, { $limit: limit });
+
+  // Count pipeline
+  const countPipeline = [...pipeline];
+  countPipeline.push({ $count: 'total' });
+
+  // Execute aggregation
+  const [donors, countResult] = await Promise.all([
+    Client.aggregate(pipeline),
+    Client.aggregate(countPipeline),
+  ]);
+
+  const total = countResult[0]?.total || 0;
+
+  // Merge badges
+  const mergedDonors = donors.map((donor: any) => {
+    const badgesMap = new Map<string, Badge>();
+    (donor.badge || []).forEach((b: Badge) =>
+      badgesMap.set(b._id.toString(), b)
+    );
+
+    const combinedBadges = (donor.userBadges || [])
+      .map((ub: UserBadge) => {
+        const badge = badgesMap.get(ub.badge.toString());
+        if (!badge) return null;
+        const currentTier = badge.tiers.find((t) => t.tier === ub.currentTier);
+        return {
+          userBadgeId: ub._id,
+          badge: ub.badge,
+          badge_actual_name: badge.name,
+          currentTier: ub.currentTier,
+          badgeName: currentTier?.name,
+        };
+      })
+      .filter(Boolean);
+
+    delete donor.badge;
+    delete donor.userBadges;
+
+    return { ...donor, badges: combinedBadges };
+  });
+
+  // Pagination meta
+  const meta = {
+    page,
+    limit,
+    total,
+    totalPage: Math.ceil(total / limit),
+  };
+
+  return { meta, data: mergedDonors };
+};
+
+export const getBusinessRewardOverview = async (query: {
+  businessId?: string;
+  limit?: number;
+  page?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+  searchTerm?: string;
+  fromDate?: string;
+  toDate?: string;
+}) => {
+  const {
+    businessId,
+    limit = 10,
+    page = 1,
+    sortBy = 'createdAt',
+    sortOrder = 'desc',
+    searchTerm,
+    fromDate,
+    toDate,
+  } = query;
+
+  // ----------------------
+  // Helper: build date filter
+  // ----------------------
+  const buildDateFilter = (fromDate?: string, toDate?: string) => {
+    const filter: any = {};
+    if (fromDate) filter.$gte = new Date(fromDate);
+    if (toDate) {
+      const endOfDay = new Date(toDate);
+      endOfDay.setHours(23, 59, 59, 999);
+      filter.$lte = endOfDay;
+    }
+    return Object.keys(filter).length ? filter : undefined;
+  };
+
+  const dateFilter = buildDateFilter(fromDate, toDate);
+
+  const pipeline: PipelineStage[] = [];
+
+  const match: any = {};
+  if (businessId) match._id = new Types.ObjectId(businessId);
+  if (dateFilter) match.createdAt = dateFilter;
+
+  pipeline.push({ $match: match });
+
+  if (searchTerm) {
+    pipeline.push({
+      $match: {
+        $or: [
+          { name: { $regex: searchTerm, $options: 'i' } },
+          { tagLine: { $regex: searchTerm, $options: 'i' } },
+          { description: { $regex: searchTerm, $options: 'i' } },
+        ],
+      },
+    });
+  }
+
+  pipeline.push(
+    {
+      $lookup: {
+        from: 'auths',
+        localField: 'auth',
+        foreignField: '_id',
+        as: 'auth',
+        pipeline: [{ $project: { email: 1 } }],
+      },
+    },
+    { $unwind: '$auth' }
+  );
+
+  pipeline.push({
+    $lookup: {
+      from: 'rewards',
+      let: { businessId: '$_id' },
+      pipeline: [
+        { $match: { $expr: { $eq: ['$business', '$$businessId'] } } },
+        {
+          $facet: {
+            total: [{ $count: 'count' }],
+            topReward: [
+              { $sort: { redeemedCount: -1 } },
+              { $limit: 1 },
+              { $project: { title: 1, redeemedCount: 1 } },
+            ],
+          },
+        },
+      ],
+      as: 'rewardStats',
+    },
+  });
+
+  pipeline.push({
+    $lookup: {
+      from: 'rewardredemptions',
+      let: { businessId: '$_id' },
+      pipeline: [
+        {
+          $match: {
+            $expr: { $eq: ['$business', '$$businessId'] },
+            isHidden: { $ne: true },
+          },
+        },
+
+        { $count: 'total' },
+      ],
+      as: 'redemptionStats',
+    },
+  });
+
+  pipeline.push({
+    $addFields: {
+      rewardTotal: {
+        $ifNull: [
+          {
+            $arrayElemAt: [
+              { $arrayElemAt: ['$rewardStats.total.count', 0] },
+              0,
+            ],
+          },
+          0,
+        ],
+      },
+      totalRedemption: {
+        $ifNull: [{ $arrayElemAt: ['$redemptionStats.total', 0] }, 0],
+      },
+      topReward: {
+        $ifNull: [
+          {
+            $arrayElemAt: [{ $arrayElemAt: ['$rewardStats.topReward', 0] }, 0],
+          },
+          null,
+        ],
+      },
+    },
+  });
+
+  pipeline.push({
+    $sort: { [sortBy]: sortOrder === 'asc' ? 1 : -1 },
+  });
+
+  pipeline.push({
+    $facet: {
+      data: [
+        { $skip: (page - 1) * limit },
+        { $limit: limit },
+        {
+          $project: {
+            name: 1,
+            email: '$auth.email',
+            coverImage: 1,
+            tagLine: 1,
+            description: 1,
+            rewardTotal: 1,
+            totalRedemption: 1,
+            topReward: 1,
+            createdAt: 1,
+          },
+        },
+      ],
+      totalCount: [{ $count: 'count' }],
+    },
+  });
+
+  const result = await Business.aggregate(pipeline);
+
+  const data = result[0]?.data || [];
+  const total = result[0]?.totalCount[0]?.count || 0;
+  const totalPage = Math.ceil(total / limit);
+
+  return {
+    data,
+    meta: {
+      total,
+      page,
+      limit,
+      totalPage,
+    },
+  };
+};
+
 export const AdminService = {
   getAdminStatesFromDb,
   getDonationsReportFromDb,
   getSubscriptionsReportFromDb,
-  getRewardsReportFromDb,
   getUsersStatesReportFromDb,
   getUsersReportFromDb,
   changeUserStatusInDb,
@@ -2276,4 +2702,6 @@ export const AdminService = {
   getCausesReportFromDb,
   getBusinessesReportFromDb,
   updateAdminProfileInDb,
+  getDonorsFromDB,
+  getBusinessRewardOverview,
 };

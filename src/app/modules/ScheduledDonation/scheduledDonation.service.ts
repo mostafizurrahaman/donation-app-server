@@ -14,14 +14,19 @@ import { CAUSE_STATUS_TYPE } from '../Causes/causes.constant';
 import { PaymentMethodService } from '../PaymentMethod/paymentMethod.service';
 import QueryBuilder from '../../builders/QueryBuilder';
 import { Donation } from '../Donation/donation.model';
-import { stripe } from '../../lib/stripeHelper';
 import { IDonationModel } from '../Donation/donation.interface';
 import { IPaymentMethodModel } from '../PaymentMethod/paymentMethod.interface';
-import { IORGANIZATION } from '../Organization/organization.interface';
 import { calculateAustralianFees } from '../Donation/donation.constant';
+import { StripeService } from '../Stripe/stripe.service';
+import { IClient } from '../Client/client.interface';
+import { StripeAccount } from '../OrganizationAccount/stripe-account.model';
+import { createNotification } from '../Notification/notification.service';
+import { NOTIFICATION_TYPE } from '../Notification/notification.constant';
+import { IORGANIZATION } from '../Organization/organization.interface';
+import { SubscriptionService } from '../Subscription/subscription.service';
 
 // Helper function to calculate next donation date
-const calculateNextDonationDate = (
+export const calculateNextDonationDate = (
   currentDate: Date,
   frequency: string,
   customInterval?: { value: number; unit: 'days' | 'weeks' | 'months' }
@@ -32,25 +37,28 @@ const calculateNextDonationDate = (
     case 'daily':
       nextDate.setDate(nextDate.getDate() + 1);
       break;
+
     case 'weekly':
       nextDate.setDate(nextDate.getDate() + 7);
       break;
+
     case 'monthly':
       nextDate.setMonth(nextDate.getMonth() + 1);
       break;
+
     case 'quarterly':
       nextDate.setMonth(nextDate.getMonth() + 3);
       break;
+
     case 'yearly':
       nextDate.setFullYear(nextDate.getFullYear() + 1);
       break;
+
     case 'custom':
       if (!customInterval) {
-        throw new AppError(
-          httpStatus.BAD_REQUEST,
-          'Custom interval is required for custom frequency'
-        );
+        throw new Error('Custom interval required for custom frequency');
       }
+
       switch (customInterval.unit) {
         case 'days':
           nextDate.setDate(nextDate.getDate() + customInterval.value);
@@ -63,6 +71,7 @@ const calculateNextDonationDate = (
           break;
       }
       break;
+
     default:
       throw new AppError(httpStatus.BAD_REQUEST, 'Invalid frequency');
   }
@@ -84,16 +93,14 @@ const createScheduledDonation = async (
     customInterval,
     specialMessage,
     paymentMethodId,
-    startDate, 
+    startDate,
   } = payload;
 
-  // ✅ Calculate purely for logging/checking
+  //  Validate Financials (Log only, execution happens later)
   const financials = calculateAustralianFees(amount, coverFees);
-
-  console.log(` Scheduled Donation Created:`);
-  console.log(`   Base Amount: $${financials.baseAmount.toFixed(2)}`);
-  console.log(`   Total Charge: $${financials.totalCharge.toFixed(2)}`);
-  console.log(`   Cover Fees: ${coverFees}`);
+  console.log(`💰 Scheduled Donation Template Created:`);
+  console.log(`   Base: $${financials.baseAmount.toFixed(2)}`);
+  console.log(`   Total per Run: $${financials.totalCharge.toFixed(2)}`);
 
   const user = await Client.findOne({ auth: userId });
   if (!user) {
@@ -103,6 +110,25 @@ const createScheduledDonation = async (
   const organization = await Organization.findById(organizationId);
   if (!organization) {
     throw new AppError(httpStatus.NOT_FOUND, 'Organization not found!');
+  }
+
+  // check subscription status of organization
+  await SubscriptionService.validateOrganizationAccess(
+    organization?._id.toString()
+  );
+
+  
+  // check is stripe account exists :
+  const stripeAccount = await StripeAccount.findOne({
+    organization: organization._id,
+    status: 'active',
+  });
+
+  if (!stripeAccount || !stripeAccount.chargesEnabled) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'This organization is not set up to receive payments (Stripe account inactive).'
+    );
   }
 
   const cause = await Cause.findById(causeId);
@@ -125,35 +151,59 @@ const createScheduledDonation = async (
     throw new AppError(httpStatus.BAD_REQUEST, 'Payment method is not active!');
   }
 
-  const stripeCustomerId = paymentMethod.stripeCustomerId;
-
-  
   const startDateTime = new Date(startDate);
-  const nextDonationDate = startDateTime;
+  const now = new Date();
+  if (startDateTime <= now) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'Start date must be in the future.'
+    );
+  }
 
   const scheduledDonation = await ScheduledDonation.create({
     user: user._id,
     organization: new Types.ObjectId(organizationId),
     cause: new Types.ObjectId(causeId),
 
-    amount: financials.baseAmount, 
-    coverFees, 
+    amount: financials.baseAmount, // Store Base Amount
+    coverFees, // Store Preference
 
-    currency: 'USD',
+    currency: 'USD', // Keep internal currency logic, though Stripe will use AUD based on context
     frequency,
     customInterval,
-    startDate: startDateTime, 
-    nextDonationDate: nextDonationDate, 
+    startDate: startDateTime,
+    nextDonationDate: startDateTime,
     isActive: true,
+    status: 'active',
     totalExecutions: 0,
     specialMessage,
-    stripeCustomerId,
+    stripeCustomerId: paymentMethod.stripeCustomerId,
     paymentMethod,
   });
 
+  // 🔔 NOTIFICATION LOGIC
+  try {
+    // 1. To Donor
+    await createNotification(
+      userId,
+      NOTIFICATION_TYPE.RECURRING_PLAN_STARTED,
+      `Your recurring donation of $${amount} to ${organization.name} has been scheduled.`,
+      scheduledDonation?._id!.toString()
+    );
+
+    // 2. To Organization
+    await createNotification(
+      organization.auth.toString(),
+      NOTIFICATION_TYPE.RECURRING_PLAN_STARTED,
+      `New Recurring Supporter: A donor has scheduled a ${frequency} donation of $${amount}.`,
+      scheduledDonation?._id!.toString()
+    );
+  } catch (error) {
+    console.error('Notification Error:', error);
+  }
+
   return scheduledDonation;
 };
-
 const getUserScheduledDonations = async (
   userId: string,
   query: Record<string, unknown>
@@ -263,7 +313,7 @@ const updateScheduledDonation = async (
     newCoverFees = payload.coverFees;
   }
 
-  // Log calculation for debugging (not saved to DB)
+  // ✅ Log calculation for debugging
   const financials = calculateAustralianFees(newAmount, newCoverFees);
   console.log(`📝 Scheduled Donation Updated:`);
   console.log(`   Base: $${newAmount.toFixed(2)}`);
@@ -286,13 +336,10 @@ const updateScheduledDonation = async (
     scheduledDonation.isActive = payload.isActive;
   }
 
-  // If frequency changes, we might want to recalculate next date,
-  // but usually it's safer to keep the current next date and apply new frequency AFTER that.
-  // However, if the user explicitly wants to "reschedule", they might need a way to change nextDonationDate.
-  // For now, we keep the logic that if frequency changes, we recalc from NOW.
+  // If frequency changes, recalculate next date from current nextDonationDate
   if (payload.frequency !== undefined || payload.customInterval !== undefined) {
     const nextDate = calculateNextDonationDate(
-      new Date(),
+      scheduledDonation.nextDonationDate || new Date(),
       scheduledDonation.frequency,
       scheduledDonation.customInterval
     );
@@ -315,7 +362,7 @@ const pauseScheduledDonation = async (
 
   const scheduledDonation = await ScheduledDonation.findOneAndUpdate(
     { _id: scheduledDonationId, user: user._id },
-    { isActive: false },
+    { isActive: false, status: 'paused' },
     { new: true }
   )
     .populate('organization', 'name email logo')
@@ -323,6 +370,21 @@ const pauseScheduledDonation = async (
 
   if (!scheduledDonation) {
     throw new AppError(httpStatus.NOT_FOUND, 'Scheduled donation not found!');
+  }
+
+  if (scheduledDonation) {
+    try {
+      await createNotification(
+        userId,
+        NOTIFICATION_TYPE.RECURRING_STATUS_CHANGED,
+        `Your recurring donation to ${
+          (scheduledDonation.organization as any).name
+        } has been paused.`,
+        scheduledDonation._id!.toString()
+      );
+    } catch (err) {
+      console.log(`❌ Failed to send notification (Pause scheduled)`);
+    }
   }
 
   return scheduledDonation;
@@ -346,22 +408,34 @@ const resumeScheduledDonation = async (
     throw new AppError(httpStatus.NOT_FOUND, 'Scheduled donation not found!');
   }
 
-  // Recalculate next date to avoid executing immediately if it was paused for a long time
-  // OR keep original schedule. Usually resuming means "start from now or keep cycle".
-  // The safest is to calculate next date from NOW to avoid backlog execution.
+  const now = new Date();
   const nextDate = calculateNextDonationDate(
-    new Date(),
+    now,
     scheduledDonation.frequency,
     scheduledDonation.customInterval
   );
 
   scheduledDonation.isActive = true;
+  scheduledDonation.status = 'active';
   scheduledDonation.nextDonationDate = nextDate;
 
   await scheduledDonation.save();
 
   await scheduledDonation.populate('organization', 'name email logo');
   await scheduledDonation.populate('cause', 'name description');
+
+  try {
+    await createNotification(
+      userId,
+      NOTIFICATION_TYPE.RECURRING_STATUS_CHANGED,
+      `Your recurring donation to ${
+        (scheduledDonation.organization as any).name
+      } has been resumed.`,
+      scheduledDonation._id!.toString()
+    );
+  } catch (error) {
+    console.log(`❌ Failed to sent notification!`);
+  }
 
   return scheduledDonation;
 };
@@ -390,10 +464,10 @@ const getScheduledDonationsDueForExecution = async (): Promise<
 > => {
   const now = new Date();
 
-  // ✅ CHANGE: Query checks if nextDonationDate is NOW or in the PAST
-  // This ensures that if the cron job runs at 4:00 PM, it catches 4:00 PM donations.
+  // ✅ Only fetch active donations that are not already processing
   const scheduledDonations = await ScheduledDonation.find({
     isActive: true,
+    status: 'active',
     nextDonationDate: { $lte: now },
   })
     .populate('user')
@@ -403,250 +477,161 @@ const getScheduledDonationsDueForExecution = async (): Promise<
   return scheduledDonations;
 };
 
-// Execute scheduled donation (Cron Job Logic)
+/**
+ * ========================================================
+ * ⚡ EXECUTE SCHEDULED DONATION (CRON LOGIC REFACTORED)
+ * ========================================================
+ */
 const executeScheduledDonation = async (
   scheduledDonationId: string
 ): Promise<IDonationModel> => {
-  const scheduledDonation = await ScheduledDonation.findById(
-    scheduledDonationId
+  // 1. Lock document
+  const lockedDonation = await ScheduledDonation.findOneAndUpdate(
+    {
+      _id: scheduledDonationId,
+      isActive: true,
+      status: 'active',
+    },
+    {
+      $set: { status: 'processing' },
+    },
+    { new: true }
   )
     .populate('user')
-    .populate('organization')
+    .populate('organization') // Need this to get Stripe Connect ID
     .populate('cause')
     .populate('paymentMethod');
 
-  if (!scheduledDonation) {
-    throw new AppError(httpStatus.NOT_FOUND, 'Scheduled donation not found!');
-  }
-
-  if (!scheduledDonation.isActive) {
+  if (!lockedDonation) {
     throw new AppError(
-      httpStatus.BAD_REQUEST,
-      'Scheduled donation is not active!'
+      httpStatus.CONFLICT,
+      'Scheduled donation is already being processed or is not active'
     );
   }
 
-  if (!scheduledDonation.paymentMethod) {
-    throw new AppError(httpStatus.BAD_REQUEST, 'Payment method not found!');
-  }
+  const scheduledDonation = lockedDonation;
 
-  const userId = (
-    scheduledDonation.user._id || scheduledDonation.user
-  ).toString();
-  const organizationId = (
-    scheduledDonation.organization._id || scheduledDonation.organization
-  ).toString();
-  const causeId = (
-    scheduledDonation.cause._id || scheduledDonation.cause
-  ).toString();
-
-  const paymentMethod =
-    scheduledDonation.paymentMethod as unknown as IPaymentMethodModel;
-
-  if (!paymentMethod.isActive) {
-    throw new AppError(
-      httpStatus.BAD_REQUEST,
-      'Payment method is not active! Please update your payment method.'
-    );
-  }
-
-  const stripePaymentMethodId = paymentMethod.stripePaymentMethodId;
-
-  if (!stripePaymentMethodId) {
-    throw new AppError(
-      httpStatus.BAD_REQUEST,
-      'Invalid payment method configuration!'
-    );
-  }
-
-  const cause = await Cause.findById(causeId);
-  if (!cause) {
-    throw new AppError(httpStatus.NOT_FOUND, 'Cause not found!');
-  }
-  if (cause.status !== CAUSE_STATUS_TYPE.VERIFIED) {
-    throw new AppError(
-      httpStatus.BAD_REQUEST,
-      `Cannot execute scheduled donation for cause with status: ${cause.status}. Only verified causes can receive donations.`
-    );
-  }
-
-  //  Recalculate Fees at Execution Time
-  const financials = calculateAustralianFees(
-    scheduledDonation.amount,
-    scheduledDonation.coverFees
-  );
-
-  console.log(`🔄 Executing Scheduled Donation:`);
-  console.log(`   ID: ${scheduledDonationId}`);
-  console.log(`   Base: $${financials.baseAmount.toFixed(2)}`);
-  console.log(`   Total Charge: $${financials.totalCharge.toFixed(2)}`);
-  console.log(`   Cover Fees: ${financials.coverFees}`);
-
-  const idempotencyKey = `scheduled_${scheduledDonationId}_${Date.now()}_${Math.random()
-    .toString(36)
-    .substring(7)}`;
-
-  const MAX_RETRIES = 3;
-  let lastError: Error | null = null;
-
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      if (attempt > 1) {
-        await new Promise((resolve) =>
-          setTimeout(resolve, Math.pow(2, attempt) * 1000)
-        );
-      }
-
-      // Create payment intent with TOTAL CHARGE
-      const paymentIntentParams: {
-        amount: number;
-        currency: string;
-        customer: string;
-        payment_method: string;
-        confirm: boolean;
-        off_session: boolean;
-        metadata: Record<string, string>;
-        description: string;
-      } = {
-        amount: Math.round(financials.totalCharge * 100),
-        currency: scheduledDonation.currency.toLowerCase(),
-        customer: scheduledDonation.stripeCustomerId,
-        payment_method: stripePaymentMethodId,
-        confirm: true,
-        off_session: true,
-        metadata: {
-          scheduledDonationId: scheduledDonationId.toString(),
-          userId: userId,
-          organizationId: organizationId,
-          causeId: causeId,
-          donationType: 'recurring',
-          specialMessage: scheduledDonation.specialMessage || '',
-          baseAmount: financials.baseAmount.toString(),
-          totalAmount: financials.totalCharge.toString(),
-
-          // ✅ Fee Breakdown for Stripe Audit
-          coverFees: financials.coverFees.toString(),
-          platformFee: financials.platformFee.toString(),
-          gstOnFee: financials.gstOnFee.toString(),
-          stripeFee: financials.stripeFee.toString(),
-          netToOrg: financials.netToOrg.toString(),
-        },
-        description: scheduledDonation.specialMessage || 'Recurring donation',
-      };
-
-      const paymentIntent = await stripe.paymentIntents.create(
-        paymentIntentParams,
-        {
-          idempotencyKey,
-        }
-      );
-
-      // Create Donation record
-      const donation = await Donation.create({
-        donor: userId,
-        organization: organizationId,
-        cause: causeId,
-        donationType: 'recurring',
-
-        amount: financials.baseAmount,
-        coverFees: financials.coverFees,
-        platformFee: financials.platformFee,
-        gstOnFee: financials.gstOnFee,
-        stripeFee: financials.stripeFee,
-        netAmount: financials.netToOrg,
-        totalAmount: financials.totalCharge,
-
-        currency: scheduledDonation.currency,
-        status: 'processing',
-        donationDate: new Date(),
-        stripePaymentIntentId: paymentIntent.id,
-        stripeChargeId: paymentIntent.latest_charge as string,
-        stripeCustomerId: scheduledDonation.stripeCustomerId,
-        stripePaymentMethodId: stripePaymentMethodId,
-        specialMessage: scheduledDonation.specialMessage,
-        pointsEarned: 0,
-        scheduledDonationId: scheduledDonationId,
-        idempotencyKey,
-        paymentAttempts: attempt,
-        lastPaymentAttempt: new Date(),
-        receiptGenerated: false,
-      });
-
-      console.log(
-        `✅ Created payment intent for donation ${donation._id} (status: processing)`
-      );
-
-      return donation;
-    } catch (error: unknown) {
-      const err = error as Error & {
-        code?: string;
-        type?: string;
-        message: string;
-      };
-      lastError = err;
-      console.error(
-        `❌ Attempt ${attempt}/${MAX_RETRIES} failed for donation ${scheduledDonationId}: ${err.message}`
-      );
-
-      const isRetryable =
-        err.code === 'card_declined' ||
-        err.code === 'insufficient_funds' ||
-        err.type === 'api_connection_error' ||
-        err.type === 'api_error';
-
-      if (!isRetryable && attempt < MAX_RETRIES) {
-        break;
-      }
-
-      if (attempt === MAX_RETRIES || !isRetryable) {
-        try {
-          await Donation.create({
-            donor: userId,
-            organization: organizationId,
-            cause: causeId,
-            donationType: 'recurring',
-            amount: financials.baseAmount,
-            coverFees: financials.coverFees,
-            platformFee: financials.platformFee,
-            gstOnFee: financials.gstOnFee,
-            stripeFee: financials.stripeFee,
-            netAmount: financials.netToOrg,
-            totalAmount: financials.totalCharge,
-
-            currency: scheduledDonation.currency,
-            status: 'failed',
-            donationDate: new Date(),
-            stripeCustomerId: scheduledDonation.stripeCustomerId,
-            stripePaymentMethodId: stripePaymentMethodId,
-            specialMessage: scheduledDonation.specialMessage,
-            pointsEarned: 0,
-
-            scheduledDonationId: scheduledDonationId,
-            idempotencyKey: `${idempotencyKey}_failed_${attempt}`,
-            paymentAttempts: attempt,
-            lastPaymentAttempt: new Date(),
-            receiptGenerated: false,
-          });
-        } catch (createError) {
-          // ignore
-        }
-
-        throw new AppError(
-          httpStatus.BAD_REQUEST,
-          `Failed to process recurring donation after ${attempt} attempts: ${err.message}`
-        );
-      }
+  try {
+    // 2. Validate Payment Method
+    if (!scheduledDonation.paymentMethod) {
+      throw new AppError(httpStatus.BAD_REQUEST, 'Payment method not found!');
     }
+    const paymentMethod =
+      scheduledDonation.paymentMethod as unknown as IPaymentMethodModel;
+    if (!paymentMethod.isActive) {
+      throw new AppError(httpStatus.BAD_REQUEST, 'Payment method is inactive.');
+    }
+
+    // 3. Validate Organization & Stripe Connection
+    const organization = await Organization.findById(
+      scheduledDonation.organization
+    );
+    if (!organization) {
+      throw new AppError(httpStatus.BAD_REQUEST, 'Organization not found.');
+    }
+
+    // check is stripe account exists :
+    const stripeAccount = await StripeAccount.findOne({
+      organization: organization._id,
+      status: 'active',
+    });
+
+    if (!stripeAccount || !stripeAccount.chargesEnabled) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        'This organization is not set up to receive payments (Stripe account inactive).'
+      );
+    }
+
+    // 4. Recalculate Fees (Australian Logic)
+    const financials = calculateAustralianFees(
+      scheduledDonation.amount,
+      scheduledDonation.coverFees
+    );
+
+    // Calculate Application Fee (Platform + GST)
+    const applicationFee = financials.platformFeeWithStripe;
+
+    console.log(`🔄 Executing Recurring Donation (${scheduledDonationId}):`);
+    console.log(`   Base: $${financials.baseAmount}`);
+    console.log(`   Total Charge: $${financials.totalCharge}`);
+    console.log(`   App Fee: $${applicationFee}`);
+    console.log(`   Destination: ${stripeAccount.stripeAccountId}`);
+
+    // 5. Execute Stripe Payment (Destination Charge)
+
+    const paymentIntent = await StripeService.createPaymentIntentWithMethod({
+      amount: financials.baseAmount,
+      totalAmount: financials.totalCharge,
+
+      // Destination Charge Params
+      applicationFee: applicationFee,
+      orgStripeAccountId: stripeAccount.stripeAccountId,
+
+      // Metadata Breakdown
+      coverFees: financials.coverFees,
+      platformFee: financials.platformFee,
+      gstOnFee: financials.gstOnFee,
+      stripeFee: financials.stripeFee,
+      netToOrg: financials.netToOrg,
+
+      currency: scheduledDonation.currency,
+      customerId: scheduledDonation.stripeCustomerId,
+      paymentMethodId: paymentMethod.stripePaymentMethodId,
+      donationId: '',
+      organizationId: organization._id.toString(),
+      causeId: scheduledDonation.cause.toString(),
+      specialMessage: scheduledDonation.specialMessage || 'Recurring Donation',
+    });
+
+    // 6. Create Donation Record
+    const donation = await Donation.create({
+      donor:
+        (scheduledDonation.user as unknown as IClient)._id ||
+        scheduledDonation.user,
+      organization: organization._id,
+      cause: scheduledDonation.cause,
+      donationType: 'recurring',
+
+      //  Store Financial Breakdown
+      amount: financials.baseAmount,
+      coverFees: financials.coverFees,
+      platformFee: financials.platformFee,
+      gstOnFee: financials.gstOnFee,
+      stripeFee: financials.stripeFee,
+      netAmount: financials.netToOrg,
+      totalAmount: financials.totalCharge,
+
+      currency: scheduledDonation.currency,
+      status: 'processing',
+      donationDate: new Date(),
+
+      stripePaymentIntentId: paymentIntent.payment_intent_id,
+      stripeChargeId: paymentIntent.client_secret,
+      stripeCustomerId: scheduledDonation.stripeCustomerId,
+      stripePaymentMethodId: paymentMethod.stripePaymentMethodId,
+
+      specialMessage: scheduledDonation.specialMessage,
+      scheduledDonationId: scheduledDonation._id,
+
+      // Idempotency
+      idempotencyKey: `recurring_${scheduledDonationId}_${Date.now()}`,
+      paymentAttempts: 1,
+      lastPaymentAttempt: new Date(),
+      receiptGenerated: false,
+    });
+
+    console.log(`✅ Recurring donation created: ${donation._id}`);
+
+    return donation;
+  } catch (error) {
+    // Unlock on error
+    await ScheduledDonation.findByIdAndUpdate(scheduledDonationId, {
+      status: 'active',
+    });
+    throw error;
   }
-
-  throw new AppError(
-    httpStatus.INTERNAL_SERVER_ERROR,
-    `Unexpected error processing donation: ${
-      lastError?.message || 'Unknown error'
-    }`
-  );
 };
-
 const updateScheduledDonationAfterExecution = async (
   scheduledDonationId: string,
   success: boolean
@@ -663,19 +648,21 @@ const updateScheduledDonationAfterExecution = async (
     scheduledDonation.lastExecutedDate = new Date();
     scheduledDonation.totalExecutions += 1;
 
-    // Use current date to calculate next schedule (Standard behavior)
-    // Or usage of lastExecutedDate if you want to keep strict intervals
+    //  Calculate next date from lastExecutedDate
+    const baseDate = scheduledDonation.lastExecutedDate;
     const nextDate = calculateNextDonationDate(
-      new Date(),
+      baseDate,
       scheduledDonation.frequency,
       scheduledDonation.customInterval
     );
     scheduledDonation.nextDonationDate = nextDate;
 
-    if (scheduledDonation.endDate && nextDate > scheduledDonation.endDate) {
-      scheduledDonation.isActive = false;
-    }
+    scheduledDonation.status = 'active';
 
+    await scheduledDonation.save();
+  } else {
+    // On failure, just unlock
+    scheduledDonation.status = 'active';
     await scheduledDonation.save();
   }
 };

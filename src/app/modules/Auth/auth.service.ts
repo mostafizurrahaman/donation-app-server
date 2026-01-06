@@ -1,7 +1,9 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import fs from 'fs';
 import httpStatus from 'http-status';
-import { startSession } from 'mongoose';
+import mongoose, { startSession } from 'mongoose';
 import config from '../../config';
+
 import {
   createAccessToken,
   createRefreshToken,
@@ -9,7 +11,7 @@ import {
   verifyToken,
 } from '../../lib';
 import { TDeactiveAccountPayload, TProfileFileFields } from '../../types';
-import { AppError, sendOtpEmail } from '../../utils';
+import { AppError, sendOtpEmail, uploadToS3 } from '../../utils';
 import Business from '../Business/business.model';
 import Organization from '../Organization/organization.model';
 import Client from '../Client/client.model';
@@ -22,7 +24,19 @@ import z from 'zod';
 import jwt, { JwtPayload, SignOptions } from 'jsonwebtoken';
 import { BoardMemberStatus } from '../BoardMember/board-member.constant';
 import { BoardMemeber } from '../BoardMember/board-member.model';
-
+import { FcmToken } from '../FcmToken/fcmToken.model';
+import SuperAdmin from '../superAdmin/superAdmin.model';
+import speakeasy from 'speakeasy';
+import QRCode from 'qrcode';
+import crypto from 'crypto';
+import { addMonths } from 'date-fns';
+import {
+  PLAN_TYPE,
+  SUBSCRIPTION_STATUS,
+} from '../Subscription/subscription.constant';
+import { Subscription } from '../Subscription/subscription.model';
+import { SubscriptionHistory } from '../subscriptionHistory/subscriptionHistory.model';
+import { SubscriptionService } from '../Subscription/subscription.service';
 const OTP_EXPIRY_MINUTES =
   Number.parseInt(config.jwt.otpSecretExpiresIn as string, 10) || 5;
 
@@ -203,14 +217,38 @@ const verifySignupOtpIntoDB = async (email: string, otp: string) => {
   };
 };
 
+const updateFcmToken = async (
+  userId: string,
+  token: string,
+  deviceType: string
+) => {
+  const fcmToken = await FcmToken.findOneAndUpdate(
+    {
+      user: userId,
+      deviceType,
+    },
+    {
+      token,
+      deviceType,
+    },
+    {
+      new: true,
+      upsert: true,
+    }
+  );
+  return fcmToken;
+};
 // 4. signinIntoDB
 const signinIntoDB = async (payload: {
   email: string;
   password: string;
   fcmToken: string;
+  deviceType: string;
 }) => {
   // const user = await Auth.findOne({ email: payload.email }).select('+password');
-  const user = await Auth.isUserExistsByEmail(payload.email);
+  const user = await Auth.findOne({ email: payload.email }).select(
+    '+password +twoFactorSecret'
+  );
 
   if (!user) {
     throw new AppError(httpStatus.NOT_FOUND, 'User does not exist!');
@@ -254,6 +292,22 @@ const signinIntoDB = async (payload: {
     throw new AppError(httpStatus.UNAUTHORIZED, 'Invalid credentials!');
   }
 
+  if (payload.fcmToken && payload.deviceType) {
+    await AuthService.updateFcmToken(
+      user?._id?.toString(),
+      payload.fcmToken,
+      payload.deviceType
+    );
+  }
+
+  if (user.isTwoFactorEnabled) {
+    return {
+      twoFactorRequired: true,
+      email: user.email,
+      message: 'Please enter your 2FA code to continue',
+    };
+  }
+
   // Prepare user data for token generation
   const accessTokenPayload = {
     id: user._id.toString(),
@@ -277,10 +331,12 @@ const signinIntoDB = async (payload: {
   return {
     accessToken,
     refreshToken,
+    twoFactorRequired: false,
   };
 };
 
 // 5. createProfileIntoDB
+
 const createProfileIntoDB = async (
   payload: TProfilePayload,
   user: IAuth,
@@ -296,28 +352,19 @@ const createProfileIntoDB = async (
 
   user.ensureActiveStatus();
 
-  // Destructure relevant fields from the payload
   const {
     role,
-
-    // CLIENT fields
     name,
     address,
     state,
     postalCode,
-    // notificationPreferences,
-
-    // BUSINESS fields
     category,
     tagLine,
     description,
     businessPhoneNumber,
     businessEmail,
     businessWebsite,
-
     locations,
-
-    // ORGANIZATION fields
     serviceType,
     website,
     phoneNumber,
@@ -328,262 +375,255 @@ const createProfileIntoDB = async (
     zakatLicenseHolderNumber,
   } = payload;
 
-  // Extract file paths for ID verification images for artists
-  const clientImage = files?.clientImage?.[0]?.path.replace(/\\/g, '/') || null;
-  const businessImage =
-    files?.businessImage?.[0]?.path.replace(/\\/g, '/') || null;
-  const organizationImage =
-    files?.organizationImage?.[0]?.path.replace(/\\/g, '/') || null;
-
-  const drivingLicenseURL =
-    files?.drivingLincenseURL?.[0]?.path.replace(/\\/g, '/') || null;
-
   // Start a MongoDB session for transaction
+  console.log(payload);
   const session = await startSession();
 
   try {
     session.startTransaction();
 
-    // CLIENT PROFILE CREATION
+    // --- CLIENT PROFILE ---
     if (role === ROLE.CLIENT) {
       const isExistClient = await Client.findOne({ auth: user._id });
-      if (isExistClient) {
-        throw new AppError(
-          httpStatus.BAD_REQUEST,
-          'Client data already saved in database'
-        );
+      if (isExistClient)
+        throw new AppError(httpStatus.BAD_REQUEST, 'Client already exists');
+
+      let imageUrl = null;
+      if (files?.clientImage?.[0]) {
+        const upload = await uploadToS3({
+          buffer: files.clientImage[0].buffer,
+          key: `client-${user._id}-${Date.now()}`,
+          contentType: files.clientImage[0].mimetype,
+          folder: 'profiles/clients',
+        });
+        imageUrl = upload.url;
       }
 
-      const clientPayload = {
-        auth: user._id,
-
-        name,
-        address,
-        state,
-        postalCode,
-
-        image: clientImage,
-      };
-
-      const [client] = await Client.create([clientPayload], { session });
-
-      if (!client) {
-        throw new AppError(
-          httpStatus.BAD_REQUEST,
-          'Client data not saved in database!'
-        );
-      }
+      const [client] = await Client.create(
+        [
+          {
+            auth: user._id,
+            name,
+            address,
+            state,
+            postalCode,
+            image: imageUrl,
+          },
+        ],
+        { session }
+      );
 
       await Auth.findByIdAndUpdate(
         user._id,
         { role: ROLE.CLIENT, isProfile: true },
         { session }
       );
-
       await session.commitTransaction();
       await session.endSession();
 
-      const accessTokenPayload = {
-        id: user._id.toString(),
-        name: client.name,
-        image: client.image,
-        email: user.email,
-        role: user.role,
-        isProfile: true,
-        isActive: user?.isActive,
-        status: user.status,
-      };
-
-      // const refreshTokenPayload = {
-      //   email: user.email,
-      // };
-
-      const accessToken = createAccessToken(accessTokenPayload);
-      // const refreshToken = createRefreshToken(refreshTokenPayload);
-
       return {
-        accessToken,
-        // refreshToken,
+        accessToken: createAccessToken({
+          id: user._id.toString(),
+          name: client.name,
+          image: client.image || '',
+          email: user.email,
+          role: user.role,
+          isProfile: true,
+          isActive: user.isActive,
+          status: user.status,
+        }),
       };
-    } else if (role === ROLE.BUSINESS) {
-      // BUSINESS PROFILE CREATION
+    }
+
+    // --- BUSINESS PROFILE ---
+    else if (role === ROLE.BUSINESS) {
       const isExistBusiness = await Business.findOne({ auth: user._id });
-      if (isExistBusiness) {
-        throw new AppError(
-          httpStatus.BAD_REQUEST,
-          'Business profile already exists.'
-        );
+      if (isExistBusiness)
+        throw new AppError(httpStatus.BAD_REQUEST, 'Business already exists');
+
+      let coverUrl = null;
+      if (files?.businessImage?.[0]) {
+        const upload = await uploadToS3({
+          buffer: files.businessImage[0].buffer,
+          key: `business-${user._id}-${Date.now()}`,
+          contentType: files.businessImage[0].mimetype,
+          folder: 'profiles/businesses',
+        });
+        coverUrl = upload.url;
       }
 
-      const businessPayload = {
-        auth: user._id,
-
-        category,
-        name,
-        tagLine,
-        description,
-
-        coverImage: businessImage,
-
-        businessPhoneNumber,
-        businessEmail,
-        businessWebsite,
-        locations,
-      };
-
-      const [business] = await Business.create([businessPayload], { session });
-
-      if (!business) {
-        throw new AppError(
-          httpStatus.BAD_REQUEST,
-          'Business data not saved in database!'
-        );
-      }
+      const [business] = await Business.create(
+        [
+          {
+            auth: user._id,
+            category,
+            name,
+            tagLine,
+            description,
+            coverImage: coverUrl,
+            businessPhoneNumber,
+            businessEmail,
+            businessWebsite,
+            locations,
+          },
+        ],
+        { session }
+      );
 
       await Auth.findByIdAndUpdate(
         user._id,
         { role: ROLE.BUSINESS, isProfile: true },
         { session }
       );
-
       await session.commitTransaction();
       await session.endSession();
 
-      const accessTokenPayload = {
-        id: user?._id.toString(),
-        name: business?.name,
-        image: business?.coverImage,
-        email: user?.email,
-        role: user?.role,
-        isProfile: true,
-        isActive: user?.isActive,
-        status: user.status,
-      };
-
-      // const refreshTokenPayload = {
-      //   email: user?.email,
-      // };
-
-      const accessToken = createAccessToken(accessTokenPayload);
-      // const refreshToken = createRefreshToken(refreshTokenPayload);
-
       return {
-        accessToken,
-        // refreshToken,
+        accessToken: createAccessToken({
+          id: user._id.toString(),
+          name: business.name,
+          image: business.coverImage || '',
+          email: user.email,
+          role: user.role,
+          isProfile: true,
+          isActive: user.isActive,
+          status: user.status,
+        }),
       };
-    } else if (role === ROLE.ORGANIZATION) {
-      // ORGANIZATION PROFILE CREATION
+    }
+
+    // --- ORGANIZATION PROFILE ---
+    else if (role === ROLE.ORGANIZATION) {
       const isExistOrganization = await Organization.findOne({
         auth: user._id,
       });
-      if (isExistOrganization) {
+      if (isExistOrganization)
         throw new AppError(
           httpStatus.BAD_REQUEST,
-          'Organization profile already exists.'
+          'Organization already exists'
         );
+
+      let coverUrl = null;
+      let licenseUrl = null;
+
+      if (files?.organizationImage?.[0]) {
+        const upload = await uploadToS3({
+          buffer: files.organizationImage[0].buffer,
+          key: `org-cover-${user._id}-${Date.now()}`,
+          contentType: files.organizationImage[0].mimetype,
+          folder: 'profiles/orgs',
+        });
+        coverUrl = upload.url;
       }
 
-      const organizationPayload = {
-        auth: user._id,
-
-        name,
-        serviceType,
-        address,
-        state,
-        postalCode,
-        website,
-
-        phoneNumber,
-        coverImage: organizationImage,
-
-        boardMemberName,
-        boardMemberEmail,
-        boardMemberPhoneNumber,
-        drivingLicenseURL,
-
-        tfnOrAbnNumber,
-        zakatLicenseHolderNumber,
-      };
-
-      const [organization] = await Organization.create([organizationPayload], {
-        session,
-      });
-
-      if (!organization) {
-        throw new AppError(
-          httpStatus.BAD_REQUEST,
-          'Organization data not saved in database!'
-        );
+      if (files?.drivingLincenseURL?.[0]) {
+        const upload = await uploadToS3({
+          buffer: files.drivingLincenseURL[0].buffer,
+          key: `org-license-${user._id}-${Date.now()}`,
+          contentType: files.drivingLincenseURL[0].mimetype,
+          folder: 'documents/orgs',
+        });
+        licenseUrl = upload.url;
       }
+
+      const [organization] = await Organization.create(
+        [
+          {
+            auth: user._id,
+            name,
+            serviceType,
+            address,
+            state,
+            postalCode,
+            website,
+            phoneNumber,
+            coverImage: coverUrl,
+            boardMemberName,
+            boardMemberEmail,
+            boardMemberPhoneNumber,
+            drivingLicenseURL: licenseUrl,
+            tfnOrAbnNumber,
+            zakatLicenseHolderNumber,
+          },
+        ],
+        { session }
+      );
 
       await Auth.findByIdAndUpdate(
         user._id,
         { role: ROLE.ORGANIZATION, isProfile: true },
         { session }
       );
-
       await session.commitTransaction();
       await session.endSession();
 
-      const accessTokenPayload = {
-        id: user._id.toString(),
-        name: organization?.name,
-        email: user.email,
-        image: organization?.coverImage,
-        role: user.role,
-        isProfile: true,
-        isActive: user?.isActive,
-        status: user.status,
+      return {
+        accessToken: createAccessToken({
+          id: user._id.toString(),
+          name: organization.name,
+          image: organization.coverImage || '',
+          email: user.email,
+          role: user.role,
+          isProfile: true,
+          isActive: user.isActive,
+          status: user.status,
+        }),
       };
+    } else if (role === ROLE.ADMIN) {
+      const isExistAdmin = await SuperAdmin.findOne({ auth: user._id });
 
-      // const refreshTokenPayload = {
-      //   email: user?.email,
-      // };
+      if (isExistAdmin)
+        throw new AppError(httpStatus.BAD_REQUEST, 'Profile already exists');
 
-      const accessToken = createAccessToken(accessTokenPayload);
-      // const refreshToken = createRefreshToken(refreshTokenPayload);
+      let imageUrl = null;
+      if (files?.adminImage?.[0]) {
+        // Adjust field name in upload.fields if necessary
+        const upload = await uploadToS3({
+          buffer: files.adminImage[0].buffer,
+          key: `admin-${user._id}-${Date.now()}`,
+          contentType: files.adminImage[0].mimetype,
+          folder: 'profiles/super-admins',
+        });
+        imageUrl = upload.url;
+      }
+
+      const [adminProfile] = await SuperAdmin.create(
+        [
+          {
+            auth: user._id,
+            name,
+            address,
+            phoneNumber,
+            state,
+            profileImage: imageUrl,
+          },
+        ],
+        { session }
+      );
+
+      await Auth.findByIdAndUpdate(user._id, { isProfile: true }, { session });
+      await session.commitTransaction();
+      await session.endSession();
 
       return {
-        accessToken,
-        // refreshToken,
+        accessToken: createAccessToken({
+          id: user._id.toString(),
+          name: adminProfile.name,
+          image: adminProfile.profileImage || '',
+          email: user.email,
+          role: user.role,
+          isProfile: true,
+          isActive: user.isActive,
+          status: user.status,
+        }),
       };
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
-    // ❌ Roll back transaction in case of any error
     await session.abortTransaction();
     await session.endSession();
-
-    // 🧼 Cleanup: Delete uploaded files to avoid storage bloat
-    if (files && typeof files === 'object' && !Array.isArray(files)) {
-      Object.values(files).forEach((fileArray) => {
-        fileArray.forEach((file) => {
-          try {
-            if (file?.path && fs.existsSync(file.path)) {
-              fs.unlinkSync(file.path);
-            }
-          } catch (deleteErr) {
-            // eslint-disable-next-line no-console
-            console.warn(
-              'Failed to delete uploaded file:',
-              file.path,
-              deleteErr
-            );
-          }
-        });
-      });
-    }
-
-    // Re-throw application-specific errors
-    if (error instanceof AppError) {
-      throw error;
-    }
-
-    // Throw generic internal server error
-    throw new AppError(
-      httpStatus.INTERNAL_SERVER_ERROR,
-      error?.message || 'Failed to create profile. Please try again!'
-    );
+    throw error instanceof AppError
+      ? error
+      : new AppError(httpStatus.INTERNAL_SERVER_ERROR, error.message);
   }
 };
 
@@ -1004,38 +1044,46 @@ const resetPasswordIntoDB = async (
 
 // 12. fetchProfileFromDB
 const fetchProfileFromDB = async (user: IAuth) => {
-  console.log({
-    user,
-  });
   if (user?.role === ROLE.CLIENT) {
     const client = await Client.findOne({ auth: user._id }).populate([
       {
         path: 'auth',
-        select: 'email role isProfile',
+        select: 'email role isProfile isTwoFactorEnabled',
       },
     ]);
-    // .lean();
 
     return client;
-
-    // return { ...client,  preference};
-    // return { ...client?.toObject(), preference };
   } else if (user?.role === ROLE.BUSINESS) {
     const business = await Business.findOne({ auth: user._id }).populate([
       {
         path: 'auth',
-        select: 'email role isProfile',
+        select: 'email role isProfile isTwoFactorEnabled',
       },
     ]);
-    console.log({ business });
 
     // return business;
     const businessProfile = business?.toObject();
+
+    const sub = await Subscription.findOne({
+      user: user?._id,
+      status: {
+        $in: [SUBSCRIPTION_STATUS.ACTIVE, SUBSCRIPTION_STATUS.TRIALING],
+      },
+    }).sort({ currentPeriodEnd: -1 });
+
+    if (!sub || !sub.currentPeriodEnd) {
+      return false;
+    }
+
+    const isSubscribed = new Date() < new Date(sub.currentPeriodEnd);
 
     return {
       ...businessProfile,
       coverImage: businessProfile?.coverImage || null,
       logoImage: businessProfile?.logoImage || null,
+      isSubscribed,
+      subscriptionStartAt: sub?.currentPeriodStart,
+      subscriptionExpiresAt: sub?.currentPeriodEnd,
     };
   } else if (user?.role === ROLE.ORGANIZATION) {
     const organization = await Organization.findOne({
@@ -1043,15 +1091,34 @@ const fetchProfileFromDB = async (user: IAuth) => {
     }).populate([
       {
         path: 'auth',
-        select: 'email role isProfile',
+        select: 'email role isProfile isTwoFactorEnabled',
       },
     ]);
 
-    return organization;
+    const isSubscribed = await SubscriptionService.checkHasSubscription(
+      organization?._id!?.toString()
+    );
 
-    // return { ...organization?.toObject(), preference };
+    return { ...organization?.toObject(), isSubscribed };
   } else if (user?.role === ROLE.ADMIN) {
-    return user;
+    const admin = await SuperAdmin.findOne({
+      auth: user._id,
+    }).populate([
+      {
+        path: 'auth',
+        select: 'email role isProfile isTwoFactorEnabled',
+      },
+    ]);
+    return admin;
+  } else if (user?.role === ROLE.GUEST) {
+    const guest = await Client.findOne({
+      auth: user._id,
+    }).populate({
+      path: 'auth',
+      select: 'email role isProfile',
+    });
+
+    return guest;
   }
 };
 
@@ -1342,7 +1409,10 @@ const businessSignupWithProfile = async (
   }
 ) => {
   // Extract auth and business data
+
   const { email, password, ...businessData } = payload;
+
+  console.log({ payload, files });
 
   // Check if user already exists
   const existingUser = await Auth.isUserExistsByEmail(email);
@@ -1365,7 +1435,16 @@ const businessSignupWithProfile = async (
   }
 
   // Extract cover image path (optional)
-  const logoImage = files?.logoImage?.[0]?.path.replace(/\\/g, '/') || null;
+  let logoImageUrl = null;
+  if (files?.logoImage?.[0]) {
+    const uploadResult = await uploadToS3({
+      buffer: files.logoImage[0].buffer,
+      key: `logo-${Date.now()}`,
+      contentType: files.logoImage[0].mimetype,
+      folder: 'profiles/businesses',
+    });
+    logoImageUrl = uploadResult.url;
+  }
 
   // Generate OTP for new user
   const otp = generateOtp();
@@ -1410,7 +1489,7 @@ const businessSignupWithProfile = async (
       description: businessData.description,
 
       // Optional fields - only add if provided
-      ...(logoImage && { logoImage }),
+      ...(logoImageUrl && { logoImage: logoImageUrl }),
       ...(businessData.businessPhoneNumber && {
         businessPhoneNumber: businessData.businessPhoneNumber,
       }),
@@ -1444,6 +1523,41 @@ const businessSignupWithProfile = async (
         'Welcome to our platform! Please verify your business account with this OTP.',
     });
 
+    if (ROLE.BUSINESS === newAuth.role) {
+      const trialEndDate = addMonths(new Date(), 6);
+
+      const [newSub] = await Subscription.create(
+        [
+          {
+            user: newAuth._id,
+            planType: PLAN_TYPE.MONTHLY,
+            status: SUBSCRIPTION_STATUS.TRIALING,
+            currentPeriodStart: new Date(),
+            currentPeriodEnd: trialEndDate,
+          },
+        ],
+        { session }
+      );
+
+      await SubscriptionHistory.create(
+        [
+          {
+            user: newAuth._id,
+            subscription: newSub._id,
+            stripeInvoiceId: `TRAIL-${new Date().getTime()}-${crypto
+              .randomBytes(6)
+              .toString('hex')}`,
+            amount: 0,
+            status: 'succeeded',
+            billingReason: 'trial_start',
+            planType: PLAN_TYPE.MONTHLY,
+            transactionDate: new Date(),
+          },
+        ],
+        { session }
+      );
+    }
+
     // Commit transaction
     await session.commitTransaction();
     await session.endSession();
@@ -1460,18 +1574,19 @@ const businessSignupWithProfile = async (
       },
     };
   } catch (error: any) {
+    console.log(error);
     // Rollback transaction
     await session.abortTransaction();
     await session.endSession();
 
-    // Clean up uploaded files on error
-    if (logoImage && fs.existsSync(logoImage)) {
-      try {
-        fs.unlinkSync(logoImage);
-      } catch (deleteErr) {
-        console.error('Failed to delete uploaded file:', deleteErr);
-      }
-    }
+    // // Clean up uploaded files on error
+    // if (logoImage && fs.existsSync(logoImage)) {
+    //   try {
+    //     fs.unlinkSync(logoImage);
+    //   } catch (deleteErr) {
+    //     console.error('Failed to delete uploaded file:', deleteErr);
+    //   }
+    // }
 
     // Re-throw application errors
     if (error instanceof AppError) {
@@ -1498,41 +1613,53 @@ const organizationSignupWithProfile = async (
     drivingLicense?: Express.Multer.File[];
   }
 ) => {
-  // Extract auth and organization data
   const { email, password, ...orgData } = payload;
 
-  // Check if user already exists
+  // 1. Check if user already exists
   const existingUser = await Auth.isUserExistsByEmail(email);
-
   if (existingUser) {
-    // Clean up uploaded files immediately if user exists to save space
-    const allFiles = [
-      ...(files?.logoImage || []),
-      ...(files?.coverImage || []),
-      ...(files?.drivingLicense || []),
-    ];
-
-    allFiles.forEach((file) => {
-      try {
-        if (file.path && fs.existsSync(file.path)) fs.unlinkSync(file.path);
-      } catch (err) {
-        console.error('Cleanup error:', err);
-      }
-    });
-
     throw new AppError(
       httpStatus.BAD_REQUEST,
       'User with this email already exists!'
     );
   }
 
-  // Extract file paths
-  const logoImage = files?.logoImage?.[0]?.path.replace(/\\/g, '/') || null;
-  const coverImage = files?.coverImage?.[0]?.path.replace(/\\/g, '/') || null;
-  const drivingLicenseURL =
-    files?.drivingLicense?.[0]?.path.replace(/\\/g, '/') || null;
+  // 2. Upload Files to S3
+  let logoImageUrl = null;
+  let coverImageUrl = null;
+  let drivingLicenseUrl = null;
 
-  // Generate OTP
+  if (files?.logoImage?.[0]) {
+    const upload = await uploadToS3({
+      buffer: files.logoImage[0].buffer,
+      key: `logo-${Date.now()}`,
+      contentType: files.logoImage[0].mimetype,
+      folder: 'organization/logos',
+    });
+    logoImageUrl = upload.url;
+  }
+
+  if (files?.coverImage?.[0]) {
+    const upload = await uploadToS3({
+      buffer: files.coverImage[0].buffer,
+      key: `cover-${Date.now()}`,
+      contentType: files.coverImage[0].mimetype,
+      folder: 'organization/covers',
+    });
+    coverImageUrl = upload.url;
+  }
+
+  if (files?.drivingLicense?.[0]) {
+    const upload = await uploadToS3({
+      buffer: files.drivingLicense[0].buffer,
+      key: `license-${Date.now()}`,
+      contentType: files.drivingLicense[0].mimetype,
+      folder: 'organization/documents',
+    });
+    drivingLicenseUrl = upload.url;
+  }
+
+  // 3. Generate OTP
   const otp = generateOtp();
   const now = new Date();
   const otpExpiry = new Date(
@@ -1544,7 +1671,7 @@ const organizationSignupWithProfile = async (
   try {
     session.startTransaction();
 
-    // 1. Create Auth record
+    // 4. Create Auth record
     const authPayload = {
       email,
       password,
@@ -1567,7 +1694,7 @@ const organizationSignupWithProfile = async (
       );
     }
 
-    // 2. Create Organization Profile
+    // 5. Create Organization Profile
     const organizationPayload = {
       auth: newAuth._id,
       name: orgData.name,
@@ -1582,13 +1709,13 @@ const organizationSignupWithProfile = async (
       registeredCharityName: orgData.registeredCharityName,
       dateOfEstablishment: orgData.dateOfEstablishment,
 
-      // Verification details
       tfnOrAbnNumber: orgData.tfnOrAbnNumber,
+      acncNumber: orgData.acncNumber,
       zakatLicenseHolderNumber: orgData.zakatLicenseHolderNumber,
 
-      // Images/Docs
-      logoImage,
-      coverImage,
+      // Use S3 URLs
+      logoImage: logoImageUrl,
+      coverImage: coverImageUrl,
     };
 
     const [newOrganization] = await Organization.create([organizationPayload], {
@@ -1602,12 +1729,13 @@ const organizationSignupWithProfile = async (
       );
     }
 
+    // 6. Create Board Member
     const boardMemeberPayload = {
       organization: newOrganization?._id,
       boardMemberName: orgData.boardMemberName,
       boardMemberEmail: orgData.boardMemberEmail,
       boardMemberPhoneNumber: orgData.boardMemberPhoneNumber,
-      drivingLicenseURL,
+      drivingLicenseURL: drivingLicenseUrl, // Use S3 URL
       status: BoardMemberStatus.PENDING,
     };
 
@@ -1622,7 +1750,7 @@ const organizationSignupWithProfile = async (
       );
     }
 
-    // 3. Send OTP Email
+    // 7. Send OTP Email
     await sendOtpEmail({
       email,
       otp,
@@ -1630,6 +1758,43 @@ const organizationSignupWithProfile = async (
       customMessage:
         'Welcome! Please verify your organization account to proceed.',
     });
+
+    // 7. Database lable trail subscription for organization role
+    if (newAuth.role === ROLE.ORGANIZATION) {
+      const trialEndDate = addMonths(new Date(), 6);
+
+      const [newSub] = await Subscription.create(
+        [
+          {
+            user: newAuth._id,
+            planType: PLAN_TYPE.MONTHLY,
+            status: SUBSCRIPTION_STATUS.TRIALING,
+            trialEndsAt: trialEndDate,
+            currentPeriodStart: new Date(),
+            currentPeriodEnd: trialEndDate,
+          },
+        ],
+        { session }
+      );
+
+      await SubscriptionHistory.create(
+        [
+          {
+            user: newAuth._id,
+            subscription: newSub._id,
+            stripeInvoiceId: `TRAIL-${new Date().getTime()}-${crypto
+              .randomBytes(6)
+              .toString('hex')}`,
+            amount: 0,
+            status: 'succeeded',
+            billingReason: 'trial_start',
+            planType: PLAN_TYPE.MONTHLY,
+            transactionDate: new Date(),
+          },
+        ],
+        { session }
+      );
+    }
 
     await session.commitTransaction();
     await session.endSession();
@@ -1646,21 +1811,6 @@ const organizationSignupWithProfile = async (
     await session.abortTransaction();
     await session.endSession();
 
-    // Clean up uploaded files on error
-    const allFiles = [
-      ...(files?.logoImage || []),
-      ...(files?.coverImage || []),
-      ...(files?.drivingLicense || []),
-    ];
-
-    allFiles.forEach((file) => {
-      try {
-        if (file.path && fs.existsSync(file.path)) fs.unlinkSync(file.path);
-      } catch (err) {
-        console.error('Cleanup error:', err);
-      }
-    });
-
     if (error instanceof AppError) throw error;
     if (error.code === 11000)
       throw new AppError(httpStatus.BAD_REQUEST, 'Email already exists!');
@@ -1671,6 +1821,215 @@ const organizationSignupWithProfile = async (
     );
   }
 };
+
+const setup2FA = async (userId: string) => {
+  const user = await Auth.findById(userId);
+  if (!user) throw new AppError(httpStatus.NOT_FOUND, 'User not found');
+
+  const secret = speakeasy.generateSecret({
+    name: `CrescentChange:${user.email}`,
+  });
+
+  // Store secret temporarily (don't enable yet)
+  user.twoFactorSecret = secret.base32;
+  await user.save();
+
+  const qrCodeUrl = await QRCode.toDataURL(secret.otpauth_url!);
+
+  return {
+    qrCodeUrl,
+    secret: secret.base32,
+  };
+};
+
+const verifyAndEnable2FA = async (userId: string, token: string) => {
+  const user = await Auth.findById(userId).select('+twoFactorSecret');
+  if (!user || !user.twoFactorSecret) {
+    throw new AppError(httpStatus.BAD_REQUEST, '2FA setup not initiated');
+  }
+
+  const verified = speakeasy.totp.verify({
+    secret: user.twoFactorSecret,
+    encoding: 'base32',
+    token,
+  });
+
+  if (!verified) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'Invalid 2FA token');
+  }
+
+  user.isTwoFactorEnabled = true;
+  // Generate backup codes
+  const backupCodes = Array.from({ length: 5 }, () => {
+    return crypto.randomBytes(4).toString('hex').toUpperCase();
+  });
+  user.twoFactorBackupCodes = backupCodes;
+
+  await user.save();
+
+  return { backupCodes };
+};
+
+const verify2FALogin = async (email: string, token: string) => {
+  const user = await Auth.findOne({ email }).select('+twoFactorSecret');
+  if (!user || !user.twoFactorSecret) {
+    throw new AppError(httpStatus.UNAUTHORIZED, 'Authentication failed');
+  }
+
+  const verified = speakeasy.totp.verify({
+    secret: user.twoFactorSecret,
+    encoding: 'base32',
+    token,
+  });
+
+  if (!verified) {
+    throw new AppError(httpStatus.UNAUTHORIZED, 'Invalid 2FA token');
+  }
+
+  // Generate real tokens
+  const accessTokenPayload = {
+    id: user._id.toString(),
+    name: 'User',
+    image: defaultUserImage,
+    email: user.email,
+    role: user.role,
+    isProfile: user?.isProfile,
+    isActive: user?.isActive,
+    status: user.status,
+  };
+
+  return {
+    accessToken: createAccessToken(accessTokenPayload),
+    refreshToken: createRefreshToken({ email: user.email }),
+  };
+};
+
+const disable2FA = async (userId: string, token: string) => {
+  const user = await Auth.findById(userId).select('+twoFactorSecret');
+  if (!user) throw new AppError(httpStatus.NOT_FOUND, 'User not found');
+
+  const verified = speakeasy.totp.verify({
+    secret: user.twoFactorSecret!,
+    encoding: 'base32',
+    token,
+  });
+
+  if (!verified)
+    throw new AppError(httpStatus.BAD_REQUEST, 'Invalid 2FA token');
+
+  user.isTwoFactorEnabled = false;
+  user.twoFactorSecret = undefined;
+  user.twoFactorBackupCodes = [];
+  await user.save();
+
+  return { success: true };
+};
+const guestLogin = async () => {
+  const session = await Auth.startSession();
+  session.startTransaction();
+
+  try {
+    const guestId = `guest_${Date.now()}_${Math.random()
+      .toString(36)
+      .substring(7)}`;
+
+    const guestAuth = await Auth.create(
+      [
+        {
+          email: `${guestId}@crescent.guest`,
+          role: ROLE.GUEST,
+          isGuest: true,
+          status: AUTH_STATUS.VERIFIED,
+          isActive: true,
+          isVerifiedByOTP: true,
+          password: guestId,
+          otp: '000000',
+          otpExpiry: new Date(Date.now() + 1000 * 60 * 60),
+        },
+      ],
+      { session }
+    );
+
+    await Client.create(
+      [
+        {
+          auth: guestAuth[0]._id,
+          name: 'Guest User',
+          address: 'N/A',
+          state: 'N/A',
+          postalCode: 'N/A',
+        },
+      ],
+      { session }
+    );
+
+    // Commit the transaction
+    await session.commitTransaction();
+    session.endSession();
+
+    const accessTokenPayload = {
+      id: guestAuth[0]._id.toString(),
+      name: 'Guest',
+      image: config.defaultUserImage,
+      email: guestAuth[0].email,
+      role: ROLE.GUEST,
+      isProfile: true,
+      isActive: true,
+      status: AUTH_STATUS.VERIFIED,
+    };
+
+    return {
+      accessToken: createAccessToken(accessTokenPayload),
+      refreshToken: createRefreshToken({ email: guestAuth[0].email }),
+    };
+  } catch (error) {
+    // Abort transaction on error
+    await session.abortTransaction();
+    session.endSession();
+    throw error;
+  }
+};
+
+export const guestRemove = async (guestId: string) => {
+  if (!guestId) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'Guest ID is required');
+  }
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    // Find guest user
+    const guestAuth = await Auth.findOne({
+      _id: guestId,
+      isGuest: true,
+    }).session(session);
+    if (!guestAuth) {
+      throw new Error('Guest user not found');
+    }
+
+    // Delete related Client document
+    const guest = await Client.deleteOne({ auth: guestAuth._id }).session(
+      session
+    );
+
+    // Delete Auth document
+    await Auth.deleteOne({ _id: guestAuth._id }).session(session);
+
+    await session.commitTransaction();
+    session.endSession();
+
+    return guest;
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    throw new AppError(
+      httpStatus.INTERNAL_SERVER_ERROR,
+      'Failed to delete guest user'
+    );
+  }
+};
+
 export const AuthService = {
   createAuthIntoDB,
   sendSignupOtpAgain,
@@ -1690,4 +2049,11 @@ export const AuthService = {
   updateAuthDataIntoDB,
   businessSignupWithProfile,
   organizationSignupWithProfile,
+  updateFcmToken,
+  setup2FA,
+  disable2FA,
+  verify2FALogin,
+  verifyAndEnable2FA,
+  guestLogin,
+  guestRemove,
 };

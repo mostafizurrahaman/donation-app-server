@@ -38,12 +38,13 @@ router
 
 // 5. createProfile
 router.route('/create-Profile').post(
-  auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION),
+  auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION, ROLE.ADMIN),
   upload.fields([
     { name: 'clientImage', maxCount: 1 },
     { name: 'businessImage', maxCount: 1 },
     { name: 'organizationImage', maxCount: 1 },
     { name: 'drivingLincenseURL', maxCount: 1 },
+    { name: 'adminImage', maxCount: 1 },
   ]),
   validateRequestFromFormData(AuthValidation.createProfileSchema),
   AuthController.createProfile
@@ -107,7 +108,7 @@ router
 router
   .route('/profile')
   .get(
-    auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION, ROLE.ADMIN),
+    auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION, ROLE.ADMIN, ROLE.GUEST),
     AuthController.fetchProfile
   );
 
@@ -132,7 +133,7 @@ router
 router
   .route('/access-token')
   .get(
-    auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION, ROLE.ADMIN),
+    auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION, ROLE.ADMIN, ROLE.GUEST),
     validateRequest(AuthValidation.getNewAccessTokenSchema),
     AuthController.getNewAccessToken
   );
@@ -159,11 +160,51 @@ router.route('/organization-signup').post(
   upload.fields([
     { name: 'logoImage', maxCount: 1 },
     { name: 'coverImage', maxCount: 1 },
-    { name: 'drivingLicense', maxCount: 1 }, // Used for ID/Doc verification
+    { name: 'drivingLicense', maxCount: 1 },
   ]),
   validateRequestFromFormData(
     AuthValidation.organizationSignupWithProfileSchema
   ),
   AuthController.organizationSignupWithProfile
 );
+
+router.patch(
+  '/update-fcm',
+  auth(ROLE.CLIENT, ROLE.ORGANIZATION, ROLE.BUSINESS, ROLE.ADMIN),
+  validateRequest(AuthValidation.updateFcmToken),
+  AuthController.updateFcmToken
+);
+
+router.post(
+  '/2fa/setup',
+  auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION, ROLE.ADMIN),
+  AuthController.setup2FA
+);
+
+// Verify and Enable 2FA (The first verification to turn it on)
+router.post(
+  '/2fa/enable',
+  auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION, ROLE.ADMIN),
+  validateRequest(AuthValidation.verifyAndEnable2FASchema),
+  AuthController.verifyAndEnable2FA
+);
+
+// Finalize Login for users who have 2FA enabled (Public route)
+router.post(
+  '/2fa/verify-login',
+  validateRequest(AuthValidation.verify2FALoginSchema),
+  AuthController.verify2FALogin
+);
+
+// Disable 2FA (Requires token verification)
+router.post(
+  '/2fa/disable',
+  validateRequest(AuthValidation.disabled2FASchema),
+  auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION, ROLE.ADMIN),
+  AuthController.disable2FA
+);
+
+router.post('/guest-login', AuthController.guestLogin);
+router.post('/guest-remove', AuthController.guestRemove);
+
 export const AuthRoutes = router;

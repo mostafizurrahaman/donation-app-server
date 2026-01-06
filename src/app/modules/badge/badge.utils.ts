@@ -1,7 +1,5 @@
-// src/app/modules/badge/badge.utils.ts
-
 /**
- * Hijri Date Converter
+ * Hijri Date Converter Engine
  */
 class HijriDate {
   year: number;
@@ -60,85 +58,52 @@ class HijriDate {
   }
 }
 
-/**
- * Check if date is in Ramadan
- */
+// 1. RAMADAN (Month 9)
 export const isRamadan = (date: Date): boolean => {
   const hijri = new HijriDate(date);
   return hijri.month === 9;
 };
 
-/**
- * Check if date is Laylat al-Qadr (27th of Ramadan)
- */
+// 2. LAYLAT AL-QADR (Ramadan 27)
 export const isLaylatAlQadr = (date: Date): boolean => {
   const hijri = new HijriDate(date);
   return hijri.month === 9 && hijri.day === 27;
 };
 
-/**
- * Check if date is in Dhul Hijjah
- */
+// 3. QURBAN / DHUL HIJJAH (Month 12)
 export const isDhulHijjah = (date: Date): boolean => {
   const hijri = new HijriDate(date);
   return hijri.month === 12;
 };
 
-/**
- * Check if date is in winter (May-Aug for Southern Hemisphere)
- */
-export const isWinter = (date: Date): boolean => {
-  const month = date.getMonth() + 1;
-  return month >= 5 && month <= 8;
+// 4. EID (Fitrah Deadline)
+export const isBeforeEid = (date: Date): boolean => {
+  const hijri = new HijriDate(date);
+  return hijri.month === 9 || (hijri.month === 10 && hijri.day === 1);
 };
 
-/**
- * Check if within time range
- */
+// 5. WINTER (May - Aug for Southern Hemisphere)
+export const isWinter = (date: Date): boolean => {
+  const month = date.getMonth(); // 0-11
+  // May(4), Jun(5), Jul(6), Aug(7)
+  return month >= 4 && month <= 7;
+};
+
+// 6. TIME RANGE CHECK (Midnight Giver)
 export const isWithinTimeRange = (
   date: Date,
   startHour: number,
   endHour: number
 ): boolean => {
   const hour = date.getHours();
-
   if (startHour <= endHour) {
     return hour >= startHour && hour < endHour;
   } else {
+    // Crosses midnight (e.g. 22 to 04)
     return hour >= startHour || hour < endHour;
   }
 };
 
-/**
- * Check if midnight (12am-4am)
- */
-export const isMidnight = (date: Date): boolean => {
-  return isWithinTimeRange(date, 0, 4);
-};
-
-/**
- * Get seasonal period
- */
-export const getSeasonalPeriod = (
-  date: Date
-): 'ramadan' | 'dhul_hijjah' | 'winter' | null => {
-  if (isRamadan(date)) return 'ramadan';
-  if (isDhulHijjah(date)) return 'dhul_hijjah';
-  if (isWinter(date)) return 'winter';
-  return null;
-};
-
-/**
- * Check if before Eid
- */
-export const isBeforeEid = (date: Date): boolean => {
-  const hijri = new HijriDate(date);
-  return hijri.month === 9 || (hijri.month === 10 && hijri.day === 1);
-};
-
-/**
- * Get current Hijri year
- */
 export const getCurrentHijriYear = (): number => {
   const hijri = new HijriDate(new Date());
   return hijri.year;
