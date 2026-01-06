@@ -278,11 +278,27 @@ const getAdminStatesFromDb = async (params?: AdminStatesParams) => {
     },
     { $unwind: '$causeDetails' },
     {
+      $group: {
+        _id: '$causeDetails.category',
+        totalAmount: { $sum: '$totalAmount' },
+        causes: {
+          $push: {
+            causeId: '$_id',
+            causeName: '$causeDetails.name',
+            causeCategory: '$causeDetails.category',
+            amount: '$totalAmount',
+          },
+        },
+      },
+    },
+    {
       $project: {
         _id: 0,
-        causeId: '$_id',
-        cause: '$causeDetails.name',
+        category: '$_id',
         totalAmount: 1,
+        causes: 1,
+        cause: '$causes.causeName',
+        causeCategoryName: '$causeDetails.category',
       },
     },
   ]);
@@ -325,7 +341,7 @@ const getAdminStatesFromDb = async (params?: AdminStatesParams) => {
     { $project: { _id: 0, cause: '$causeDetails.name', totalAmount: 1 } },
   ]);
 
-  type CauseAgg = { cause?: string; totalAmount?: number };
+  type CauseAgg = { cause?: string; totalAmount?: number; category?: string; causeCategoryName?: string };
 
   const currentByCauseMap = new Map<string, number>();
   currentByCauseAgg.forEach((d: CauseAgg) =>
@@ -336,19 +352,25 @@ const getAdminStatesFromDb = async (params?: AdminStatesParams) => {
     previousByCauseMap.set(d.cause ?? '', d.totalAmount ?? 0)
   );
 
-  const donationsByCauseWithChange = donationsByCause.map((c: CauseAgg) => {
-    const curr = currentByCauseMap.get(c.cause as string) ?? 0;
-    const prev = previousByCauseMap.get(c.cause as string) ?? 0;
-    const pct = calcPct(prev, curr);
-    return {
-      cause: c.cause,
-      totalAmount: c.totalAmount,
-      currentMonthAmount: curr,
-      previousMonthAmount: prev,
-      changePct: pct,
-      changeText: formatPct(pct),
-    };
-  });
+ 
+    const donationsByCauseWithChange = donationsByCause.flatMap((c: any) => {
+      return c.causes.map((cause: any) => {
+        const curr = currentByCauseMap.get(cause.causeName) ?? 0;
+        const prev = previousByCauseMap.get(cause.causeName) ?? 0;
+        const pct = calcPct(prev, curr);
+        return {
+          cause: cause.causeName,
+          causeCategory: c.category,
+          totalAmount: cause.amount,
+          currentMonthAmount: curr,
+          previousMonthAmount: prev,
+          changePct: pct,
+          changeText: formatPct(pct),
+        };
+      });
+    });
+    
+  
 
   // top 5 donors (all time) + month-over-month change per donor (by name)
   const topDonors = await Donation.aggregate([
@@ -367,6 +389,7 @@ const getAdminStatesFromDb = async (params?: AdminStatesParams) => {
         _id: 0,
         donorId: '$_id',
         donor: '$donorDetails.name',
+        donorImage: '$donorDetails.image',
         totalAmount: 1,
         since: '$clients.createdAt',
       },
@@ -421,6 +444,7 @@ const getAdminStatesFromDb = async (params?: AdminStatesParams) => {
       $project: {
         _id: 0,
         donor: '$donorDetails.name',
+
         totalAmount: 1,
         since: '$donorDetails.createdAt',
       },
@@ -452,6 +476,7 @@ const getAdminStatesFromDb = async (params?: AdminStatesParams) => {
   const topDonorsWithChange = topDonors.map(
     (d: {
       donor?: string;
+      donorImage?: string;
       totalAmount?: number;
       since?: Date | string | null;
     }) => {
@@ -461,6 +486,7 @@ const getAdminStatesFromDb = async (params?: AdminStatesParams) => {
       const pct = calcPct(prev, curr);
       return {
         donor: d.donor,
+        donorImage: d.donorImage,
         totalAmount: d.totalAmount,
         currentMonthAmount: curr,
         previousMonthAmount: prev,
@@ -474,14 +500,13 @@ const getAdminStatesFromDb = async (params?: AdminStatesParams) => {
   // recent donors (unchanged)
   const recentDonorDocs = await Donation.aggregate([
     { $sort: { createdAt: -1 } },
-    { $limit: 5 },
-
+    
     {
       $lookup: {
-        from: 'clients',
-        localField: 'donor',
-        foreignField: '_id',
-        as: 'donor',
+      from: 'clients',
+      localField: 'donor',
+      foreignField: '_id',
+      as: 'donor',
       },
     },
 
@@ -489,26 +514,40 @@ const getAdminStatesFromDb = async (params?: AdminStatesParams) => {
 
     {
       $lookup: {
-        from: 'auths',
-        localField: 'donor.auth',
-        foreignField: '_id',
-        as: 'donor_auth',
+      from: 'auths',
+      localField: 'donor.auth',
+      foreignField: '_id',
+      as: 'donor_auth',
       },
     },
 
     { $unwind: { path: '$donor_auth', preserveNullAndEmptyArrays: true } },
 
     {
-      $project: {
-        _id: 0,
-        createdAt: 1,
-        donor: {
-          name: '$donor.name',
-          email: '$donor_auth.email',
-        },
+      $group: {
+      _id: '$donor._id',
+      createdAt: { $first: '$createdAt' },
+      donorName: { $first: '$donor.name' },
+      donorImage: { $first: '$donor.image' },
+      donorEmail: { $first: '$donor_auth.email' },
       },
     },
-  ]);
+
+    { $sort: { createdAt: -1 } },
+    { $limit: 5 },
+
+    {
+      $project: {
+      _id: 0,
+      createdAt: 1,
+      donor: {
+        name: '$donorName',
+        donorImage: '$donorImage',
+        email: '$donorEmail',
+      },
+      },
+    },
+    ]);
 
   return {
     timeFilter: timeFilter || 'all',
@@ -675,7 +714,6 @@ const getDonationsReportFromDb = async (params?: DonationsReportParams) => {
   const totalDonorsChangeText = formatPct(totalDonorsChangePct);
 
   // Build search pipeline for donation history
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const searchPipeline: any[] = [];
 
   if (Object.keys(filter).length > 0) {
@@ -863,7 +901,6 @@ const getSubscriptionsReportFromDb = async (
   }
 
   // Build search pipeline
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const searchPipeline: any[] = [{ $match: filter }];
 
   // Populate donor and organization for search
@@ -1133,7 +1170,6 @@ const getUsersReportFromDb = async (params?: UsersReportParams) => {
   }
 
   // Build users pipeline
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const usersPipeline: any[] = [{ $match: userFilter }];
 
   // lookup possible role-specific profile documents
@@ -1303,7 +1339,6 @@ const getPendingUsersReportFromDb = async (
   }
 
   // Build pending users pipeline
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pendingPipeline: any[] = [{ $match: pendingFilter }];
 
   // lookup possible role-specific profile documents
@@ -1736,7 +1771,6 @@ const getOrganizationsReportFromDb = async (
   }
 
   // Build search pipeline
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const searchPipeline: any[] = [];
 
   if (Object.keys(filter).length > 0) {
@@ -1931,7 +1965,6 @@ const getCausesReportFromDb = async (params?: CausesReportParams) => {
   }
 
   // Build search pipeline
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const searchPipeline: any[] = [];
 
   if (Object.keys(filter).length > 0) {
@@ -2062,7 +2095,6 @@ const getBusinessesReportFromDb = async (params?: BusinessesReportParams) => {
   }
 
   // Build search pipeline
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const searchPipeline: any[] = [];
 
   if (Object.keys(filter).length > 0) {
