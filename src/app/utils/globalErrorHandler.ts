@@ -12,6 +12,9 @@ import {
 import { IErrorSource } from '../types';
 import AppError from './AppError';
 
+import multer from 'multer';
+import handleMulterError from '../errors/handleMulterErrorHandler';
+
 const globalErrorHandler = (
   err: unknown,
   _req: Request,
@@ -48,6 +51,12 @@ const globalErrorHandler = (
     errors = modifier.errors;
   } else if (err instanceof Error.CastError) {
     const modifier = handleCastError(err);
+    statusCode = modifier.statusCode;
+    message = modifier.message;
+    errors = modifier.errors;
+  } else if (err instanceof multer.MulterError) {
+    // Handle Multer Errors
+    const modifier = handleMulterError(err);
     statusCode = modifier.statusCode;
     message = modifier.message;
     errors = modifier.errors;
