@@ -2,7 +2,7 @@ import { keyof } from 'zod';
 
 export const BANKCONNECTION_PROVIDER = {
   BASIQ: 'basiq',
-  PLAID: 'pliad',
+  PLAID: 'plaid',
 };
 
 export const bankConnectiionProviderValues = Object.values(
