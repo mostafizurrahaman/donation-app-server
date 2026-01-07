@@ -150,17 +150,21 @@ const savePlaidConsent = async (
   }
 
   const existingRoundUp = await RoundUpModel.findOne({
-    bankConnection: bankConnectionId,
-    isActive: true,
+    $or: [
+      {
+        bankConnection: bankConnectionId,
+        isActive: true,
+      },
+      { organization: organization._id, isActive: true },
+    ],
   });
+  console.log(existingRoundUp);
 
   if (existingRoundUp) {
-    return {
-      success: false,
-      message: 'Round-up configuration already exists for this bank connection',
-      data: existingRoundUp,
-      statusCode: StatusCodes.BAD_REQUEST,
-    };
+    throw new AppError(
+      httpStatus.NOT_FOUND,
+      `Round-up configuration already exists for this bank connection & organization`
+    );
   }
 
   const roundUpConfig = new RoundUpModel({
@@ -467,7 +471,7 @@ const getUserDashboard = async (userId: string) => {
   };
 };
 
-const getActiveRoundup = async (userId: string) => {
+const getActiveRoundup = async (userId: string, roundupId: string) => {
   const user = await Auth.findOne({
     _id: userId,
     isActive: true,
@@ -482,6 +486,7 @@ const getActiveRoundup = async (userId: string) => {
   const roundupConfig = await RoundUpModel.findOne({
     isActive: true,
     enabled: true,
+    _id: roundupId,
     status: {
       $in: ['pending', 'processing'],
     },

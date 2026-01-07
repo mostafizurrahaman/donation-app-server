@@ -102,10 +102,10 @@ app.post(
 app.use('/api/v1/webhook', webhookRoutes);
 
 //body parser
-app.use(express.json({ limit: '20mb' }));
+app.use(express.json({ limit: '200mb' }));
 
 //url encoded parser
-app.use(express.urlencoded({ limit: '20mb', extended: true }));
+app.use(express.urlencoded({ limit: '200mb', extended: true }));
 
 // All main routes
 app.use('/api/v1', routes);

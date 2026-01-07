@@ -69,7 +69,7 @@ router.get(
 );
 
 router.get(
-  '/get-by-user',
+  '/get-by-user/:roundupId',
   auth(ROLE.CLIENT),
   roundUpController.getActiveRoundup
 );
