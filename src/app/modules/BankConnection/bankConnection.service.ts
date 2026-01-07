@@ -136,6 +136,7 @@ async function exchangePublicTokenForAccessToken(
       itemId,
       accessToken: encryptData(accessToken),
       accountId: selectedAccount.account_id,
+      provider: 'plaid',
       accountName: selectedAccount.name,
       accountType: selectedAccount.subtype,
       institutionName: institutionResponse.data.institution.name,
@@ -292,8 +293,6 @@ async function getStoredTransactions(
     if (!bankConnection) {
       throw new Error('Bank connection not found');
     }
-
-  
 
     // Build query
     const query: any = {
