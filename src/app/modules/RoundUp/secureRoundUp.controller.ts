@@ -142,8 +142,12 @@ const getUserDashboard = catchAsync(async (req: Request, res: Response) => {
 
 const getActiveRoundup = catchAsync(async (req: Request, res: Response) => {
   const userId = req.user._id;
+  const roundupId = req.params.roundupId;
 
-  const result = await roundUpService.getActiveRoundup(userId?.toString());
+  const result = await roundUpService.getActiveRoundup(
+    userId?.toString(),
+    roundupId
+  );
 
   return sendResponse(res, httpStatus.OK, {
     success: true,
