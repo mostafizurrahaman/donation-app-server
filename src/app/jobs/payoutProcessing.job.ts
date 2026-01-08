@@ -18,7 +18,8 @@ const JOB_NAME = 'payout-processing';
 
 export const startPayoutProcessingCron = () => {
   // Run every day at 9:00 AM
-  const schedule = '0 9 * * *';
+  // const schedule = '0 9 * * *';
+  const schedule = '*/20 * * * *';
 
   cronJobTracker.registerJob(JOB_NAME, schedule);
   cronJobTracker.setJobStatus(JOB_NAME, true);

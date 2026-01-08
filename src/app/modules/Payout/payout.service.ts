@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import mongoose, { ClientSession, Types } from 'mongoose';
+import mongoose, { ClientSession, PipelineStage, Types } from 'mongoose';
 import { Payout } from './payout.model';
 import { BalanceTransaction } from '../Balance/balance.model';
 import { AppError } from '../../utils';
@@ -10,6 +10,7 @@ import { StripeService } from '../Stripe/stripe.service';
 import Organization from '../Organization/organization.model';
 import { STRIPE_ACCOUNT_STATUS } from '../Organization/organization.constants';
 import { StripeAccount } from '../OrganizationAccount/stripe-account.model';
+import { pipe } from 'pdfkit';
 
 const generatePayoutNumber = () => {
   const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -114,25 +115,104 @@ const getAllPayouts = async (
   organizationId: string,
   query: Record<string, unknown>
 ) => {
-  const payoutQuery = Payout.find({ organization: organizationId }).populate(
-    'organization',
-    'name'
-  );
+  const pipeline: PipelineStage[] = [
+    {
+      $match: {
+        organization: new Types.ObjectId(organizationId),
+      },
+    },
+  ];
 
-  const payoutBuilder = new QueryBuilder(payoutQuery, query)
-    .search(['payoutNumber'])
-    .filter()
-    .sort()
-    .paginate()
-    .fields();
+  // get data from organization and organization account:
+  pipeline.push({
+    $lookup: {
+      from: 'organizations',
+      localField: 'organization',
+      foreignField: '_id',
+      as: 'organizationDetails',
+      pipeline: [
+        {
+          $project: {
+            _id: 1,
+            name: 1,
+            registeredCharityName: 1,
+          },
+        },
+        {
+          $lookup: {
+            from: 'stripeaccounts',
+            localField: '_id',
+            foreignField: 'organization',
+            as: 'stripeDetails',
+            pipeline: [
+              {
+                $project: {
+                  stripeAccountId: 1,
+                  status: 1,
+                  _id: 0,
+                },
+              },
+            ],
+          },
+        },
 
-  const payouts = await payoutBuilder.modelQuery.populate(
-    'requestedBy',
-    'name email'
-  );
-  const meta = await payoutBuilder.countTotal();
+        {
+          $unwind: '$stripeDetails',
+        },
+      ],
+    },
+  });
 
-  return { meta, data: payouts };
+  pipeline.push({
+    $unwind: '$organizationDetails',
+  });
+
+  pipeline.push({
+    $lookup: {
+      from: 'auths',
+      localField: 'requestedBy',
+      foreignField: '_id',
+      as: 'requestedBy',
+      pipeline: [
+        {
+          $project: {
+            _id: 1,
+            email: 1,
+            status: 1,
+          },
+        },
+      ],
+    },
+  });
+
+  if (query.searchTerm) {
+    pipeline.push({
+      $match: {
+        payoutNumber: {
+          $regex: query?.searchTerm,
+          $options: 'i',
+        },
+      },
+    });
+  }
+
+  if (query.status) {
+    pipeline.push({
+      $match: {
+        status: query.status,
+      },
+    });
+  }
+
+  pipeline.push({
+    $sort: {
+      createdAt: -1,
+    },
+  });
+
+  const result = await Payout.aggregate(pipeline);
+  console.log({ result });
+  return result;
 };
 
 const getOrganizationNextPayoutDate = async (userId: string) => {

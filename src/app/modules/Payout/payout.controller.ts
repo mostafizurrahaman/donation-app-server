@@ -74,8 +74,9 @@ const getPayouts = asyncHandler(async (req: Request, res: Response) => {
   sendResponse(res, {
     statusCode: httpStatus.OK,
     message: 'Payouts retrieved successfully',
-    data: result.data,
-    meta: result.meta,
+    // data: result.data,
+    // meta: result.meta,
+    data: result,
   });
 });
 
