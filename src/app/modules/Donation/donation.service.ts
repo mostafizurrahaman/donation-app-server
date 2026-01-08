@@ -1625,6 +1625,7 @@ const getOrganizationYearlyTrends = async (
 // Client Dashboard Stats :
 const getClientStats = async (
   userId: string,
+  roundupId: string,
   timeFilter: TTimeFilter
 ): Promise<IClientDonationStats> => {
   // 1. Get User
@@ -1761,6 +1762,7 @@ const getClientStats = async (
     user: userId,
     isActive: true,
     enabled: true,
+    _id: roundupId,
   }).populate('organization', 'name registeredCharityName ');
 
   let roundUpStatusData: Record<string, unknown> = {
@@ -1818,7 +1820,6 @@ const getClientStats = async (
       )
     ).sort((a: any, b: any) => (a > b ? -1 : 1)),
 
-    // ✅ NEW: Daily aggregated stats
     dailyStats: dailyStats,
 
     upcomingDonations: formattedUpcoming,

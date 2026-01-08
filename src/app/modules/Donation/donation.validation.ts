@@ -471,6 +471,7 @@ const getOrganizationDonationYearlyTrends = z.object({
 
 const getClientStatsSchema = z.object({
   query: z.object({
+    roundupId: z.string().optional(),
     timeFilter: z
       .enum(
         [
