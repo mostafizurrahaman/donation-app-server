@@ -41,7 +41,7 @@ router.post('/plaid/test', auth(ROLE.CLIENT), async (req, res) => {
     const response = await plaidClient.sandboxItemFireWebhook(request);
 
     const data = response.data;
-    console.log(data);
+    
 
     res.json({
       data,

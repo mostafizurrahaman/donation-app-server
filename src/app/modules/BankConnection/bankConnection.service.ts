@@ -60,7 +60,7 @@ async function generateLinkToken(
       }),
     };
 
-    console.log({ request });
+    
 
     const response = await plaidApi.linkTokenCreate(request);
 
@@ -97,17 +97,12 @@ async function exchangePublicTokenForAccessToken(
   user: string
 ): Promise<IBankConnection> {
   try {
-    console.log('Starting token exchange with data:', {
-      public_token_length: exchangeData.public_token?.length,
-      user_id: user,
-      public_token_preview: exchangeData.public_token?.substring(0, 20) + '...',
-    });
+   
 
     const tokenResponse = await plaidApi.itemPublicTokenExchange({
       public_token: exchangeData.public_token,
     });
 
-    console.log('Token exchange successful, got access_token and item_id');
 
     const accessToken = tokenResponse.data.access_token;
     const itemId = tokenResponse.data.item_id;
@@ -126,7 +121,7 @@ async function exchangePublicTokenForAccessToken(
     const accountsResponse = await plaidApi.accountsGet({
       access_token: accessToken,
     });
-    console.log({ accessToken });
+    
 
     // Find the selected account (would be passed from frontend)
     const selectedAccount = accountsResponse.data.accounts[0]; // Simplified, should match selected account_id
@@ -546,9 +541,7 @@ async function hasActiveBankConnection(userId: string): Promise<boolean> {
 }
 
 const handleTransactionsWebhook = async (itemId: string) => {
-  console.log({
-    itemId,
-  });
+  
   // 1. Find the connection by Plaid Item ID
   const connection = await BankConnectionModel.findOne({ itemId });
   if (!connection) {
@@ -563,7 +556,7 @@ const handleTransactionsWebhook = async (itemId: string) => {
     connection.lastSyncCursor
   );
 
-  console.log({ syncData });
+
 
   // 3. Process ADDED transactions for Round-Ups
   if (syncData.added && syncData.added.length > 0) {
@@ -576,7 +569,6 @@ const handleTransactionsWebhook = async (itemId: string) => {
 
   // 4. Update the cursor in the database so we don't fetch these again
   connection.lastSyncCursor = syncData.nextCursor;
-  console.log({ lastCursor: connection.lastSyncCursor });
   await connection.save();
 
   return {

@@ -11,11 +11,11 @@ export const sendPushNotification = async (
   data: Record<string, string> = {}
 ) => {
   try {
-    console.log({userId});
+   
     // 1. Get all tokens for this user
     const userTokens = await FcmToken.find({ user: userId });
 
-    console.log(userTokens);
+   
 
     if (userTokens.length === 0) return;
 
@@ -28,13 +28,6 @@ export const sendPushNotification = async (
       tokens: tokens,
     };
 
-    // const message = {
-    //   topic: 'test-topic',
-    //   notification: {
-    //     title: 'Topic Test',
-    //     body: 'No device required',
-    //   },
-    // };
 
     // 3. Send Multicast
     const response = await firebaseAdmin

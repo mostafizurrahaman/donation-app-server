@@ -52,11 +52,7 @@ const syncTransactions = catchAsync(async (req: Request, res: Response) => {
 const updateRoundUp = catchAsync(async (req: Request, res: Response) => {
   const userId = req.user._id?.toString();
   const { id } = req.params;
-  console.log({
-    userId,
-    user: req.user,
-    id,
-  });
+  
   const result = await roundUpService.updateRoundUp(userId, id, req.body);
 
   return sendResponse(res, 200, {

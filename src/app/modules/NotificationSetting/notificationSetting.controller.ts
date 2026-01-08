@@ -20,7 +20,7 @@ const getNotificationSettings = asyncHandler(
 
 const updateNotificationSettings = asyncHandler(
   async (req: Request, res: Response) => {
-    console.log(req.user);
+    
 
     const result = await NotificationSettingService.updateNotificationSettings(
       req?.user._id?.toString(),

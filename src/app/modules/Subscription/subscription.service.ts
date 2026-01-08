@@ -180,7 +180,7 @@ const getAdminSubscriptionAndPaymentsStats = async () => {
   ]);
 
   const data = subscriptions[0];
-  console.log(data);
+ 
 
   const breakDownByRole = [ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION].map(
     (item) => {

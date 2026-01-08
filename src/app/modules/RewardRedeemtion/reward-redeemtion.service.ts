@@ -89,7 +89,7 @@ const claimReward = async (payload: { rewardId: string; userId: string }) => {
       { $inc: { remainingCount: -1, redeemedCount: 1, redemptions: 1 } },
       { session, new: true }
     );
-    console.log({ reward });
+
 
     if (!reward) {
       throw new AppError(httpStatus.GONE, REWARD_MESSAGES.RACE_CONDITION);

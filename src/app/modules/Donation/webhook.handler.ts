@@ -297,7 +297,7 @@ const handlePaymentIntentSucceeded = async (
   paymentIntent: Stripe.PaymentIntent
 ) => {
   const { metadata } = paymentIntent;
-  console.log({ metadata });
+  // console.log({ metadata });
   console.log(`\n🎉 ========================================`);
   console.log(`   WEBHOOK: payment_intent.succeeded`);
   console.log(`   Payment Intent ID: ${paymentIntent.id}`);

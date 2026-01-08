@@ -376,7 +376,7 @@ const createProfileIntoDB = async (
   } = payload;
 
   // Start a MongoDB session for transaction
-  console.log(payload);
+
   const session = await startSession();
 
   try {
@@ -1412,7 +1412,7 @@ const businessSignupWithProfile = async (
 
   const { email, password, ...businessData } = payload;
 
-  console.log({ payload, files });
+  
 
   // Check if user already exists
   const existingUser = await Auth.isUserExistsByEmail(email);

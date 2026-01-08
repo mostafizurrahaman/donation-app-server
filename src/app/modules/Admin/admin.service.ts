@@ -2187,7 +2187,7 @@ const getBusinessesReportFromDb = async (params?: BusinessesReportParams) => {
 
   const businesses = await Business.aggregate(searchPipeline);
 
-  console.log(businesses);
+ 
 
   return {
     businesses,

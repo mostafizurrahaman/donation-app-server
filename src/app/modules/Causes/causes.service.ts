@@ -334,7 +334,6 @@ const getCausesFromDB = async (query: Record<string, unknown>) => {
     },
   ]);
 
-  console.log('Recent Donors:', recentDonors);
 
   // Create maps for quick lookup
   const statsMap = new Map(
@@ -342,12 +341,10 @@ const getCausesFromDB = async (query: Record<string, unknown>) => {
   );
   const recentDonorsMap = new Map(
     recentDonors?.map((donor) => {
-      console.log('Mapping donor for cause:', donor);
       return [donor?.cause?.toString(), recentDonors];
     })
   );
 
-  console.log(recentDonorsMap);
 
   // Add stats and recent donors to each cause
   const causesWithStats = result.map((cause) => {

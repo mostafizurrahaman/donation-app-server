@@ -3,11 +3,7 @@ import { asyncHandler, sendResponse } from '../../utils';
 import { SuperAdminService } from './superAdmin.service';
 
 const updateMyProfile = asyncHandler(async (req, res) => {
-  console.log({
-    userId: req.user._id?.toString(),
-    body: req.body,
-    file: req.file,
-  });
+ 
 
   const result = await SuperAdminService.updateSuperAdminProfile(
     req.user._id?.toString(),

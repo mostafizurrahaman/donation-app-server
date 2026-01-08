@@ -65,7 +65,6 @@ export const verifyToken = (token: string, secret: Secret) => {
 
     return decoded;
   } catch {
-    console.log('Token verification failed for token:', token);
     throw new AppError(httpStatus.UNAUTHORIZED, 'Unauthorized access!');
   }
 };

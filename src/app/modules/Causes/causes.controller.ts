@@ -11,9 +11,7 @@ import { ROLE } from '../Auth/auth.constant';
 const createCause = asyncHandler(async (req, res) => {
   const user = req.user as IAuth;
   let organizationId = req.body.organizationId;
-  console.log({
-    a: req.body,
-  });
+
 
   // If user is an organization, use their own ID
   if (user.role === ROLE.ORGANIZATION) {

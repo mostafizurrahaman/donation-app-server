@@ -40,24 +40,6 @@ const generateLinkToken = catchAsync(async (req: Request, res: Response) => {
 // Exchange public token and create bank connection
 const createBankConnection = catchAsync(async (req: Request, res: Response) => {
   const userId = req.user.id;
-
-  console.log('Create bank connection request:', {
-    userId,
-    body: req.body,
-    hasPublicToken: !!req.body.public_token,
-  });
-
-  // Check if user already has active connection
-  // const hasActiveConnection =
-  //   await bankConnectionService.hasActiveBankConnection(userId);
-  // if (hasActiveConnection) {
-  //   return sendResponse(res, StatusCodes.BAD_REQUEST, {
-  //     success: false,
-  //     message: 'You already have an active bank connection',
-  //     data: null,
-  //   });
-  // }
-
   const bankConnection =
     await bankConnectionService.exchangePublicTokenForAccessToken(
       req.body,
@@ -338,8 +320,6 @@ const connectBasiqBankAccount = asyncHandler(async (req, res) => {
 
 const getBasiqAccounts = asyncHandler(async (req, res) => {
   const userId = req.user._id.toString();
-
-  console.log('Fetching Basiq accounts for user:', userId);
 
   const basiqAccounts = await basiqService.getBasiqAccounts(userId);
 

@@ -215,10 +215,7 @@ const businessSignupWithProfile = asyncHandler(async (req, res) => {
   const files = {
     logoImage: (req.files as any)?.logoImage || undefined,
   };
-  console.log({
-    files,
-  });
-
+  
   const result = await AuthService.businessSignupWithProfile(req.body, files);
 
   sendResponse(res, {

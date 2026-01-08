@@ -138,17 +138,7 @@ export const calculateAustralianFees = (
 
   const platformFeeWithStripe = Number((stripeFee + applicationFee).toFixed(2));
 
-  console.log({
-    baseAmount, // Tax Deductible amount
-    platformFee, // Platform Revenue
-    gstOnFee, // GST Liability
-    stripeFee, // Stripe Cost
-    applicationFee, // Platform Fee + GST
-    totalCharge, // Amount to Charge Card
-    netToOrg, // Amount to Credit Organization
-    coverFees,
-    platformFeeWithStripe, // Total fees (Stripe + Platform + GST)
-  });
+  
 
   return {
     baseAmount,

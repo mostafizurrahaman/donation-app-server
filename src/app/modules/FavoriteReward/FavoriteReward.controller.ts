@@ -32,10 +32,7 @@ const getMyFavoriteRewards = asyncHandler(async (req, res) => {
   const userId = req.user?._id?.toString();
   const query = req.query;
 
-  console.log({
-    userId,
-    query,
-  });
+ 
 
   const result = await favoriteRewardService.getMyFavoriteRewards(
     userId,

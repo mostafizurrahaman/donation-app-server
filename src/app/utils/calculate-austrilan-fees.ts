@@ -20,7 +20,6 @@ export const calculateAustralianFees = (
   const gstRate = Number(config.paymentSetting.gstPercentage) || 0.1;
   const stripeFeePercent =
     Number(config.paymentSetting.stripeFeePercent) || 0.029;
-  console.log({ stripeFeePercent });
   const stripeFixedFee = Number(config.paymentSetting.stripeFixedFee) || 0.3;
 
   // 1. Calculate Platform Fee & GST (Always based on Base Amount)

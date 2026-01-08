@@ -60,9 +60,7 @@ const getUserRecurringDonationsForSpecificOrganization = asyncHandler(
   async (req: Request, res: Response) => {
     const userId = req.user._id?.toString();
     const organizationId = req.query.organizationId as string;
-    console.log({
-      organizationId,
-    });
+ 
 
     if (!userId) {
       throw new AppError(httpStatus.NOT_FOUND, 'User not found!');

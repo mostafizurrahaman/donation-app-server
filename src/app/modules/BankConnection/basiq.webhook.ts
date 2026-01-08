@@ -26,9 +26,7 @@ export const handleBasiqWebhook = async (req: Request, res: Response) => {
   const basiqUserId = extractUserId(entityUrl);
   const connectionId = extractConnectionId(entityUrl);
 
-  console.log({
-    ...req.body,
-  });
+  
 
   try {
 
@@ -48,10 +46,7 @@ export const handleBasiqWebhook = async (req: Request, res: Response) => {
       case 'connection.invalidated':
       case 'consent.revoked':
       case 'consent.expired':
-        console.log(`connection.invalidated INSIDE`, {
-          basiqUserId,
-          connectionId,
-        });
+       
         // 1. Deactivate Connection
         // NOTE: We now query by bsiqUserId or connectionId, as itemId is mapped to accountId.
         await BankConnectionModel.updateMany(
@@ -65,7 +60,7 @@ export const handleBasiqWebhook = async (req: Request, res: Response) => {
           bsiqUserId: basiqUserId,
         });
         const ids = bankConnections?.map((conn) => conn._id);
-        console.log(`Bank Connection ids`, ids);
+        
 
         if (ids?.length > 0) {
           await RoundUpModel.updateMany(
@@ -191,11 +186,7 @@ export const handleBasiqWebhook = async (req: Request, res: Response) => {
         const accountData = req.body.data;
         const accountId = accountData.id;
         const status = accountData.status; // e.g., 'deleted' or 'inactive'
-        console.log({
-          accountData,
-          accountId,
-          status,
-        });
+        
 
         if (status === 'deleted' || status === 'inactive') {
           // 2. Mark the Bank Connection as inactive in our DB

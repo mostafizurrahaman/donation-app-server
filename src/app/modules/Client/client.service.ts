@@ -24,7 +24,7 @@ import { IORGANIZATION } from '../Organization/organization.interface';
 
 // 1. Roundup donation stats
 const getRoundupStats = async (userId: string, roundupId: string) => {
-  console.log(roundupId);
+ 
   // 1. Check User
   const client = await Client.findOne({
     auth: userId,

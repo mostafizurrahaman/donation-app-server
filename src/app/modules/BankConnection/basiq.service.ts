@@ -39,7 +39,7 @@ export const getBasiqActionToken = async (): Promise<string> => {
       }
     );
 
-    console.log({ token: data.access_token });
+    
 
     // Cache the token
     cachedToken = data.access_token;
@@ -85,9 +85,6 @@ export const ensureBasiqWebhookRegistered = async (currentAppUrl: string) => {
     const res = await axios.request(options);
     const exitingWebhooks = res.data.data;
     if (exitingWebhooks?.length > 0) {
-      console.log(exitingWebhooks);
-      // Optional: Check if the existing webhook matches the current URL configuration
-      // If not, we might want to update it, but for now we follow existing logic
       return;
     }
   } catch (error) {
@@ -129,7 +126,6 @@ export const ensureBasiqWebhookRegistered = async (currentAppUrl: string) => {
   try {
     const WBResponse = await axios.request(newOptions);
     const webHook = WBResponse.data;
-    console.log({ webHook });
   } catch (error: any) {
     console.log('error', (error as AxiosError).response!.data);
   }
@@ -259,7 +255,7 @@ export const generateBasiqAuthLink = async (
         },
       }
     );
-    console.log(data);
+    
 
     let publicLink = data.links?.public!;
 
@@ -472,7 +468,7 @@ export const getBasiqTransactions = async (
     console.log(
       `📊 Fetched ${response.data.data?.length || 0} Basiq transactions`
     );
-    console.log(response.data.data);
+    
     return response.data.data || [];
   } catch (err) {
     console.log('Failed to fetch Basiq transactions', err);
@@ -505,7 +501,7 @@ export const syncUserBasiqConnections = async (basiqUserId: string) => {
     );
 
     const accounts = data.data; // Basiq accounts array
-    console.log({ accounts });
+  
 
     console.log(
       `Syncing ${accounts.length} Basiq accounts for user ${user._id}`

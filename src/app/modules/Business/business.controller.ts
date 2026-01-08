@@ -15,12 +15,6 @@ const updateBusinessProfile = asyncHandler(async (req, res) => {
     | { coverImage?: Express.Multer.File[]; logoImage?: Express.Multer.File[] }
     | undefined;
 
-  console.log('Files received in controller:', {
-    files,
-    body,
-    user,
-  });
-
   const result = await BusinessService.updateBusinessProfile(
     body,
     user,

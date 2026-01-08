@@ -284,7 +284,7 @@ export const getUserBalance = async (userId: Types.ObjectId | string) => {
     user: new Types.ObjectId(userId),
   }).populate<{ user: IPopulatedUser }>('user', 'name image');
 
-  console.log({ balance });
+ 
 
   if (!balance) {
     return await PointsBalance.create({
