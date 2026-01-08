@@ -20,6 +20,7 @@ import {
   getS3KeyFromUrl,
   uploadToS3,
 } from '../../utils/s3.utils';
+import { IORGANIZATION } from '../Organization/organization.interface';
 
 // 1. Roundup donation stats
 const getRoundupStats = async (userId: string, roundupId: string) => {
@@ -37,7 +38,12 @@ const getRoundupStats = async (userId: string, roundupId: string) => {
   const currentRoundup = await RoundUpModel.findOne({
     user: client?.auth,
     _id: roundupId,
-  });
+    enabled: true,
+    isActive: true,
+  }).populate<{ organization: IORGANIZATION }>(
+    'organization',
+    'name registeredCharityName'
+  );
 
   if (!currentRoundup) {
     return {
@@ -46,7 +52,11 @@ const getRoundupStats = async (userId: string, roundupId: string) => {
       todaysRoundupAmount: 0,
       lastTransactionAmount: 0,
       roundupPercentage: 0,
+      daysLeft: 0,
+      organizationName: '',
+      registeredCharityName: '',
       recentTransactions: [],
+      todaysRounduped: 0,
     };
   }
 
@@ -196,11 +206,12 @@ const getRoundupStats = async (userId: string, roundupId: string) => {
 
   const daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
- 
-
   return {
+    organizationName: currentRoundup?.organization?.name,
+    registeredCharityName: currentRoundup?.organization?.registeredCharityName,
+
     currentRoundupBalance: Number(currentBalance.toFixed(2)),
-    todaysRoundupAmount: Number(todaysRoundupAmount.toFixed(2)),
+    todaysRoundupAmount: Number(todaysRoundupAmount.toFixed(2)) ?? 0,
     monthlyThreshold: isUnlimited
       ? 'no-limit'
       : Number(numericThreshold.toFixed(2)),
