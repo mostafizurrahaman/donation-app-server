@@ -154,11 +154,21 @@ const savePlaidConsent = async (
       {
         bankConnection: bankConnectionId,
         isActive: true,
+        enabled: true,
+        status: {
+          $in: ['pending', 'processing', 'completed'],
+        },
       },
-      { organization: organization._id, isActive: true },
+      {
+        organization: organization._id,
+        isActive: true,
+        enabled: true,
+        status: {
+          $in: ['pending', 'processing', 'completed'],
+        },
+      },
     ],
   });
-
 
   if (existingRoundUp) {
     throw new AppError(
@@ -555,7 +565,6 @@ const updateRoundUp = async (
   roundUpId: string,
   payload: { monthlyThreshold?: number | 'no-limit'; specialMessage?: string }
 ) => {
-
   const roundUpConfig = await RoundUpModel.findOne({
     _id: roundUpId,
     user: userId,
