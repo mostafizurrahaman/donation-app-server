@@ -20,7 +20,6 @@ import { ICause } from '../Causes/causes.interface';
 import { SubscriptionService } from '../Subscription/subscription.service';
 import { StripeAccount } from '../OrganizationAccount/stripe-account.model';
 import Client from '../Client/client.model';
-import { getDateRanges } from '../../lib/filter-helper';
 
 const savePlaidConsent = async (
   userId: string,
