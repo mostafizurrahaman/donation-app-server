@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import httpStatus from 'http-status';
 import { AppError, asyncHandler } from '../../utils';
 import { AuthService } from './auth.service';
@@ -136,7 +137,7 @@ const verifyOtpForForgotPassword = asyncHandler(async (req, res) => {
 const resetPassword = asyncHandler(async (req, res) => {
   const result = await AuthService.resetPasswordIntoDB(
     req.body.resetPasswordToken,
-    req.body.newPassword
+    req.body.newPassword,
   );
 
   sendResponse(res, {
@@ -161,7 +162,7 @@ const fetchProfile = asyncHandler(async (req, res) => {
 const deactivateUserAccount = asyncHandler(async (req, res) => {
   const result = await AuthService.deactivateUserAccountFromDB(
     req.user,
-    req.body
+    req.body,
   );
 
   sendResponse(res, {
@@ -215,7 +216,7 @@ const businessSignupWithProfile = asyncHandler(async (req, res) => {
   const files = {
     logoImage: (req.files as any)?.logoImage || undefined,
   };
-  
+
   const result = await AuthService.businessSignupWithProfile(req.body, files);
 
   sendResponse(res, {
@@ -234,7 +235,7 @@ const organizationSignupWithProfile = asyncHandler(async (req, res) => {
 
   const result = await AuthService.organizationSignupWithProfile(
     req.body,
-    files
+    files,
   );
 
   sendResponse(res, {
@@ -250,7 +251,7 @@ const updateFcmToken = asyncHandler(async (req, res) => {
   const result = await AuthService.updateFcmToken(
     req.user?._id?.toString(),
     fcmToken,
-    deviceType
+    deviceType,
   );
 
   sendResponse(res, {
@@ -272,7 +273,7 @@ const setup2FA = asyncHandler(async (req, res) => {
 const verifyAndEnable2FA = asyncHandler(async (req, res) => {
   const result = await AuthService.verifyAndEnable2FA(
     req.user._id.toString(),
-    req.body.token
+    req.body.token,
   );
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -284,7 +285,7 @@ const verifyAndEnable2FA = asyncHandler(async (req, res) => {
 const verify2FALogin = asyncHandler(async (req, res) => {
   const result = await AuthService.verify2FALogin(
     req.body.email,
-    req.body.token
+    req.body.token,
   );
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -296,7 +297,7 @@ const verify2FALogin = asyncHandler(async (req, res) => {
 const disable2FA = asyncHandler(async (req, res) => {
   const result = await AuthService.disable2FA(
     req.user._id.toString(),
-    req.body.token
+    req.body.token,
   );
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -324,6 +325,27 @@ const guestRemove = asyncHandler(async (req, res) => {
   });
 });
 
+const signInAsDonor = asyncHandler(async (req, res) => {
+  const result = await AuthService.signInAsDonor(req.body);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Signin successful!',
+    data: result,
+  });
+});
+
+const signInAsBusiness = asyncHandler(async (req, res) => {
+  const result = await AuthService.signInAsBusiness(req.body);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: 'Signin successful!',
+    data: result,
+  });
+});
+
+
 export const AuthController = {
   createAuth,
   sendSignupOtpAgain,
@@ -350,4 +372,6 @@ export const AuthController = {
   disable2FA,
   guestLogin,
   guestRemove,
+  signInAsDonor,
+  signInAsBusiness
 };

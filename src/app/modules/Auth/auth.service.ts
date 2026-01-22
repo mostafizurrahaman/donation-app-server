@@ -55,19 +55,19 @@ const createAuthIntoDB = async (payload: IAuth) => {
 
       existingUser.otp = otp;
       existingUser.otpExpiry = new Date(
-        now.getTime() + (OTP_EXPIRY_MINUTES || 5) * 60 * 1000
+        now.getTime() + (OTP_EXPIRY_MINUTES || 5) * 60 * 1000,
       );
       await existingUser.save();
 
       throw new AppError(
         httpStatus.BAD_REQUEST,
-        'You have an unverified account, verify it with the new OTP sent to the mail!'
+        'You have an unverified account, verify it with the new OTP sent to the mail!',
       );
     } else {
       // if OTP is valid till now
       throw new AppError(
         httpStatus.BAD_REQUEST,
-        'You have an unverified account, verify it now with the otp sent to the mail!'
+        'You have an unverified account, verify it now with the otp sent to the mail!',
       );
     }
   } else if (existingUser && existingUser.isVerifiedByOTP) {
@@ -84,7 +84,7 @@ const createAuthIntoDB = async (payload: IAuth) => {
       ...payload,
       otp,
       otpExpiry: new Date(
-        now.getTime() + (OTP_EXPIRY_MINUTES || 5) * 60 * 1000
+        now.getTime() + (OTP_EXPIRY_MINUTES || 5) * 60 * 1000,
       ),
       isVerifiedByOTP: false,
       status: AUTH_STATUS.PENDING,
@@ -109,7 +109,7 @@ const sendSignupOtpAgain = async (email: string) => {
   if (!user) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      'You must sign up first to get an OTP!'
+      'You must sign up first to get an OTP!',
     );
   } else if (!user.otpExpiry || user.otpExpiry < now) {
     // sending new OTP if previous one is expired
@@ -120,7 +120,7 @@ const sendSignupOtpAgain = async (email: string) => {
 
     user.otp = otp;
     user.otpExpiry = new Date(
-      now.getTime() + (OTP_EXPIRY_MINUTES || 5) * 60 * 1000
+      now.getTime() + (OTP_EXPIRY_MINUTES || 5) * 60 * 1000,
     );
 
     // Ensure status is set before saving
@@ -136,7 +136,7 @@ const sendSignupOtpAgain = async (email: string) => {
   } else if (user.isVerifiedByOTP) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      'This account is already verified!'
+      'This account is already verified!',
     );
   } else {
     // if OTP is still valid
@@ -147,7 +147,7 @@ const sendSignupOtpAgain = async (email: string) => {
     });
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      'An OTP was already sent. Please wait until it expires before requesting a new one.'
+      'An OTP was already sent. Please wait until it expires before requesting a new one.',
     );
   }
 };
@@ -165,7 +165,7 @@ const verifySignupOtpIntoDB = async (email: string, otp: string) => {
   if (user.isVerifiedByOTP) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      'This account is already verified!'
+      'This account is already verified!',
     );
   }
 
@@ -173,7 +173,7 @@ const verifySignupOtpIntoDB = async (email: string, otp: string) => {
   if (!user.otpExpiry || user.otpExpiry < now) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      'OTP has been expired. Please request a new one!'
+      'OTP has been expired. Please request a new one!',
     );
   }
 
@@ -220,7 +220,7 @@ const verifySignupOtpIntoDB = async (email: string, otp: string) => {
 const updateFcmToken = async (
   userId: string,
   token: string,
-  deviceType: string
+  deviceType: string,
 ) => {
   const fcmToken = await FcmToken.findOneAndUpdate(
     {
@@ -234,7 +234,7 @@ const updateFcmToken = async (
     {
       new: true,
       upsert: true,
-    }
+    },
   );
   return fcmToken;
 };
@@ -247,7 +247,7 @@ const signinIntoDB = async (payload: {
 }) => {
   // const user = await Auth.findOne({ email: payload.email }).select('+password');
   const user = await Auth.findOne({ email: payload.email }).select(
-    '+password +twoFactorSecret'
+    '+password +twoFactorSecret',
   );
 
   if (!user) {
@@ -281,7 +281,7 @@ const signinIntoDB = async (payload: {
 
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      'Verify your account with the new OTP sent to the mail!'
+      'Verify your account with the new OTP sent to the mail!',
     );
   }
 
@@ -296,7 +296,7 @@ const signinIntoDB = async (payload: {
     await AuthService.updateFcmToken(
       user?._id?.toString(),
       payload.fcmToken,
-      payload.deviceType
+      payload.deviceType,
     );
   }
 
@@ -340,13 +340,13 @@ const signinIntoDB = async (payload: {
 const createProfileIntoDB = async (
   payload: TProfilePayload,
   user: IAuth,
-  files: TProfileFileFields
+  files: TProfileFileFields,
 ) => {
   // Prevent creating multiple profiles for same user
   if (user.isProfile) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      'Your profile is already created!'
+      'Your profile is already created!',
     );
   }
 
@@ -410,13 +410,13 @@ const createProfileIntoDB = async (
             image: imageUrl,
           },
         ],
-        { session }
+        { session },
       );
 
       await Auth.findByIdAndUpdate(
         user._id,
         { role: ROLE.CLIENT, isProfile: true },
-        { session }
+        { session },
       );
       await session.commitTransaction();
       await session.endSession();
@@ -467,13 +467,13 @@ const createProfileIntoDB = async (
             locations,
           },
         ],
-        { session }
+        { session },
       );
 
       await Auth.findByIdAndUpdate(
         user._id,
         { role: ROLE.BUSINESS, isProfile: true },
-        { session }
+        { session },
       );
       await session.commitTransaction();
       await session.endSession();
@@ -500,7 +500,7 @@ const createProfileIntoDB = async (
       if (isExistOrganization)
         throw new AppError(
           httpStatus.BAD_REQUEST,
-          'Organization already exists'
+          'Organization already exists',
         );
 
       let coverUrl = null;
@@ -546,13 +546,13 @@ const createProfileIntoDB = async (
             zakatLicenseHolderNumber,
           },
         ],
-        { session }
+        { session },
       );
 
       await Auth.findByIdAndUpdate(
         user._id,
         { role: ROLE.ORGANIZATION, isProfile: true },
-        { session }
+        { session },
       );
       await session.commitTransaction();
       await session.endSession();
@@ -598,7 +598,7 @@ const createProfileIntoDB = async (
             profileImage: imageUrl,
           },
         ],
-        { session }
+        { session },
       );
 
       await Auth.findByIdAndUpdate(user._id, { isProfile: true }, { session });
@@ -630,7 +630,7 @@ const createProfileIntoDB = async (
 // 6. updatePhotoIntoDB
 const updatePhotoIntoDB = async (
   user: IAuth,
-  file: Express.Multer.File | undefined
+  file: Express.Multer.File | undefined,
 ) => {
   switch (user?.role) {
     case ROLE.CLIENT:
@@ -647,7 +647,7 @@ const updatePhotoIntoDB = async (
 // 7. changePasswordIntoDB
 const changePasswordIntoDB = async (
   payload: z.infer<typeof AuthValidation.changePasswordSchema.shape.body>,
-  userData: IAuth
+  userData: IAuth,
 ) => {
   // const user = await Auth.findOne({ _id: userData._id, isActive: true }).select(
   //   '+password'
@@ -670,13 +670,13 @@ const changePasswordIntoDB = async (
   user.ensureActiveStatus();
 
   const isCredentialsCorrect = await user.isPasswordMatched(
-    payload.oldPassword
+    payload.oldPassword,
   );
 
   if (!isCredentialsCorrect) {
     throw new AppError(
       httpStatus.UNAUTHORIZED,
-      'Current password is not correct!'
+      'Current password is not correct!',
     );
   }
 
@@ -767,7 +767,7 @@ const forgotPassword = async (email: string) => {
 
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      `Last OTP is valid till now, use that in ${remainingMinutes} minutes!`
+      `Last OTP is valid till now, use that in ${remainingMinutes} minutes!`,
     );
   } else {
     // Generate new OTP
@@ -867,7 +867,7 @@ const sendForgotPasswordOtpAgain = async (forgotPassToken: string) => {
 
     throw new AppError(
       httpStatus.NOT_FOUND,
-      `Last OTP is valid till now, use that in ${remainingMinutes} minutes!`
+      `Last OTP is valid till now, use that in ${remainingMinutes} minutes!`,
     );
   } else {
     // Generate new OTP
@@ -979,7 +979,7 @@ const verifyOtpForForgotPassword = async (payload: {
 
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      'OTP expired. A new OTP has been sent again!'
+      'OTP expired. A new OTP has been sent again!',
     );
   }
 
@@ -995,7 +995,7 @@ const verifyOtpForForgotPassword = async (payload: {
       isResetPassword: true,
     },
     config.jwt.otpSecret!,
-    { expiresIn: config.jwt.otpSecretExpiresIn } as SignOptions
+    { expiresIn: config.jwt.otpSecretExpiresIn } as SignOptions,
   );
 
   return { resetPasswordToken };
@@ -1004,7 +1004,7 @@ const verifyOtpForForgotPassword = async (payload: {
 // 11. resetPasswordIntoDB - 4.(reset Password)
 const resetPasswordIntoDB = async (
   resetPasswordToken: string,
-  newPassword: string
+  newPassword: string,
 ) => {
   if (!resetPasswordToken) {
     throw new AppError(httpStatus.FORBIDDEN, 'Invalid reset password token!');
@@ -1096,7 +1096,7 @@ const fetchProfileFromDB = async (user: IAuth) => {
     ]);
 
     const isSubscribed = await SubscriptionService.checkHasSubscription(
-      organization?._id!?.toString()
+      organization?._id!?.toString(),
     );
 
     return { ...organization?.toObject(), isSubscribed };
@@ -1125,7 +1125,7 @@ const fetchProfileFromDB = async (user: IAuth) => {
 // 13. deactivateUserAccountFromDB
 const deactivateUserAccountFromDB = async (
   user: IAuth,
-  payload: TDeactiveAccountPayload
+  payload: TDeactiveAccountPayload,
 ) => {
   const { email, password, deactivationReason } = payload;
 
@@ -1156,7 +1156,7 @@ const deactivateUserAccountFromDB = async (
     {
       new: true,
       select: 'email name isActive deactivationReason deactivatedAt',
-    }
+    },
   );
 
   return result;
@@ -1183,7 +1183,7 @@ const deleteSpecificUserAccountFromDB = async (user: IAuth) => {
     if (user.role === ROLE.CLIENT) {
       const deletedClient = await Client.findOneAndDelete(
         { auth: user._id },
-        { session }
+        { session },
       );
       // If a client profile existed and was deleted, use its name.
       if (deletedClient?.name) {
@@ -1192,7 +1192,7 @@ const deleteSpecificUserAccountFromDB = async (user: IAuth) => {
     } else if (user.role === ROLE.BUSINESS) {
       const deletedBusiness = await Business.findOneAndDelete(
         { auth: user._id },
-        { session }
+        { session },
       );
       if (deletedBusiness?.name) {
         name = deletedBusiness.name;
@@ -1200,7 +1200,7 @@ const deleteSpecificUserAccountFromDB = async (user: IAuth) => {
     } else if (user.role === ROLE.ORGANIZATION) {
       const deletedOrganization = await Organization.findOneAndDelete(
         { auth: user._id },
-        { session }
+        { session },
       );
       if (deletedOrganization?.name) {
         name = deletedOrganization.name;
@@ -1231,7 +1231,7 @@ const getNewAccessTokenFromServer = async (refreshToken: string) => {
   // checking if the given token is valid
   const decoded = verifyToken(
     refreshToken,
-    config.jwt.refreshTokenExpiresIn!
+    config.jwt.refreshTokenExpiresIn!,
   ) as JwtPayload;
 
   const { email, iat } = decoded;
@@ -1302,7 +1302,7 @@ const getNewAccessTokenFromServer = async (refreshToken: string) => {
 // 16. updateAuthDataIntoDB
 const updateAuthDataIntoDB = async (
   payload: { name: string },
-  userData: IAuth
+  userData: IAuth,
 ) => {
   let updatedProfile;
 
@@ -1311,24 +1311,24 @@ const updateAuthDataIntoDB = async (
     updatedProfile = await Client.findOneAndUpdate(
       { auth: userData._id },
       { name: payload.name },
-      { new: true }
+      { new: true },
     );
   } else if (userData.role === ROLE.BUSINESS) {
     updatedProfile = await Business.findOneAndUpdate(
       { auth: userData._id },
       { name: payload.name },
-      { new: true }
+      { new: true },
     );
   } else if (userData.role === ROLE.ORGANIZATION) {
     updatedProfile = await Organization.findOneAndUpdate(
       { auth: userData._id },
       { name: payload.name },
-      { new: true }
+      { new: true },
     );
   } else {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      'Invalid user role for profile update!'
+      'Invalid user role for profile update!',
     );
   }
 
@@ -1406,13 +1406,11 @@ const businessSignupWithProfile = async (
   },
   files?: {
     logoImage?: Express.Multer.File[];
-  }
+  },
 ) => {
   // Extract auth and business data
 
   const { email, password, ...businessData } = payload;
-
-  
 
   // Check if user already exists
   const existingUser = await Auth.isUserExistsByEmail(email);
@@ -1430,7 +1428,7 @@ const businessSignupWithProfile = async (
     // Throw error immediately - no OTP sending
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      'User with this email already exists!'
+      'User with this email already exists!',
     );
   }
 
@@ -1476,7 +1474,7 @@ const businessSignupWithProfile = async (
     if (!newAuth) {
       throw new AppError(
         httpStatus.INTERNAL_SERVER_ERROR,
-        'Failed to create authentication record!'
+        'Failed to create authentication record!',
       );
     }
 
@@ -1510,7 +1508,7 @@ const businessSignupWithProfile = async (
     if (!newBusiness) {
       throw new AppError(
         httpStatus.INTERNAL_SERVER_ERROR,
-        'Failed to create business profile!'
+        'Failed to create business profile!',
       );
     }
 
@@ -1536,7 +1534,7 @@ const businessSignupWithProfile = async (
             currentPeriodEnd: trialEndDate,
           },
         ],
-        { session }
+        { session },
       );
 
       await SubscriptionHistory.create(
@@ -1554,7 +1552,7 @@ const businessSignupWithProfile = async (
             transactionDate: new Date(),
           },
         ],
-        { session }
+        { session },
       );
     }
 
@@ -1600,7 +1598,7 @@ const businessSignupWithProfile = async (
 
     throw new AppError(
       httpStatus.INTERNAL_SERVER_ERROR,
-      error?.message || 'Failed to create business account!'
+      error?.message || 'Failed to create business account!',
     );
   }
 };
@@ -1611,7 +1609,7 @@ const organizationSignupWithProfile = async (
     logoImage?: Express.Multer.File[];
     coverImage?: Express.Multer.File[];
     drivingLicense?: Express.Multer.File[];
-  }
+  },
 ) => {
   const { email, password, ...orgData } = payload;
 
@@ -1620,7 +1618,7 @@ const organizationSignupWithProfile = async (
   if (existingUser) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      'User with this email already exists!'
+      'User with this email already exists!',
     );
   }
 
@@ -1663,7 +1661,7 @@ const organizationSignupWithProfile = async (
   const otp = generateOtp();
   const now = new Date();
   const otpExpiry = new Date(
-    now.getTime() + (Number(config.jwt.otpSecretExpiresIn) || 5) * 60 * 1000
+    now.getTime() + (Number(config.jwt.otpSecretExpiresIn) || 5) * 60 * 1000,
   );
 
   const session = await startSession();
@@ -1690,7 +1688,7 @@ const organizationSignupWithProfile = async (
     if (!newAuth) {
       throw new AppError(
         httpStatus.INTERNAL_SERVER_ERROR,
-        'Failed to create authentication record!'
+        'Failed to create authentication record!',
       );
     }
 
@@ -1725,7 +1723,7 @@ const organizationSignupWithProfile = async (
     if (!newOrganization) {
       throw new AppError(
         httpStatus.INTERNAL_SERVER_ERROR,
-        'Failed to create organization profile!'
+        'Failed to create organization profile!',
       );
     }
 
@@ -1746,7 +1744,7 @@ const organizationSignupWithProfile = async (
     if (!boardMember) {
       throw new AppError(
         httpStatus.INTERNAL_SERVER_ERROR,
-        'Failed to create board member!'
+        'Failed to create board member!',
       );
     }
 
@@ -1774,7 +1772,7 @@ const organizationSignupWithProfile = async (
             currentPeriodEnd: trialEndDate,
           },
         ],
-        { session }
+        { session },
       );
 
       await SubscriptionHistory.create(
@@ -1792,7 +1790,7 @@ const organizationSignupWithProfile = async (
             transactionDate: new Date(),
           },
         ],
-        { session }
+        { session },
       );
     }
 
@@ -1817,7 +1815,7 @@ const organizationSignupWithProfile = async (
 
     throw new AppError(
       httpStatus.INTERNAL_SERVER_ERROR,
-      error?.message || 'Failed to create organization account!'
+      error?.message || 'Failed to create organization account!',
     );
   }
 };
@@ -1924,6 +1922,7 @@ const disable2FA = async (userId: string, token: string) => {
 
   return { success: true };
 };
+
 const guestLogin = async () => {
   const session = await Auth.startSession();
   session.startTransaction();
@@ -1947,7 +1946,7 @@ const guestLogin = async () => {
           otpExpiry: new Date(Date.now() + 1000 * 60 * 60),
         },
       ],
-      { session }
+      { session },
     );
 
     await Client.create(
@@ -1960,7 +1959,7 @@ const guestLogin = async () => {
           postalCode: 'N/A',
         },
       ],
-      { session }
+      { session },
     );
 
     // Commit the transaction
@@ -2010,7 +2009,7 @@ export const guestRemove = async (guestId: string) => {
 
     // Delete related Client document
     const guest = await Client.deleteOne({ auth: guestAuth._id }).session(
-      session
+      session,
     );
 
     // Delete Auth document
@@ -2025,9 +2024,201 @@ export const guestRemove = async (guestId: string) => {
     session.endSession();
     throw new AppError(
       httpStatus.INTERNAL_SERVER_ERROR,
-      'Failed to delete guest user'
+      'Failed to delete guest user',
     );
   }
+};
+
+const signInAsDonor = async (payload: {
+  email: string;
+  password: string;
+  fcmToken: string;
+  deviceType: string;
+}) => {
+  const user = await Auth.findOne({
+    email: payload.email,
+    role: ROLE.CLIENT,
+  }).select('+password +twoFactorSecret');
+
+  if (!user) {
+    throw new AppError(httpStatus.NOT_FOUND, 'User does not exist!');
+  }
+
+  if (!user.isActive) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'This account is not active!');
+  }
+
+  user.ensureActiveStatus();
+
+  if (user.isDeleted) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'This account is deleted!');
+  }
+
+  if (!user.isVerifiedByOTP) {
+    const otp = generateOtp();
+
+    await sendOtpEmail({ email: user.email, otp });
+
+    user.otp = otp;
+    user.otpExpiry = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
+
+    // Ensure status is set before saving
+    if (!user.status) {
+      user.status = AUTH_STATUS.PENDING;
+    }
+
+    await user.save();
+
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'Verify your account with the new OTP sent to the mail!',
+    );
+  }
+
+  // Validate password
+  const isPasswordCorrect = await user.isPasswordMatched(payload.password);
+
+  if (!isPasswordCorrect) {
+    throw new AppError(httpStatus.UNAUTHORIZED, 'Invalid credentials!');
+  }
+
+  if (payload.fcmToken && payload.deviceType) {
+    await AuthService.updateFcmToken(
+      user?._id?.toString(),
+      payload.fcmToken,
+      payload.deviceType,
+    );
+  }
+
+  if (user.isTwoFactorEnabled) {
+    return {
+      twoFactorRequired: true,
+      email: user.email,
+      message: 'Please enter your 2FA code to continue',
+    };
+  }
+
+  // Prepare user data for token generation
+  const accessTokenPayload = {
+    id: user._id.toString(),
+    name: 'User',
+    image: defaultUserImage,
+    email: user.email,
+    role: user.role,
+    isProfile: user?.isProfile,
+    isActive: user?.isActive,
+    status: user.status,
+  };
+
+  const refreshTokenPayload = {
+    email: user?.email,
+  };
+
+  // tokens
+  const accessToken = createAccessToken(accessTokenPayload);
+  const refreshToken = createRefreshToken(refreshTokenPayload);
+
+  return {
+    accessToken,
+    refreshToken,
+    twoFactorRequired: false,
+  };
+};
+
+const signInAsBusiness = async (payload: {
+  email: string;
+  password: string;
+  fcmToken: string;
+  deviceType: string;
+}) => {
+  const user = await Auth.findOne({
+    email: payload.email,
+    role: ROLE.CLIENT,
+  }).select('+password +twoFactorSecret');
+
+  if (!user) {
+    throw new AppError(httpStatus.NOT_FOUND, 'User does not exist!');
+  }
+
+  if (!user.isActive) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'This account is not active!');
+  }
+
+  user.ensureActiveStatus();
+
+  if (user.isDeleted) {
+    throw new AppError(httpStatus.BAD_REQUEST, 'This account is deleted!');
+  }
+
+  if (!user.isVerifiedByOTP) {
+    const otp = generateOtp();
+
+    await sendOtpEmail({ email: user.email, otp });
+
+    user.otp = otp;
+    user.otpExpiry = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
+
+    // Ensure status is set before saving
+    if (!user.status) {
+      user.status = AUTH_STATUS.PENDING;
+    }
+
+    await user.save();
+
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'Verify your account with the new OTP sent to the mail!',
+    );
+  }
+
+  // Validate password
+  const isPasswordCorrect = await user.isPasswordMatched(payload.password);
+
+  if (!isPasswordCorrect) {
+    throw new AppError(httpStatus.UNAUTHORIZED, 'Invalid credentials!');
+  }
+
+  if (payload.fcmToken && payload.deviceType) {
+    await AuthService.updateFcmToken(
+      user?._id?.toString(),
+      payload.fcmToken,
+      payload.deviceType,
+    );
+  }
+
+  if (user.isTwoFactorEnabled) {
+    return {
+      twoFactorRequired: true,
+      email: user.email,
+      message: 'Please enter your 2FA code to continue',
+    };
+  }
+
+  // Prepare user data for token generation
+  const accessTokenPayload = {
+    id: user._id.toString(),
+    name: 'User',
+    image: defaultUserImage,
+    email: user.email,
+    role: user.role,
+    isProfile: user?.isProfile,
+    isActive: user?.isActive,
+    status: user.status,
+  };
+
+  const refreshTokenPayload = {
+    email: user?.email,
+  };
+
+  // tokens
+  const accessToken = createAccessToken(accessTokenPayload);
+  const refreshToken = createRefreshToken(refreshTokenPayload);
+
+  return {
+    accessToken,
+    refreshToken,
+    twoFactorRequired: false,
+  };
 };
 
 export const AuthService = {
@@ -2056,4 +2247,6 @@ export const AuthService = {
   verifyAndEnable2FA,
   guestLogin,
   guestRemove,
+  signInAsDonor,
+  signInAsBusiness,
 };

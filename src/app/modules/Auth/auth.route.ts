@@ -12,7 +12,7 @@ router
   .route('/signup')
   .post(
     validateRequest(AuthValidation.createAuthSchema),
-    AuthController.createAuth
+    AuthController.createAuth,
   );
 
 // 2. sendSignupOtpAgain
@@ -20,7 +20,7 @@ router
   .route('/send-signup-otp-again')
   .post(
     validateRequest(AuthValidation.sendSignupOtpAgainSchema),
-    AuthController.sendSignupOtpAgain
+    AuthController.sendSignupOtpAgain,
   );
 
 // 3. verifySignupOtp
@@ -28,13 +28,27 @@ router
   .route('/verify-signup-otp')
   .post(
     validateRequest(AuthValidation.verifySignupOtpSchema),
-    AuthController.verifySignupOtp
+    AuthController.verifySignupOtp,
   );
 
 // 4. signin
 router
   .route('/signin')
   .post(validateRequest(AuthValidation.signinSchema), AuthController.signin);
+
+router
+  .route('/signin/donor')
+  .post(
+    validateRequest(AuthValidation.signinSchema),
+    AuthController.signInAsDonor,
+  );
+
+router
+  .route('/signin/business')
+  .post(
+    validateRequest(AuthValidation.signinSchema),
+    AuthController.signInAsBusiness,
+  );
 
 // 5. createProfile
 router.route('/create-Profile').post(
@@ -47,7 +61,7 @@ router.route('/create-Profile').post(
     { name: 'adminImage', maxCount: 1 },
   ]),
   validateRequestFromFormData(AuthValidation.createProfileSchema),
-  AuthController.createProfile
+  AuthController.createProfile,
 );
 
 // 6. updatePhoto
@@ -60,7 +74,7 @@ router.route('/update-photo').put(
     { name: 'profileImage', maxCount: 1 },
     { name: 'avatar', maxCount: 1 },
   ]),
-  AuthController.updatePhoto
+  AuthController.updatePhoto,
 );
 
 // 7. changePassword
@@ -69,7 +83,7 @@ router
   .patch(
     auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION, ROLE.ADMIN),
     validateRequest(AuthValidation.changePasswordSchema),
-    AuthController.changePassword
+    AuthController.changePassword,
   );
 
 // 8. forgotPassword
@@ -77,7 +91,7 @@ router
   .route('/forgot-password')
   .post(
     validateRequest(AuthValidation.forgotPasswordSchema),
-    AuthController.forgotPassword
+    AuthController.forgotPassword,
   );
 
 // 9. sendForgotPasswordOtpAgain
@@ -85,7 +99,7 @@ router
   .route('/send-forgot-password-otp-again')
   .post(
     validateRequest(AuthValidation.sendForgotPasswordOtpAgainSchema),
-    AuthController.sendForgotPasswordOtpAgain
+    AuthController.sendForgotPasswordOtpAgain,
   );
 
 // 10. verifyOtpForForgotPassword
@@ -93,7 +107,7 @@ router
   .route('/verify-forgot-password-otp')
   .post(
     validateRequest(AuthValidation.verifyOtpForForgotPasswordSchema),
-    AuthController.verifyOtpForForgotPassword
+    AuthController.verifyOtpForForgotPassword,
   );
 
 // 11. resetPassword
@@ -101,7 +115,7 @@ router
   .route('/reset-password')
   .post(
     validateRequest(AuthValidation.resetPasswordSchema),
-    AuthController.resetPassword
+    AuthController.resetPassword,
   );
 
 // 12. fetchProfile
@@ -109,7 +123,7 @@ router
   .route('/profile')
   .get(
     auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION, ROLE.ADMIN, ROLE.GUEST),
-    AuthController.fetchProfile
+    AuthController.fetchProfile,
   );
 
 // 13. deactivateUserAccount
@@ -118,7 +132,7 @@ router
   .post(
     auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION),
     validateRequest(AuthValidation.deactivateUserAccountSchema),
-    AuthController.deactivateUserAccount
+    AuthController.deactivateUserAccount,
   );
 
 // 14. deleteSpecificUserAccountFromDB
@@ -126,7 +140,7 @@ router
   .route('/delete-account')
   .delete(
     auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION),
-    AuthController.deleteSpecificUserAccountFromDB
+    AuthController.deleteSpecificUserAccountFromDB,
   );
 
 // 15. getNewAccessToken
@@ -135,7 +149,7 @@ router
   .get(
     auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION, ROLE.ADMIN, ROLE.GUEST),
     validateRequest(AuthValidation.getNewAccessTokenSchema),
-    AuthController.getNewAccessToken
+    AuthController.getNewAccessToken,
   );
 
 // 16. updateAuthData
@@ -144,7 +158,7 @@ router
   .patch(
     auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION, ROLE.ADMIN),
     validateRequest(AuthValidation.updateAuthDataSchema),
-    AuthController.updateAuthData
+    AuthController.updateAuthData,
   );
 
 // 17. Besiness Profile Create :
@@ -153,7 +167,7 @@ router
   .post(
     upload.fields([{ name: 'logoImage', maxCount: 1 }]),
     validateRequestFromFormData(AuthValidation.businessSignupWithProfileSchema),
-    AuthController.businessSignupWithProfile
+    AuthController.businessSignupWithProfile,
   );
 
 router.route('/organization-signup').post(
@@ -163,22 +177,22 @@ router.route('/organization-signup').post(
     { name: 'drivingLicense', maxCount: 1 },
   ]),
   validateRequestFromFormData(
-    AuthValidation.organizationSignupWithProfileSchema
+    AuthValidation.organizationSignupWithProfileSchema,
   ),
-  AuthController.organizationSignupWithProfile
+  AuthController.organizationSignupWithProfile,
 );
 
 router.patch(
   '/update-fcm',
   auth(ROLE.CLIENT, ROLE.ORGANIZATION, ROLE.BUSINESS, ROLE.ADMIN),
   validateRequest(AuthValidation.updateFcmToken),
-  AuthController.updateFcmToken
+  AuthController.updateFcmToken,
 );
 
 router.post(
   '/2fa/setup',
   auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION, ROLE.ADMIN),
-  AuthController.setup2FA
+  AuthController.setup2FA,
 );
 
 // Verify and Enable 2FA (The first verification to turn it on)
@@ -186,14 +200,14 @@ router.post(
   '/2fa/enable',
   auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION, ROLE.ADMIN),
   validateRequest(AuthValidation.verifyAndEnable2FASchema),
-  AuthController.verifyAndEnable2FA
+  AuthController.verifyAndEnable2FA,
 );
 
 // Finalize Login for users who have 2FA enabled (Public route)
 router.post(
   '/2fa/verify-login',
   validateRequest(AuthValidation.verify2FALoginSchema),
-  AuthController.verify2FALogin
+  AuthController.verify2FALogin,
 );
 
 // Disable 2FA (Requires token verification)
@@ -201,7 +215,7 @@ router.post(
   '/2fa/disable',
   validateRequest(AuthValidation.disabled2FASchema),
   auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION, ROLE.ADMIN),
-  AuthController.disable2FA
+  AuthController.disable2FA,
 );
 
 router.post('/guest-login', AuthController.guestLogin);
