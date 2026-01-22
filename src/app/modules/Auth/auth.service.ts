@@ -2133,7 +2133,7 @@ const signInAsBusiness = async (payload: {
 }) => {
   const user = await Auth.findOne({
     email: payload.email,
-    role: ROLE.CLIENT,
+    role: ROLE.BUSINESS,
   }).select('+password +twoFactorSecret');
 
   if (!user) {
