@@ -147,7 +147,6 @@ router
 router
   .route('/access-token')
   .get(
-    auth(ROLE.CLIENT, ROLE.BUSINESS, ROLE.ORGANIZATION, ROLE.ADMIN, ROLE.GUEST),
     validateRequest(AuthValidation.getNewAccessTokenSchema),
     AuthController.getNewAccessToken,
   );

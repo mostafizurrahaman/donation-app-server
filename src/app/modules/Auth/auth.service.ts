@@ -1231,7 +1231,7 @@ const getNewAccessTokenFromServer = async (refreshToken: string) => {
   // checking if the given token is valid
   const decoded = verifyToken(
     refreshToken,
-    config.jwt.refreshTokenExpiresIn!,
+    config.jwt.refreshTokenSecret!,
   ) as JwtPayload;
 
   const { email, iat } = decoded;
@@ -2218,6 +2218,86 @@ const signInAsBusiness = async (payload: {
     accessToken,
     refreshToken,
     twoFactorRequired: false,
+  };
+};
+
+const getAccessToken = async (refreshToken: string) => {
+  // checking if the token is missing
+  if (!refreshToken) {
+    throw new AppError(httpStatus.UNAUTHORIZED, 'You are not authorized!');
+  }
+
+  // checking if the given token is valid
+  const decoded = verifyToken(
+    refreshToken,
+    config.jwt.refreshTokenSecret!,
+  ) as JwtPayload;
+
+  const { id, iat } = decoded;
+
+  // checking if the user is exist
+  const user = await Auth.findById(id);
+
+  if (!user) {
+    throw new AppError(httpStatus.UNAUTHORIZED, 'User not exists!');
+  }
+
+  if (user.isDeleted) {
+    throw new AppError(httpStatus.UNAUTHORIZED, 'You are not authorized!');
+  }
+
+  user.ensureActiveStatus();
+
+  if (!user.isVerifiedByOTP) {
+    throw new AppError(httpStatus.UNAUTHORIZED, 'You are not authorized!');
+  }
+
+  // checking if any hacker using a token even-after the user changed the password
+  if (user.passwordChangedAt && user.isJWTIssuedBeforePasswordChanged(iat)) {
+    throw new AppError(httpStatus.UNAUTHORIZED, 'You are not authorized!');
+  }
+
+  // Role-specific activation checks
+  if (user.role === ROLE.CLIENT) {
+    // CLIENT can proceed without admin approval, just need to be verified
+    if (!user.isVerifiedByOTP) {
+      throw new AppError(
+        httpStatus.UNAUTHORIZED,
+        'Your account is not verified!',
+      );
+    }
+  } else if (user.role === ROLE.ORGANIZATION || user.role === ROLE.BUSINESS) {
+    // ORGANIZATION and BUSINESS need admin activation
+    if (!user.isProfile || !user.isActive) {
+      throw new AppError(
+        httpStatus.BAD_REQUEST,
+        'Your profile is not activated by admin yet!',
+      );
+    }
+  } else if (user.role === ROLE.ADMIN) {
+    // ADMIN also needs to be verified and active
+    if (!user.isActive) {
+      throw new AppError(
+        httpStatus.UNAUTHORIZED,
+        'Your admin account is not active!',
+      );
+    }
+  }
+
+  // Generate real tokens
+  const accessTokenPayload = {
+    id: user._id.toString(),
+    name: 'User',
+    image: defaultUserImage,
+    email: user.email,
+    role: user.role,
+    isProfile: user?.isProfile,
+    isActive: user?.isActive,
+    status: user.status,
+  };
+
+  return {
+    accessToken: createAccessToken(accessTokenPayload),
   };
 };
 

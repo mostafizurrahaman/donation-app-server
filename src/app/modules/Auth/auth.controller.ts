@@ -45,6 +45,13 @@ const verifySignupOtp = asyncHandler(async (req, res) => {
 const signin = asyncHandler(async (req, res) => {
   const result = await AuthService.signinIntoDB(req.body);
 
+  res.cookie('refreshToken', result.refreshToken, {
+    httpOnly: true,
+    secure: false,
+    sameSite: 'none',
+    maxAge: 365 * 60 * 60 * 24 * 1000,
+  });
+
   sendResponse(res, {
     statusCode: httpStatus.OK,
     message: 'Signin successful!',
@@ -187,6 +194,7 @@ const deleteSpecificUserAccountFromDB = asyncHandler(async (req, res) => {
 const getNewAccessToken = asyncHandler(async (req, res) => {
   const refreshToken = req.headers.authorization?.replace('Bearer ', '');
 
+
   if (!refreshToken) {
     throw new AppError(httpStatus.BAD_REQUEST, 'Refresh token is required!');
   }
@@ -328,6 +336,13 @@ const guestRemove = asyncHandler(async (req, res) => {
 const signInAsDonor = asyncHandler(async (req, res) => {
   const result = await AuthService.signInAsDonor(req.body);
 
+  res.cookie('refreshToken', result.refreshToken, {
+    httpOnly: true,
+    secure: false,
+    sameSite: 'none',
+    maxAge: 365 * 60 * 60 * 24 * 1000,
+  });
+
   sendResponse(res, {
     statusCode: httpStatus.OK,
     message: 'Signin successful!',
@@ -337,6 +352,12 @@ const signInAsDonor = asyncHandler(async (req, res) => {
 
 const signInAsBusiness = asyncHandler(async (req, res) => {
   const result = await AuthService.signInAsBusiness(req.body);
+  res.cookie('refreshToken', result.refreshToken, {
+    httpOnly: true,
+    secure: false,
+    sameSite: 'none',
+    maxAge: 365 * 60 * 60 * 24 * 1000,
+  });
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -344,7 +365,6 @@ const signInAsBusiness = asyncHandler(async (req, res) => {
     data: result,
   });
 });
-
 
 export const AuthController = {
   createAuth,
@@ -373,5 +393,5 @@ export const AuthController = {
   guestLogin,
   guestRemove,
   signInAsDonor,
-  signInAsBusiness
+  signInAsBusiness,
 };

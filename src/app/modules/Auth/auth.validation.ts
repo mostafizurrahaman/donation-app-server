@@ -517,9 +517,11 @@ const deactivateUserAccountSchema = z.object({
 // 12. getNewAccessTokenSchema
 const getNewAccessTokenSchema = z.object({
   cookies: z.object({
-    refreshToken: z.string({
-      error: 'Refresh token is required!',
-    }),
+    refreshToken: z
+      .string({
+        error: 'Refresh token is required!',
+      })
+      .optional(),
   }),
 });
 
