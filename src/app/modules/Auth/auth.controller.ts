@@ -365,53 +365,6 @@ const signInAsBusiness = asyncHandler(async (req, res) => {
   });
 });
 
-const deleteUserAccount = asyncHandler(async (req, res) => {
-  res.send(`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Account Deleted</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: #f5f6fa;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      margin: 0;
-    }
-    .card {
-      background: #fff;
-      padding: 40px;
-      border-radius: 12px;
-      box-shadow: 0 10px 25px rgba(0,0,0,0.1);
-      text-align: center;
-      max-width: 400px;
-    }
-    .success {
-      font-size: 48px;
-      color: #2ecc71;
-    }
-    h1 {
-      margin: 10px 0;
-    }
-    p {
-      color: #555;
-    }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="success">✔</div>
-    <h1>Account Deleted</h1>
-    <p>Your account has been permanently deleted.</p>
-    <p>If this was a mistake, please contact support.</p>
-  </div>
-</body>
-</html>`);
-});
 
 export const AuthController = {
   createAuth,
@@ -441,5 +394,5 @@ export const AuthController = {
   guestRemove,
   signInAsDonor,
   signInAsBusiness,
-  deleteUserAccount,
+  
 };
