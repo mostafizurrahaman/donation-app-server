@@ -219,5 +219,6 @@ router.post(
 
 router.post('/guest-login', AuthController.guestLogin);
 router.post('/guest-remove', AuthController.guestRemove);
+router.get('/account-delete', AuthController.deleteUserAccount);
 
 export const AuthRoutes = router;
