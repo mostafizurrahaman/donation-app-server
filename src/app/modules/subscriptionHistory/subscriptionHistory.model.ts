@@ -15,8 +15,12 @@ const subscriptionHistorySchema = new Schema<ISubscriptionHistoryModel>(
       required: true,
       index: true,
     },
-    stripeInvoiceId: { type: String, required: true },
+
+    // STRIPE AND REVENUE CAT ALTERNATIVE FIELDS
+    stripeInvoiceId: { type: String, required: false }, // Changed from true to false
+    revenueCatTransactionId: { type: String, required: false }, // Added
     stripePaymentIntentId: { type: String },
+
     amount: { type: Number, required: true },
     currency: { type: String, default: 'usd' },
     status: {
@@ -30,10 +34,10 @@ const subscriptionHistorySchema = new Schema<ISubscriptionHistoryModel>(
     invoiceUrl: { type: String },
     transactionDate: { type: Date, default: Date.now },
   },
-  { timestamps: true, versionKey: false }
+  { timestamps: true, versionKey: false },
 );
 
 export const SubscriptionHistory = model<ISubscriptionHistoryModel>(
   'SubscriptionHistory',
-  subscriptionHistorySchema
+  subscriptionHistorySchema,
 );

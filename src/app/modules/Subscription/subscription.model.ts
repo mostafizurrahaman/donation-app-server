@@ -14,6 +14,16 @@ const subscriptionSchema = new Schema<ISubscriptionModel>(
     stripeSubscriptionId: { type: String, unique: true, sparse: true },
     stripeCustomerId: { type: String },
     stripePriceId: { type: String },
+
+    // Revenue cat fields:
+    revenueCatAppUserId: {
+      type: String,
+      unique: true,
+      sparse: true,
+      index: true,
+    },
+    revenueCatEntitlementId: { type: String },
+
     trialEndsAt: { type: Date },
 
     planType: {
@@ -34,10 +44,10 @@ const subscriptionSchema = new Schema<ISubscriptionModel>(
 
     cancelAtPeriodEnd: { type: Boolean, default: false },
   },
-  { timestamps: true, versionKey: false }
+  { timestamps: true, versionKey: false },
 );
 
 export const Subscription = model<ISubscriptionModel>(
   'Subscription',
-  subscriptionSchema
+  subscriptionSchema,
 );
