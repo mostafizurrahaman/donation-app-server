@@ -191,8 +191,8 @@ const handleRevenueCatWebhook = async (
         revenueCatTransactionId: transactionId,
         amount: price,
         currency, // normalised lowercase
-        status: SUBSCRIPTION_STATUS.CANCELED,
-        billingReason: 'billing_issue',
+        status: 'failed',
+        billingReason: event.type.toLowerCase(),
         planType,
         transactionDate: new Date(),
       });
@@ -212,7 +212,7 @@ const handleRevenueCatWebhook = async (
         amount: price,
         currency, // normalised lowercase
         status: 'failed',
-        billingReason: 'billing_issue',
+        billingReason: event.type.toLowerCase(),
         planType,
         transactionDate: new Date(),
       });
