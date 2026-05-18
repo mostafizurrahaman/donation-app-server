@@ -4,13 +4,24 @@ export interface ISubscriptionHistory {
   user: Types.ObjectId;
   subscription: Types.ObjectId;
 
-  // Revenue cat and stripe alternative fields:
-  stripeInvoiceId?: string; // Make optional
-  revenueCatTransactionId?: string; // Add RevenueCat transaction ID
+  /**
+   * Exactly one of these two transaction ID fields will be populated,
+   * depending on which payment provider processed the event.
+   */
+  stripeInvoiceId?: string;
+  revenueCatTransactionId?: string;
+
   stripePaymentIntentId?: string;
 
   amount: number;
+
+  /**
+   * ISO 4217 currency code stored in lowercase (e.g. "usd", "aud").
+   * Both Stripe (already lowercase) and RevenueCat (normalised on ingestion)
+   * are stored in this format so comparisons and display logic are consistent.
+   */
   currency: string;
+
   status: 'succeeded' | 'failed' | 'refunded';
   billingReason: string;
   planType: 'monthly' | 'yearly' | 'trial';

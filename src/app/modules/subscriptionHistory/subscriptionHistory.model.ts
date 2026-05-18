@@ -16,13 +16,23 @@ const subscriptionHistorySchema = new Schema<ISubscriptionHistoryModel>(
       index: true,
     },
 
-    // STRIPE AND REVENUE CAT ALTERNATIVE FIELDS
-    stripeInvoiceId: { type: String, required: false }, // Changed from true to false
-    revenueCatTransactionId: { type: String, required: false }, // Added
+    // ── Payment-provider transaction IDs (mutually exclusive) ───────────────
+    // Stripe invoices populate stripeInvoiceId; RevenueCat events populate
+    // revenueCatTransactionId.  Neither is required so both providers can share
+    // this collection without nullable hacks.
+    stripeInvoiceId: { type: String, required: false },
+    revenueCatTransactionId: { type: String, required: false },
     stripePaymentIntentId: { type: String },
 
     amount: { type: Number, required: true },
+
+    /**
+     * Always stored in lowercase (e.g. "usd").
+     * RevenueCat sends uppercase; normalisation happens in the service layer
+     * before the record is created.
+     */
     currency: { type: String, default: 'usd' },
+
     status: {
       type: String,
       enum: ['succeeded', 'failed', 'refunded'],

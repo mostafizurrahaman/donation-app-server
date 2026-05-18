@@ -7,7 +7,7 @@ export interface ISubscription {
   stripeCustomerId?: string;
   stripePriceId?: string;
 
-  // Revenue Cat fields: 
+  // Revenue Cat fields:
   revenueCatAppUserId?: string;
   revenueCatEntitlementId?: string;
 

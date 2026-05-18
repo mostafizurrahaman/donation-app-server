@@ -1,34 +1,48 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Request, Response } from 'express';
 import httpStatus from 'http-status';
 import { RevenueCatService } from './revenue-cat.services';
-import crypto from 'crypto';
 import config from '../../config';
+import { Logger } from '../../utils/logger';
 
-const handleWebhook = async (req: Request, res: Response) => {
+/**
+ * POST /webhooks/revenue-cat
+ *
+ * RevenueCat sends a plain Authorization header (not Bearer) whose value must
+ * exactly match the secret configured in the RevenueCat dashboard.
+ *
+ * RevenueCat expects a 200 to acknowledge receipt.
+ * Any 4xx/5xx response will trigger a retry.
+ */
+const handleWebhook = async (
+  req: Request,
+  res: Response,
+): Promise<Response> => {
   try {
-    // Revenue cat header:
-    const authHeader = req.headers.authorization || '';
-    //
-    console.log(req.body);
+    const authHeader = (req.headers.authorization ?? '').trim();
 
-    if (authHeader !== config.revenueCat.webhookSecret) {
-      res.status(httpStatus.UNAUTHORIZED).json({
-        error: 'Invalid Authorization header!',
+    // Guard: reject immediately so we don't process forged payloads.
+    // The service layer also verifies this, but a fast reject here avoids
+    // unnecessary DB look-ups.
+    if (!authHeader || authHeader !== config.revenueCat.webhookSecret) {
+      Logger.info(
+        '[RevenueCat] Webhook rejected – invalid Authorization header.',
+      );
+      return res.status(httpStatus.UNAUTHORIZED).json({
+        error: 'Invalid Authorization header.',
       });
-      console.log(`[Authorization]: Invalid Header`);
     }
 
-    // RevenueCat webhook handler
     await RevenueCatService.handleRevenueCatWebhook(req.body, authHeader);
 
-    // RevenueCat expects a 200 response to acknowledge receipt
-    res.status(httpStatus.OK).json({ received: true });
+    return res.status(httpStatus.OK).json({ received: true });
   } catch (error: any) {
-    console.error(`❌ RevenueCat Webhook Error: ${error.message}`);
-    // Using 400 or 401 will tell RevenueCat to retry the webhook
-    res
-      .status(error.statusCode || httpStatus.INTERNAL_SERVER_ERROR)
-      .send(error.message);
+    Logger.error(`[RevenueCat] Webhook handler error: ${error.message}`, error);
+
+    // Return 500 so RevenueCat will retry the delivery.
+    return res
+      .status(error.statusCode ?? httpStatus.INTERNAL_SERVER_ERROR)
+      .json({ error: error.message ?? 'Internal server error' });
   }
 };
 

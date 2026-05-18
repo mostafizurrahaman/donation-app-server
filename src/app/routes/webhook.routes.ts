@@ -25,6 +25,6 @@ router.post(
   }),
 );
 
-// router.post('/revenuecat', asyncHandler(RevenueCatController.handleWebhook));
+router.post('/revenuecat', asyncHandler(RevenueCatController.handleWebhook));
 
 export default router;
