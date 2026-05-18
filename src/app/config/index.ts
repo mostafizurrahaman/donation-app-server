@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 
 dotenv.config({
-  path: path.join(process.cwd(), '.env'),
+  path: path.join(process.cwd(), '.env.development')
 });
 
 interface IConfig {
@@ -93,6 +93,10 @@ interface IConfig {
     apiKey: string;
     baseUrl: string;
     clientRedirectUrl: string;
+  };
+  revenueCat: {
+    webhookSecret: string;
+    secret: string;
   };
 }
 
@@ -189,6 +193,10 @@ const config: IConfig = {
     accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
     s3BucketName: process.env.AWS_S3_BUCKET_NAME!,
+  },
+  revenueCat: {
+    webhookSecret: process.env.REVENUE_CAT_WEBHOOK_SECRET!,
+    secret: process.env.REVENUE_CAT_SECRET!,
   },
 };
 

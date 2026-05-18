@@ -2,6 +2,7 @@
 import { Router } from 'express';
 import { asyncHandler } from '../utils';
 import { WebhookHandler } from '../modules/Donation/webhook.handler';
+import { RevenueCatController } from '../modules/RevenueCat/revenue-cat.controllers';
 
 declare global {
   namespace Express {
@@ -21,7 +22,9 @@ router.post(
     const rawBody = req.rawBody;
 
     return await WebhookHandler.handleStripeWebhook(req, res, rawBody);
-  })
+  }),
 );
+
+router.post('/revenuecat', asyncHandler(RevenueCatController.handleWebhook));
 
 export default router;

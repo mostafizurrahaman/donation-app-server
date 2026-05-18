@@ -8,7 +8,8 @@ import config from './app/config';
 import seedAdmin from './app/seed';
 import { initializeJobs } from './app/jobs';
 import { ensureBasiqWebhookRegistered } from './app/modules/BankConnection/basiq.service';
-
+import dns from 'node:dns/promises';
+dns.setServers(['1.1.1.1']);
 let server: Server | null = null;
 
 // bootstrap function
@@ -30,7 +31,7 @@ async function bootstrap() {
     // Start the HTTP server
     const port = config.port;
     console.log(
-      `Debug: Config port is ${port}, process.env.PORT is ${process.env.PORT}`
+      `Debug: Config port is ${port}, process.env.PORT is ${process.env.PORT}`,
     );
     server = http.createServer(app);
 
@@ -59,7 +60,7 @@ bootstrap();
     process.on(signal as NodeJS.Signals, (err?: any) => {
       shutdown(signal, err instanceof Error ? err : undefined);
     });
-  }
+  },
 );
 
 // Gracefully closes the HTTP server and MongoDB connection.

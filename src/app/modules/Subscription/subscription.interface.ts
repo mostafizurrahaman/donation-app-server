@@ -6,6 +6,11 @@ export interface ISubscription {
   stripeSubscriptionId?: string;
   stripeCustomerId?: string;
   stripePriceId?: string;
+
+  // Revenue Cat fields:
+  revenueCatAppUserId?: string;
+  revenueCatEntitlementId?: string;
+
   planType: TPlanType;
   status: TSubscriptionStatus;
   trialEndsAt?: Date;
