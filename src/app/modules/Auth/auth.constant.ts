@@ -27,5 +27,11 @@ export const AUTH_STATUS = {
 export type TAuthStatus = (typeof AUTH_STATUS)[keyof typeof AUTH_STATUS];
 export const authStatusValues = Object.values(AUTH_STATUS) as [
   string,
-  ...string[]
+  ...string[],
 ];
+
+export const RoleModelList = {
+  ORGANIZATION: 'Organization',
+  BUSINESS: 'Business',
+  CLIENT: 'Client',
+};

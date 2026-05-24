@@ -27,13 +27,16 @@ export interface IAuth extends Document {
   deactivationReason: string;
   deactivatedAt: Date;
 
+  firebaseUid?: string;
+  authProviders: string[];
+
   createdAt: Date;
   updatedAt: Date;
 
   // Instance methods
   isPasswordMatched(plainTextPassword: string): Promise<boolean>;
   isJWTIssuedBeforePasswordChanged(
-    jwtIssuedTimestamp: number | undefined
+    jwtIssuedTimestamp: number | undefined,
   ): boolean;
   ensureActiveStatus(): void;
 }

@@ -255,7 +255,7 @@ const organizationSignupWithProfile = asyncHandler(async (req, res) => {
 const updateFcmToken = asyncHandler(async (req, res) => {
   const { fcmToken, deviceType } = req.body;
 
-  const result = await AuthService.updateFcmToken(
+  await AuthService.updateFcmToken(
     req.user?._id?.toString(),
     fcmToken,
     deviceType,
@@ -413,6 +413,25 @@ const deleteUserAccount = asyncHandler(async (req, res) => {
 </html>`);
 });
 
+const socialLogin = asyncHandler(async (req, res) => {
+  const result = await AuthService.socialLoginIntoDB(req.body);
+
+  res.cookie('refreshToken', result.refreshToken, {
+    httpOnly: true,
+    secure: false,
+    sameSite: 'none',
+    maxAge: 365 * 60 * 60 * 24 * 1000,
+  });
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    message: result.isNewUser
+      ? 'Account created successfully!'
+      : 'Signin successful!',
+    data: result,
+  });
+});
+
 export const AuthController = {
   createAuth,
   sendSignupOtpAgain,
@@ -441,5 +460,6 @@ export const AuthController = {
   guestRemove,
   signInAsDonor,
   signInAsBusiness,
-  deleteUserAccount
+  deleteUserAccount,
+  socialLogin,
 };

@@ -1,9 +1,9 @@
 {
   "name": "crescent_change",
   "author": {
-    "name": "Khaled Siddique",
-    "email": "khaledssbd@gmail.com",
-    "url": "https://khaled-siddique.vercel.app"
+    "name": "Mostafizur Rahaman",
+    "email": "mostafizurrahaman0401@gmail.com",
+    "url": "https://mostafizur-rahaman-portfolio.web.app/"
   },
   "description": "A fast and lightweight donation based point earning and e-commerce discount based platform built with MongoDB, NodeJS, ExpressJS and Flutter.",
   "keywords": [
@@ -30,7 +30,6 @@
   "homepage": "https://github.com/sparktechagency/crecent-change-apis#readme",
   "version": "1.0.0",
   "scripts": {
-    
     "start": "node dist/server.js",
     "dev": "ts-node-dev --respawn --transpile-only --poll --clear --exit-child src/server.ts",
     "build": "tsc",

@@ -90,8 +90,17 @@ const authSchema = new Schema<IAuth, IAuthModel>(
       required: true,
       enum: authStatusValues,
     },
+    firebaseUid: {
+      type: String,
+      sparse: true,
+      unique: true,
+    },
+    authProviders: {
+      type: [String],
+      default: ['local'],
+    },
   },
-  { timestamps: true, versionKey: false }
+  { timestamps: true, versionKey: false },
 );
 
 // Custom hooks/methods
@@ -101,13 +110,13 @@ authSchema.pre('save', async function (next) {
   if (this.isNew || this.isModified('password')) {
     if (!this.password) {
       return next(
-        new AppError(httpStatus.BAD_REQUEST, 'Password is required!')
+        new AppError(httpStatus.BAD_REQUEST, 'Password is required!'),
       );
     }
 
     this.password = await bcrypt.hash(
       this.password,
-      Number(config.bcrypt.saltRounds)
+      Number(config.bcrypt.saltRounds),
     );
   }
   next();
@@ -153,21 +162,21 @@ authSchema.pre('aggregate', function (next) {
 
 // isUserExistsByEmail
 authSchema.statics.isUserExistsByEmail = async function (
-  email: string
+  email: string,
 ): Promise<IAuth | null> {
   return await Auth.findOne({ email }).select('+password');
 };
 
 // isPasswordMatched
 authSchema.methods.isPasswordMatched = async function (
-  plainTextPassword: string
+  plainTextPassword: string,
 ): Promise<boolean> {
   return await bcrypt.compare(plainTextPassword, this.password);
 };
 
 // isJWTIssuedBeforePasswordChanged
 authSchema.methods.isJWTIssuedBeforePasswordChanged = function (
-  jwtIssuedTimestamp: number
+  jwtIssuedTimestamp: number,
 ): boolean {
   const passwordChangedTime = new Date(this.passwordChangedAt).getTime() / 1000;
   return passwordChangedTime > jwtIssuedTimestamp;
@@ -177,7 +186,7 @@ authSchema.methods.ensureActiveStatus = function (this: IAuth) {
   if (this.status === AUTH_STATUS.PENDING) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      'This account is not verified yet!'
+      'This account is not verified yet!',
     );
   }
   if (this.status === AUTH_STATUS.SUSPENDED) {

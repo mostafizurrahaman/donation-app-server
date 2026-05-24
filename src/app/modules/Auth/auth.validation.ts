@@ -1,3 +1,4 @@
+/* eslint-disable no-useless-escape */
 import { z } from 'zod';
 import { roleValues, ROLE } from './auth.constant';
 
@@ -624,11 +625,29 @@ const verify2FALoginSchema = z.object({
     token: z.string().min(6).max(6),
   }),
 });
+
 const disabled2FASchema = z.object({
   body: z.object({
     token: z.string().min(6).max(6),
   }),
 });
+
+const socialLoginSchema = z.object({
+  body: z.object({
+    firebaseIdToken: z.string({
+      error: 'Firebase Id token is required!',
+    }),
+    role: z
+      .enum(['BUSINESS', 'ORGANIZATION', 'CLIENT'], {
+        error: 'Role is required!',
+      })
+      .refine((val) => ['BUSINESS', 'ORGANIZATION', 'CLIENT'].includes(val), {
+        message: `Role must be one of: ${['BUSINESS', 'ORGANIZATION', 'CLIENT'].join(', ')}!`,
+      }),
+  }),
+});
+
+export type TSocialLoginPayload = z.infer<typeof socialLoginSchema.shape.body>;
 
 export type TProfilePayload = z.infer<typeof createProfileSchema.shape.body>;
 
@@ -654,4 +673,5 @@ export const AuthValidation = {
   verifyAndEnable2FASchema,
   verify2FALoginSchema,
   disabled2FASchema,
+  socialLoginSchema,
 };

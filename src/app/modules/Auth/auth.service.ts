@@ -1,7 +1,9 @@
+/* eslint-disable @typescript-eslint/no-extra-non-null-assertion */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import fs from 'fs';
 import httpStatus from 'http-status';
-import mongoose, { startSession } from 'mongoose';
+import mongoose, { model, startSession } from 'mongoose';
 import config from '../../config';
 
 import {
@@ -16,9 +18,18 @@ import Business from '../Business/business.model';
 import Organization from '../Organization/organization.model';
 import Client from '../Client/client.model';
 import { IAuth } from './auth.interface';
-import { defaultUserImage, ROLE, AUTH_STATUS } from './auth.constant';
+import {
+  defaultUserImage,
+  ROLE,
+  AUTH_STATUS,
+  RoleModelList,
+} from './auth.constant';
 import Auth from './auth.model';
-import { AuthValidation, TProfilePayload } from './auth.validation';
+import {
+  AuthValidation,
+  TProfilePayload,
+  TSocialLoginPayload,
+} from './auth.validation';
 import { updateProfileImage } from './auth.utils';
 import z from 'zod';
 import jwt, { JwtPayload, SignOptions } from 'jsonwebtoken';
@@ -37,6 +48,8 @@ import {
 import { Subscription } from '../Subscription/subscription.model';
 import { SubscriptionHistory } from '../subscriptionHistory/subscriptionHistory.model';
 import { SubscriptionService } from '../Subscription/subscription.service';
+import firebaseAdmin from '../../lib/firebase';
+import { DecodedIdToken } from 'firebase-admin/auth';
 const OTP_EXPIRY_MINUTES =
   Number.parseInt(config.jwt.otpSecretExpiresIn as string, 10) || 5;
 
@@ -1355,6 +1368,7 @@ const updateAuthDataIntoDB = async (
     throw new AppError(httpStatus.BAD_REQUEST, 'This account is not verified!');
   }
 
+  // eslint-disable-next-line prefer-const
   let name: string = updatedProfile.name || 'User';
   let image: string = defaultUserImage;
 
@@ -2004,7 +2018,7 @@ export const guestRemove = async (guestId: string) => {
       isGuest: true,
     }).session(session);
     if (!guestAuth) {
-      throw new Error('Guest user not found');
+      throw new Error('Guest user not found!');
     }
 
     // Delete related Client document
@@ -2019,7 +2033,8 @@ export const guestRemove = async (guestId: string) => {
     session.endSession();
 
     return guest;
-  } catch (error) {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  } catch (error: any) {
     await session.abortTransaction();
     session.endSession();
     throw new AppError(
@@ -2301,6 +2316,142 @@ const getAccessToken = async (refreshToken: string) => {
   };
 };
 
+// auth.service.ts এ যোগ করো
+const socialLoginIntoDB = async ({
+  firebaseIdToken,
+  role,
+}: TSocialLoginPayload) => {
+  // 1. Firebase token verify
+  let decodedToken: DecodedIdToken;
+  try {
+    decodedToken = await firebaseAdmin.auth().verifyIdToken(firebaseIdToken);
+    console.log({
+      firebaseIdToken,
+      role,
+      decodedToken,
+    });
+  } catch {
+    throw new AppError(
+      httpStatus.UNAUTHORIZED,
+      'Invalid or expired Firebase token!',
+    );
+  }
+
+  const {
+    uid,
+    email: rawEmail,
+    firebase,
+    // phone_number,
+    // picture,
+  } = decodedToken;
+  const provider = firebase.sign_in_provider; // 'google.com' or 'apple.com'
+
+  if (!rawEmail) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      'Email not available from provider!',
+    );
+  }
+
+  const email = rawEmail.toLowerCase();
+  const session = await startSession();
+  session.startTransaction();
+
+  try {
+    // 2. Existing user check
+    const existingUser = await Auth.findOne({ email }).session(session);
+
+    if (existingUser) {
+      existingUser.ensureActiveStatus();
+
+      const profileModel = model(
+        RoleModelList?.[
+          existingUser.role as 'CLIENT' | 'ORGANIZATION' | 'BUSINESS'
+        ],
+      );
+      const profileData = await profileModel.findOne({
+        auth: existingUser._id,
+      });
+
+      // Provider linking
+      if (!existingUser.authProviders.includes(provider)) {
+        existingUser.authProviders.push(provider);
+        existingUser.firebaseUid = uid;
+        await existingUser.save({ session });
+      }
+
+      await session.commitTransaction();
+      await session.endSession();
+
+      const accessToken = createAccessToken({
+        id: existingUser._id.toString(),
+        name: profileData?.name || '',
+        image: profileData?.image || '',
+        email: existingUser.email,
+        role: existingUser.role,
+        isProfile: existingUser.isProfile,
+        isActive: existingUser.isActive,
+        status: existingUser.status,
+      });
+
+      return {
+        accessToken,
+        refreshToken: createRefreshToken({ email: existingUser.email }),
+        isNewUser: false,
+        requiresProfile: !existingUser.isProfile,
+      };
+    }
+
+    // 3. Get the role:
+    const newRole = role ?? ROLE.CLIENT;
+
+    const [newAuth] = await Auth.create(
+      [
+        {
+          email,
+          role: newRole,
+          firebaseUid: uid,
+          authProviders: [provider],
+          isVerifiedByOTP: true, // social login = auto verified
+          isProfile: false,
+          isActive: true,
+          isDeleted: false,
+          status: AUTH_STATUS.VERIFIED,
+          otp: '000000', // schema required, dummy value
+          otpExpiry: new Date(Date.now() + 60_000),
+        },
+      ],
+      { session },
+    );
+
+    await session.commitTransaction();
+    await session.endSession();
+
+    // Partial token দাও — frontend profile setup page এ নিয়ে যাবে
+    const accessToken = createAccessToken({
+      id: newAuth._id.toString(),
+      name: 'User',
+      image: defaultUserImage,
+      email: newAuth.email,
+      role: newAuth.role,
+      isProfile: false,
+      isActive: true,
+      status: AUTH_STATUS.VERIFIED,
+    });
+
+    return {
+      accessToken,
+      refreshToken: createRefreshToken({ email: newAuth.email }),
+      isNewUser: true,
+      requiresProfile: true,
+    };
+  } catch (error: any) {
+    await session.abortTransaction();
+    await session.endSession();
+    throw error instanceof AppError ? error : new AppError(500, error.message);
+  }
+};
+
 export const AuthService = {
   createAuthIntoDB,
   sendSignupOtpAgain,
@@ -2329,4 +2480,6 @@ export const AuthService = {
   guestRemove,
   signInAsDonor,
   signInAsBusiness,
+  getAccessToken,
+  socialLoginIntoDB,
 };
