@@ -2321,6 +2321,10 @@ const socialLoginIntoDB = async ({
   firebaseIdToken,
   role,
 }: TSocialLoginPayload) => {
+  console.log({
+    firebaseIdToken,
+    role,
+  });
   // 1. Firebase token verify
   let decodedToken: DecodedIdToken;
   try {
