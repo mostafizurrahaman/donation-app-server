@@ -2408,7 +2408,7 @@ const socialLoginIntoDB = async ({
     }
 
     // 3. Get the role:
-    const newRole = role ?? ROLE.CLIENT;
+    const newRole = role || ROLE.CLIENT;
 
     const [newAuth] = await Auth.create(
       [
