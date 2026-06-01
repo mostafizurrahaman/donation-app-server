@@ -2334,7 +2334,8 @@ const socialLoginIntoDB = async ({
       role,
       decodedToken,
     });
-  } catch {
+  } catch (err) {
+    console.log(err);
     throw new AppError(
       httpStatus.UNAUTHORIZED,
       'Invalid or expired Firebase token!',
