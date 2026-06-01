@@ -2367,6 +2367,13 @@ const socialLoginIntoDB = async ({
     const existingUser = await Auth.findOne({ email }).session(session);
 
     if (existingUser) {
+      if (existingUser?.role !== role) {
+        throw new AppError(
+          httpStatus.BAD_REQUEST,
+          'You have not enough premission to access!',
+        );
+      }
+
       existingUser.ensureActiveStatus();
 
       const profileModel = model(
