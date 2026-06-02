@@ -2441,6 +2441,11 @@ const socialLoginIntoDB = async ({
           name: displayName,
         },
       },
+      {
+        new: true,
+        upsert: true,
+        session: session,
+      },
     );
 
     if (ROLE.BUSINESS === newAuth.role) {
