@@ -2458,6 +2458,7 @@ const socialLoginIntoDB = async ({
       requiresProfile: true,
     };
   } catch (error: any) {
+    console.log(error);
     await session.abortTransaction();
     await session.endSession();
     throw error instanceof AppError ? error : new AppError(500, error.message);
