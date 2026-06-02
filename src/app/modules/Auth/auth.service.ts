@@ -2417,7 +2417,7 @@ const socialLoginIntoDB = async ({
           firebaseUid: uid,
           authProviders: [provider],
           isVerifiedByOTP: true, // social login = auto verified
-          isProfile: false,
+          isProfile: true,
           isActive: true,
           isDeleted: false,
           status: AUTH_STATUS.VERIFIED,
