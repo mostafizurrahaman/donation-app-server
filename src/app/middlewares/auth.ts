@@ -18,7 +18,7 @@ const auth = (...requiredRoles: TRole[]) => {
     // checking if the given token is valid
     const decoded = verifyToken(
       token,
-      config.jwt.accessTokenSecret!
+      config.jwt.accessTokenSecret!,
     ) as JwtPayload;
 
     const { id, iat } = decoded;
@@ -51,15 +51,21 @@ const auth = (...requiredRoles: TRole[]) => {
       if (!user.isVerifiedByOTP) {
         throw new AppError(
           httpStatus.UNAUTHORIZED,
-          'Your account is not verified!'
+          'Your account is not verified!',
         );
       }
     } else if (user.role === ROLE.ORGANIZATION || user.role === ROLE.BUSINESS) {
       // ORGANIZATION and BUSINESS need admin activation
-      if (!user.isProfile || !user.isActive) {
+      // if (!user.isProfile || !user.isActive) {
+      //   throw new AppError(
+      //     httpStatus.BAD_REQUEST,
+      //     'Your profile is not activated by admin yet!'
+      //   );
+      // }
+      if (!user.isActive) {
         throw new AppError(
           httpStatus.BAD_REQUEST,
-          'Your profile is not activated by admin yet!'
+          'Your profile is not activated by admin yet!',
         );
       }
     } else if (user.role === ROLE.ADMIN) {
@@ -67,7 +73,7 @@ const auth = (...requiredRoles: TRole[]) => {
       if (!user.isActive) {
         throw new AppError(
           httpStatus.UNAUTHORIZED,
-          'Your admin account is not active!'
+          'Your admin account is not active!',
         );
       }
     }
@@ -76,7 +82,7 @@ const auth = (...requiredRoles: TRole[]) => {
     if (requiredRoles.length && !requiredRoles.includes(user.role)) {
       throw new AppError(
         httpStatus.UNAUTHORIZED,
-        'You have no access to this route, Forbidden!'
+        'You have no access to this route, Forbidden!',
       );
     }
 
