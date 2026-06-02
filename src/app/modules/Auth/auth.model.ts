@@ -52,10 +52,7 @@ const authSchema = new Schema<IAuth, IAuthModel>(
       default: false,
     },
 
-    isSocialLogin: {
-      type: Boolean,
-      default: false,
-    },
+   
 
     twoFactorSecret: {
       type: String,
@@ -112,16 +109,12 @@ const authSchema = new Schema<IAuth, IAuthModel>(
 
 // Hash password before saving
 authSchema.pre('save', async function (next) {
-  if (
-    this.isNew ||
-    this.isModified('password') ||
-    this.isSocialLogin !== true
-  ) {
-    if (!this.password) {
-      return next(
-        new AppError(httpStatus.BAD_REQUEST, 'Password is required!'),
-      );
-    }
+  if (this.isNew || this.isModified('password')) {
+    // if (!this.password ) {
+    //   return next(
+    //     new AppError(httpStatus.BAD_REQUEST, 'Password is required!'),
+    //   );
+    // }
 
     this.password = await bcrypt.hash(
       this.password,
