@@ -17,15 +17,15 @@ const clientSchema = new Schema<IClient>(
     },
     address: {
       type: String,
-      required: true,
+      required: false,
     },
     state: {
       type: String,
-      required: true,
+      required: false,
     },
     postalCode: {
       type: String,
-      required: true,
+      required: false,
     },
 
     image: {
@@ -37,7 +37,7 @@ const clientSchema = new Schema<IClient>(
       type: String,
     },
   },
-  { timestamps: true, versionKey: false }
+  { timestamps: true, versionKey: false },
 );
 
 const Client = model<IClient>('Client', clientSchema);

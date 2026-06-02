@@ -56,13 +56,7 @@ const auth = (...requiredRoles: TRole[]) => {
       }
     } else if (user.role === ROLE.ORGANIZATION || user.role === ROLE.BUSINESS) {
       // ORGANIZATION and BUSINESS need admin activation
-      // if (!user.isProfile || !user.isActive) {
-      //   throw new AppError(
-      //     httpStatus.BAD_REQUEST,
-      //     'Your profile is not activated by admin yet!'
-      //   );
-      // }
-      if (!user.isActive) {
+      if (!user.isProfile || !user.isActive) {
         throw new AppError(
           httpStatus.BAD_REQUEST,
           'Your profile is not activated by admin yet!',

@@ -2320,20 +2320,12 @@ const getAccessToken = async (refreshToken: string) => {
 const socialLoginIntoDB = async ({
   firebaseIdToken,
   role,
+  displayName,
 }: TSocialLoginPayload) => {
-  console.log({
-    firebaseIdToken,
-    role,
-  });
   // 1. Firebase token verify
   let decodedToken: DecodedIdToken;
   try {
     decodedToken = await firebaseAdmin.auth().verifyIdToken(firebaseIdToken);
-    console.log({
-      firebaseIdToken,
-      role,
-      decodedToken,
-    });
   } catch (err) {
     console.log(err);
     throw new AppError(
@@ -2435,6 +2427,56 @@ const socialLoginIntoDB = async ({
       ],
       { session },
     );
+
+    const profileModel = model(
+      RoleModelList?.[newAuth.role as 'CLIENT' | 'ORGANIZATION' | 'BUSINESS'],
+    );
+
+    await profileModel.findOneAndUpdate(
+      {
+        auth: newAuth._id?.toString(),
+      },
+      {
+        $set: {
+          name: displayName,
+        },
+      },
+    );
+
+    if (ROLE.BUSINESS === newAuth.role) {
+      const trialEndDate = addMonths(new Date(), 6);
+
+      const [newSub] = await Subscription.create(
+        [
+          {
+            user: newAuth._id,
+            planType: PLAN_TYPE.MONTHLY,
+            status: SUBSCRIPTION_STATUS.TRIALING,
+            currentPeriodStart: new Date(),
+            currentPeriodEnd: trialEndDate,
+          },
+        ],
+        { session },
+      );
+
+      await SubscriptionHistory.create(
+        [
+          {
+            user: newAuth._id,
+            subscription: newSub._id,
+            stripeInvoiceId: `TRAIL-${new Date().getTime()}-${crypto
+              .randomBytes(6)
+              .toString('hex')}`,
+            amount: 0,
+            status: 'succeeded',
+            billingReason: 'trial_start',
+            planType: PLAN_TYPE.MONTHLY,
+            transactionDate: new Date(),
+          },
+        ],
+        { session },
+      );
+    }
 
     await session.commitTransaction();
     await session.endSession();

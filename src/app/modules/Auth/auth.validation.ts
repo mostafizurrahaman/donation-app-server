@@ -637,6 +637,7 @@ const socialLoginSchema = z.object({
     firebaseIdToken: z.string({
       error: 'Firebase Id token is required!',
     }),
+    displayName: z.string({ error: 'Display name is required!' }),
     role: z
       .enum(['BUSINESS', 'ORGANIZATION', 'CLIENT'], {
         error: 'Role is required!',
