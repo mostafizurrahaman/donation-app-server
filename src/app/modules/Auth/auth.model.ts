@@ -52,6 +52,11 @@ const authSchema = new Schema<IAuth, IAuthModel>(
       default: false,
     },
 
+    isSocialLogin: {
+      type: Boolean,
+      default: false,
+    },
+
     twoFactorSecret: {
       type: String,
       select: 0,
@@ -107,7 +112,7 @@ const authSchema = new Schema<IAuth, IAuthModel>(
 
 // Hash password before saving
 authSchema.pre('save', async function (next) {
-  if (this.isNew || this.isModified('password')) {
+  if (this.isNew || this.isModified('password') || !this.isSocialLogin) {
     if (!this.password) {
       return next(
         new AppError(httpStatus.BAD_REQUEST, 'Password is required!'),

@@ -2423,6 +2423,7 @@ const socialLoginIntoDB = async ({
           email,
           role: newRole,
           firebaseUid: uid,
+          isSocialLogin: true,
           authProviders: [provider],
           isVerifiedByOTP: true, // social login = auto verified
           isProfile: false,
