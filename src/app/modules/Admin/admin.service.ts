@@ -1312,7 +1312,7 @@ const deleteUserFromDb = async (currentUser: IAuth, userId: string) => {
     ADMIN: 2, 
   }
 
-  if (user?._id?.toString() !== currentUser?._id?.toString()){ 
+  if (user?._id?.toString() === currentUser?._id?.toString()){ 
     throw new AppError(httpStatus.BAD_REQUEST, "You can't delete yourself.")
   }
 
