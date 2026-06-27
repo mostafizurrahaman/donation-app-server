@@ -1,3 +1,4 @@
+import  httpStatus  from 'http-status';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import Auth from '../Auth/auth.model';
 import Donation from '../Donation/donation.model';
@@ -6,6 +7,8 @@ import { Connection, Model, PipelineStage, Types } from 'mongoose';
 import Cause from '../Causes/causes.model';
 import Business from '../Business/business.model';
 import Client from '../Client/client.model';
+import { IAuth } from '../Auth/auth.interface';
+import { AppError } from '../../utils';
 
 // Utility function to get date ranges based on filter type
 const getDateRange = (filter?: 'today' | 'week' | 'month') => {
@@ -1294,12 +1297,31 @@ const changeUserStatusInDb = async (
   return user;
 };
 
-const deleteUserFromDb = async (userId: string) => {
+const deleteUserFromDb = async (currentUser: IAuth, userId: string) => {
   // delete the user softly
   const user = await Auth.findById(userId);
   if (!user) {
     throw new Error('User not found');
   }
+
+  const rolesLevel = { 
+    CLIENT: 1, 
+    BUSINESS: 1, 
+    GUEST: 1, 
+    ORGANIZATION: 1, 
+    ADMIN: 2, 
+  }
+
+  if (user?._id?.toString() !== currentUser?._id?.toString()){ 
+    throw new AppError(httpStatus.BAD_REQUEST, "You can't delete yourself.")
+  }
+
+  if (rolesLevel[user?.role] >=  rolesLevel[currentUser?.role] ){ 
+    throw new AppError(httpStatus.NOT_FOUND, "You dont' have enough permission to delete this user.")
+  }
+
+
+
   user.isDeleted = true;
   await user.save();
   return user;

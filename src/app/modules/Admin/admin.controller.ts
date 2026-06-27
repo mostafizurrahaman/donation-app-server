@@ -142,7 +142,8 @@ const changeUserStatus = asyncHandler(async (req, res) => {
 });
 
 const deleteUser = asyncHandler(async (req, res) => {
-  const result = await AdminService.deleteUserFromDb(req.params.id);
+    const user = req.user;
+  const result = await AdminService.deleteUserFromDb(user, req.params.id);
   sendResponse(res, {
     statusCode: httpStatus.OK,
     message: 'User deleted successfully!',

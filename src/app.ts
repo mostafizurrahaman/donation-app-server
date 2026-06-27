@@ -28,6 +28,8 @@ app.use(
       'http://localhost:5174',
       'http://13.55.115.124:5173',
       'http://13.55.115.124:5174',
+      'http://10.0.2.2:3000',
+      'http://10.0.2.2:3001',
       'https://crescent-dashboard-eta.vercel.app',
       'https://org.crescentchange.com',
       'https://admin.crescentchange.com',
