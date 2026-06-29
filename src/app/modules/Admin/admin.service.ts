@@ -1207,7 +1207,28 @@ const getUsersReportFromDb = async (params?: UsersReportParams) => {
       },
     },
     {
+      $lookup: {
+        from: 'superadmins',
+        localField: '_id',
+        foreignField: 'auth',
+        as: 'superAdminProfile',
+      },
+    },
+    {
       $addFields: {
+        name: {
+          $ifNull: [
+                      { $arrayElemAt: ['$clientProfile.name', 0] },
+                      {
+                        $ifNull: [
+                          { $arrayElemAt: ['$organizationProfile.name', 0] },
+                          { $arrayElemAt: ['$businessProfile.name', 0] },
+                          { $arrayElemAt: ['$superAdminProfile.name', 0] },
+                        ],
+                      },
+                      null
+                    ],
+        },
         image: {
           $ifNull: [
             { $arrayElemAt: ['$clientProfile.image', 0] },
@@ -1215,8 +1236,10 @@ const getUsersReportFromDb = async (params?: UsersReportParams) => {
               $ifNull: [
                 { $arrayElemAt: ['$organizationProfile.image', 0] },
                 { $arrayElemAt: ['$businessProfile.image', 0] },
+                   { $arrayElemAt: ['$superAdminProfile.image', 0] },
               ],
             },
+            null
           ],
         },
       },
@@ -1395,7 +1418,28 @@ const getPendingUsersReportFromDb = async (
       },
     },
     {
+      $lookup: {
+        from: 'superadmins',
+        localField: '_id',
+        foreignField: 'auth',
+        as: 'superAdminProfile',
+      },
+    },
+    {
       $addFields: {
+        name: {
+          $ifNull: [
+                      { $arrayElemAt: ['$clientProfile.name', 0] },
+                      {
+                        $ifNull: [
+                          { $arrayElemAt: ['$organizationProfile.name', 0] },
+                          { $arrayElemAt: ['$businessProfile.name', 0] },
+                          { $arrayElemAt: ['$superAdminProfile.name', 0] },
+                        ],
+                      },
+                      null
+                    ],
+        },
         image: {
           $ifNull: [
             { $arrayElemAt: ['$clientProfile.image', 0] },
@@ -1403,8 +1447,10 @@ const getPendingUsersReportFromDb = async (
               $ifNull: [
                 { $arrayElemAt: ['$organizationProfile.image', 0] },
                 { $arrayElemAt: ['$businessProfile.image', 0] },
+                   { $arrayElemAt: ['$superAdminProfile.image', 0] },
               ],
             },
+            null
           ],
         },
       },

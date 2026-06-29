@@ -263,6 +263,10 @@ const signinIntoDB = async (payload: {
     '+password +twoFactorSecret',
   );
 
+  console.log({
+     payload
+  })
+
   if (!user) {
     throw new AppError(httpStatus.NOT_FOUND, 'User does not exist!');
   }
