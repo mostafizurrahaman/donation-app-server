@@ -32,6 +32,8 @@ app.use(
       'http://10.0.2.2:3001',
       'https://crescent-dashboard-eta.vercel.app',
       'https://org.crescentchange.com',
+      "http://10.10.28.83:5173",
+      "http://10.10.28.83:5174",
       'https://admin.crescentchange.com',
     ],
   })
