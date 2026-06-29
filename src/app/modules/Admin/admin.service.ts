@@ -1151,10 +1151,10 @@ const getUsersReportFromDb = async (params?: UsersReportParams) => {
   } = params || {};
 
   // Build filter for users
-  const userFilter: Record<string, unknown> = { roles: { $ne: 'ADMIN' }, status: { $ne: 'pending' } };
+  const userFilter: Record<string, unknown> = { role: { $ne: 'ADMIN' }, status: { $ne: 'pending' } };
 
   if (role) {
-    userFilter.roles = role.toUpperCase();
+    userFilter.role = role.toUpperCase();
   }
 
   userFilter.status = {
@@ -1278,7 +1278,7 @@ const getUsersReportFromDb = async (params?: UsersReportParams) => {
       _id: 1,
       name: 1,
       email: 1,
-      roles: 1,
+      role: 1,
       status: 1,
       isActive: 1,
       isVerifiedByOTP: 1,
@@ -1373,7 +1373,7 @@ const getPendingUsersReportFromDb = async (
   const pendingFilter: Record<string, unknown> = { status: 'pending' };
 
   if (role) {
-    pendingFilter.roles = role.toUpperCase();
+    pendingFilter.role = role.toUpperCase();
   }
 
   if (startDate || endDate) {
@@ -1489,7 +1489,7 @@ const getPendingUsersReportFromDb = async (
       _id: 1,
       name: 1,
       email: 1,
-      roles: 1,
+      role: 1,
       status: 1,
       isActive: 1,
       isVerifiedByOTP: 1,
