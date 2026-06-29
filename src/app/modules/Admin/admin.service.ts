@@ -154,7 +154,12 @@ const getAdminStatesFromDb = async (params?: AdminStatesParams) => {
   }
 
   // total active organizations (current snapshot)
-  const totalActiveOrganizations = await Organization.countDocuments({});
+  const totalActiveOrganizations = await Organization.countDocuments({
+    isActive: true, 
+    isDelete: { 
+      $ne: true
+    }
+  });
 
   // active organizations created in current vs previous period
   const currentPeriodActiveOrgs = await Organization.countDocuments({
