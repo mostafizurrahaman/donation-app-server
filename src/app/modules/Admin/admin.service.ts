@@ -154,7 +154,8 @@ const getAdminStatesFromDb = async (params?: AdminStatesParams) => {
   }
 
   // total active organizations (current snapshot)
-  const totalActiveOrganizations = await Organization.countDocuments({
+  const totalActiveOrganizations = await Auth.countDocuments({
+    role: "ORGANIZATION",
     isActive: true, 
     isDeleted: { 
       $ne: true
@@ -162,10 +163,20 @@ const getAdminStatesFromDb = async (params?: AdminStatesParams) => {
   });
 
   // active organizations created in current vs previous period
-  const currentPeriodActiveOrgs = await Organization.countDocuments({
+  const currentPeriodActiveOrgs = await Auth.countDocuments({
+     role: "ORGANIZATION",
+    isActive: true, 
+    isDeleted: { 
+      $ne: true
+    },
     createdAt: { $gte: currentPeriodStart, $lt: currentPeriodEnd },
   });
-  const previousPeriodActiveOrgs = await Organization.countDocuments({
+  const previousPeriodActiveOrgs = await Auth.countDocuments({
+    role: "ORGANIZATION",
+    isActive: true, 
+    isDeleted: { 
+      $ne: true
+    },
     createdAt: { $gte: previousPeriodStart, $lt: previousPeriodEnd },
   });
   const orgChangePct = calcPct(
