@@ -99,6 +99,12 @@ const authSchema = new Schema<IAuth, IAuthModel>(
       type: [String],
       default: ['local'],
     },
+    lastLogin: { 
+      type : Date,      
+    }, 
+    lastActivity: { 
+      type : Date,   
+    }
   },
   { timestamps: true, versionKey: false },
 );

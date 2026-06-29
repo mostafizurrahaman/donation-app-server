@@ -79,6 +79,10 @@ const auth = (...requiredRoles: TRole[]) => {
         'You have no access to this route, Forbidden!',
       );
     }
+    
+   user.lastActivity = new Date()
+   await user.save()
+
 
     req.user = user;
     next();

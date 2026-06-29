@@ -263,9 +263,6 @@ const signinIntoDB = async (payload: {
     '+password +twoFactorSecret',
   );
 
-  console.log({
-     payload
-  })
 
   if (!user) {
     throw new AppError(httpStatus.NOT_FOUND, 'User does not exist!');
@@ -324,6 +321,12 @@ const signinIntoDB = async (payload: {
       message: 'Please enter your 2FA code to continue',
     };
   }
+
+   user.lastLogin = new Date()
+   user.lastActivity = new Date()
+   await user.save()
+
+
 
   // Prepare user data for token generation
   const accessTokenPayload = {
@@ -2117,6 +2120,11 @@ const signInAsDonor = async (payload: {
     };
   }
 
+   user.lastLogin = new Date()
+   user.lastActivity = new Date()
+   await user.save()
+
+
   // Prepare user data for token generation
   const accessTokenPayload = {
     id: user._id.toString(),
@@ -2212,6 +2220,11 @@ const signInAsBusiness = async (payload: {
       message: 'Please enter your 2FA code to continue',
     };
   }
+
+    user.lastLogin = new Date()
+    user.lastActivity = new Date()
+   await user.save()
+
 
   // Prepare user data for token generation
   const accessTokenPayload = {
@@ -2385,6 +2398,8 @@ const socialLoginIntoDB = async ({
       if (!existingUser.authProviders.includes(provider)) {
         existingUser.authProviders.push(provider);
         existingUser.firebaseUid = uid;
+        existingUser.lastLogin = new Date()
+        existingUser.lastActivity = new Date()        
         await existingUser.save({ session });
       }
 
@@ -2427,6 +2442,8 @@ const socialLoginIntoDB = async ({
           status: AUTH_STATUS.VERIFIED,
           otp: '000000', // schema required, dummy value
           otpExpiry: new Date(Date.now() + 60_000),
+          lastLogin: new Date(),
+          lastActivity: new Date()
         },
       ],
       { session },

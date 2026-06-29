@@ -33,6 +33,9 @@ export interface IAuth extends Document {
   createdAt: Date;
   updatedAt: Date;
 
+  lastLogin?: Date, 
+  lastActivity?: Date, 
+
   // Instance methods
   isPasswordMatched(plainTextPassword: string): Promise<boolean>;
   isJWTIssuedBeforePasswordChanged(

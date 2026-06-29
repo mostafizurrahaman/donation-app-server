@@ -1536,34 +1536,17 @@ const getUsersEngagementReportFromDb = async (
 ) => {
   const { timeFilter, role } = params || {};
 
-  // Get date range based on filter
+  // Get current & previous date ranges
   const dateRange = getDateRange(timeFilter);
   const previousDateRange = getPreviousPeriodRange(timeFilter);
 
-  // Build base filter for the selected period
-  const baseFilter: Record<string, unknown> = {
+  // Common filter
+  const commonFilter: Record<string, unknown> = {
     status: 'verified',
     role: role ? role : { $ne: 'ADMIN' },
   };
 
-  if (dateRange) {
-    baseFilter.createdAt = {
-      $gte: dateRange.startDate,
-      $lte: dateRange.endDate,
-    };
-  }
-
-  // Build previous period filter
-  const previousFilter: Record<string, unknown> = {
-    status: 'verified',
-    role: role ? role : { $ne: 'ADMIN' },
-    createdAt: {
-      $gte: previousDateRange.startDate,
-      $lte: previousDateRange.endDate,
-    },
-  };
-
-  // Determine comparison label based on filter
+  // Comparison label
   const getComparisonLabel = () => {
     switch (timeFilter) {
       case 'today':
@@ -1573,26 +1556,39 @@ const getUsersEngagementReportFromDb = async (
       case 'month':
         return 'vs last month';
       default:
-        return 'vs last month';
+        return 'vs previous period';
     }
   };
+
   const comparisonLabel = getComparisonLabel();
 
-  // total active users (current period)
+  /**
+   * ============================
+   * Active Users
+   * ============================
+   */
   const totalActiveUsers = await Auth.countDocuments({
-    ...baseFilter,
-    isActive: true,
+    ...commonFilter,
+    ...(dateRange && {
+      lastActivity: {
+        $gte: dateRange.startDate,
+        $lte: dateRange.endDate,
+      },
+    }),
   });
 
-  // total active users (previous period for comparison)
   const previousActiveUsers = await Auth.countDocuments({
-    ...previousFilter,
-    isActive: true,
+    ...commonFilter,
+    lastActivity: {
+      $gte: previousDateRange.startDate,
+      $lte: previousDateRange.endDate,
+    },
   });
 
   const activeUsersChangePct = previousActiveUsers
     ? ((totalActiveUsers - previousActiveUsers) / previousActiveUsers) * 100
     : null;
+
   const activeUsersChangeText =
     activeUsersChangePct !== null
       ? `${activeUsersChangePct >= 0 ? '+' : ''}${activeUsersChangePct.toFixed(
@@ -1600,15 +1596,33 @@ const getUsersEngagementReportFromDb = async (
         )}% ${comparisonLabel}`
       : null;
 
-  // new users (current period)
-  const totalNewUsers = await Auth.countDocuments(baseFilter);
+  /**
+   * ============================
+   * New Sign-ups
+   * ============================
+   */
+  const totalNewUsers = await Auth.countDocuments({
+    ...commonFilter,
+    ...(dateRange && {
+      createdAt: {
+        $gte: dateRange.startDate,
+        $lte: dateRange.endDate,
+      },
+    }),
+  });
 
-  // new users (previous period for comparison)
-  const previousNewUsers = await Auth.countDocuments(previousFilter);
+  const previousNewUsers = await Auth.countDocuments({
+    ...commonFilter,
+    createdAt: {
+      $gte: previousDateRange.startDate,
+      $lte: previousDateRange.endDate,
+    },
+  });
 
   const newUsersChangePct = previousNewUsers
     ? ((totalNewUsers - previousNewUsers) / previousNewUsers) * 100
     : null;
+
   const newUsersChangeText =
     newUsersChangePct !== null
       ? `${newUsersChangePct >= 0 ? '+' : ''}${newUsersChangePct.toFixed(
@@ -1616,16 +1630,33 @@ const getUsersEngagementReportFromDb = async (
         )}% ${comparisonLabel}`
       : null;
 
-  // total returning users (current period)
+  /**
+   * ============================
+   * Returning Users
+   * ============================
+   */
   const totalReturningUsers = await Auth.countDocuments({
-    ...baseFilter,
-    isDeleted: true,
+    ...commonFilter,
+    ...(dateRange && {
+      createdAt: {
+        $lt: dateRange.startDate,
+      },
+      lastLogin: {
+        $gte: dateRange.startDate,
+        $lte: dateRange.endDate,
+      },
+    }),
   });
 
-  // returning users (previous period for comparison)
   const previousReturningUsers = await Auth.countDocuments({
-    ...previousFilter,
-    isDeleted: true,
+    ...commonFilter,
+    createdAt: {
+      $lt: previousDateRange.startDate,
+    },
+    lastLogin: {
+      $gte: previousDateRange.startDate,
+      $lte: previousDateRange.endDate,
+    },
   });
 
   const returningUsersChangePct = previousReturningUsers
@@ -1633,6 +1664,7 @@ const getUsersEngagementReportFromDb = async (
         previousReturningUsers) *
       100
     : null;
+
   const returningUsersChangeText =
     returningUsersChangePct !== null
       ? `${
@@ -1643,10 +1675,13 @@ const getUsersEngagementReportFromDb = async (
   return {
     timeFilter: timeFilter || 'all',
     role: role || 'all',
+
     totalActiveUsers,
     activeUsersChangeText,
+
     totalNewUsers,
     newUsersChangeText,
+
     totalReturningUsers,
     returningUsersChangeText,
   };
