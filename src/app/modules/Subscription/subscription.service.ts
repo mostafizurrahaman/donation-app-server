@@ -294,9 +294,25 @@ const getAdminSubscriptionAndPayments = async (query: Record<string, any>) => {
       },
     },
 
+  //   { 
+  //   $lookup: { 
+      
+  //   }
+  // }, 
+
     /** 6. Payment calculations */
     {
       $addFields: {
+        email: "$user.email",
+        name: {
+          $ifNull: [
+                      { $arrayElemAt: ['$organization.name', 0] },                     
+                        
+                      { $arrayElemAt: ['$business.name', 0] }                  ,
+                      null
+                    ],
+        },
+        role: "$user.role",
         latestPayment: { $arrayElemAt: ['$payments', 0] },
         totalPaid: {
           $sum: {
@@ -310,16 +326,16 @@ const getAdminSubscriptionAndPayments = async (query: Record<string, any>) => {
       },
     },
 
+
+
     /** 7. Search (after lookups) */
     ...(searchTerm
       ? [
           {
             $match: {
               $or: [
-                { 'user.name': { $regex: searchTerm, $options: 'i' } },
-                { 'user.email': { $regex: searchTerm, $options: 'i' } },
-                { 'organization.name': { $regex: searchTerm, $options: 'i' } },
-                { 'business.name': { $regex: searchTerm, $options: 'i' } },
+                { 'name': { $regex: searchTerm, $options: 'i' } },
+                { 'email': { $regex: searchTerm, $options: 'i' } },
               ],
             },
           },
@@ -329,13 +345,10 @@ const getAdminSubscriptionAndPayments = async (query: Record<string, any>) => {
     /** 8. Final projection */
     {
       $project: {
-        user: {
-          _id: 1,
+          _id: "$user._id",
           name: 1,
           email: 1,
           role: 1,
-        },
-
         organization: {
           $arrayElemAt: [
             {
@@ -419,7 +432,8 @@ const getAdminSubscriptionAndPayments = async (query: Record<string, any>) => {
   const result = await Subscription.aggregate(pipeline);
 
   return {
-    data: result[0]?.data || [],
+    // data: result[0]?.data || [],
+    data: result,
     meta: result[0]?.meta || { total: 0, page, limit },
   };
 };
