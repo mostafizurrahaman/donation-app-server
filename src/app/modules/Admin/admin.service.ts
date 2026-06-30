@@ -2515,9 +2515,15 @@ export const getDonorsFromDB = async (query: Record<string, unknown>) => {
         authId: '$authDetails._id',
         email: '$authDetails.email',
         isActive: '$authDetails.isActive',
+        isDeleted: "$authDetails.isDeleted",
         status: '$authDetails.status',
       },
     },
+    { 
+      $match: { 
+        isDeleted: false
+      }
+    }
   ];
 
   // Search filter
