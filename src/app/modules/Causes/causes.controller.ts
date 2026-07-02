@@ -6,6 +6,7 @@ import { AppError } from '../../utils';
 import { IAuth } from '../Auth/auth.interface';
 import Organization from '../Organization/organization.model';
 import { ROLE } from '../Auth/auth.constant';
+import { TGetAllCauses } from './causes.validation';
 
 // Create cause
 const createCause = asyncHandler(async (req, res) => {
@@ -40,20 +41,23 @@ const createCause = asyncHandler(async (req, res) => {
 });
 
 // Get all causes with filtering, searching, sorting and pagination
+// Get all causes with filtering, searching, sorting and pagination
 const getCauses = asyncHandler(async (req, res) => {
+  const query  = req.query as unknown as TGetAllCauses
   // Pass the entire query object to service - QueryBuilder will handle it
-  const result = await CauseService.getCausesFromDB(req.query);
+  const result = await CauseService.getCausesFromDB(query);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
     message: 'Causes retrieved successfully!',
-    data: result.causes,
-    meta: {
-      page: result.meta.page,
-      limit: result.meta.limit,
-      total: result.meta.total,
-      totalPage: result.meta.totalPage,
-    },
+    data: result.causesWithStats,
+    meta: result.meta
+    // meta: {
+    //   page: result.meta.page,
+    //   limit: result.meta.limit,
+    //   total: result.meta.total,
+    //   totalPage: result.meta.totalPage,
+    // },
   });
 });
 

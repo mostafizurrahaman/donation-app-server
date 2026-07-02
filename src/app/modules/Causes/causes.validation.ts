@@ -156,3 +156,5 @@ export const CauseValidation = {
   getCausesQuerySchema,
   updateCauseStatusSchema,
 };
+
+export type TGetAllCauses = z.infer<typeof getCausesQuerySchema.shape.query>

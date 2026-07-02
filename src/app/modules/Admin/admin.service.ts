@@ -1919,6 +1919,7 @@ const getOrganizationsReportFromDb = async (
               email: 1,
               status: 1,
               isActive: 1,
+              isDeleted: 1,
               createdAt: 1,
             },
           },
@@ -1938,7 +1939,15 @@ const getOrganizationsReportFromDb = async (
         authEmail: { $arrayElemAt: ['$authData.email', 0] },
         authStatus: { $arrayElemAt: ['$authData.status', 0] },
         authIsActive: { $arrayElemAt: ['$authData.isActive', 0] },
+        authIsDeleted: { $arrayElemAt: ['$authData.isDeleted', 0] },
       },
+    }, 
+    { 
+      $match: { 
+        authIsDeleted: { 
+          $ne: true
+        }
+      }
     }
   );
 
@@ -1949,6 +1958,7 @@ const getOrganizationsReportFromDb = async (
   }
   if (isActive !== undefined) {
     authFilter.authIsActive = isActive;
+
   }
   if (Object.keys(authFilter).length > 0) {
     searchPipeline.push({ $match: authFilter });

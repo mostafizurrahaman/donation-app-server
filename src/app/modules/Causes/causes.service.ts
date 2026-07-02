@@ -1,6 +1,7 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // src/app/modules/Causes/causes.service.ts
 import httpStatus from 'http-status';
-import { startSession, Types } from 'mongoose';
+import { PipelineStage, startSession, Types } from 'mongoose';
 import { AppError } from '../../utils';
 import QueryBuilder from '../../builders/QueryBuilder';
 import Cause from './causes.model';
@@ -13,6 +14,8 @@ import {
 import Organization from '../Organization/organization.model';
 import { CAUSE_CATEGORY_TYPE } from './causes.constant';
 import Donation from '../Donation/donation.model';
+import { TGetAllCauses } from './causes.validation';
+import { IAuth } from '../Auth/auth.interface';
 
 const parseMonthInput = (month: string, boundary: 'start' | 'end') => {
   const [yearStr, monthStr] = month.split('-');
@@ -252,25 +255,211 @@ const getCauseByIdFromDB = async (causeId: string) => {
 };
 
 // Get all causes with filters, search, pagination and sorting
-const getCausesFromDB = async (query: Record<string, unknown>) => {
-  const baseQuery = Cause.find().populate(
-    'organization',
-    'name registeredCharityName coverImage logoImage aboutUs serviceType isProfileVisible dateOfEstablishment'
-  );
+const getCausesFromDB = async (query: TGetAllCauses) => {
 
-  // Apply QueryBuilder for search, filter, sort, pagination
-  const causeQuery = new QueryBuilder<ICause>(baseQuery, query)
-    .search(causeSearchableFields)
-    .filter()
-    .sort()
-    .paginate()
-    .fields();
 
-  const result = await causeQuery.modelQuery;
-  const meta = await causeQuery.countTotal();
+  const {
+      searchTerm,
+      category,
+      status,
+      organization,
+      page,
+      limit,
+      sort,
+  } = query;
+
+  // 1. Handle the page and limit : 
+  const limitNum = parseInt(limit) || 10
+  const pageNum = parseInt(page) || 1
+  const skip = (pageNum -1) * limitNum
+
+  const pipeline : PipelineStage[] = []
+
+
+  // ? Handle organization
+ if (organization) {
+  const org = await Organization.findById(organization).populate({
+    path: "auth",
+    select: "_id isActive isDeleted",
+  });
+
+  const auth = org?.auth as unknown as IAuth | null;
+
+  if (!org || !auth || !auth.isActive || auth.isDeleted) {
+    throw new AppError(httpStatus.NOT_FOUND, "Organization not found!");
+  }
+
+   pipeline.push({ 
+      $match: {
+        organization: org?._id,
+      }
+   })
+ }
+
+//  ? Handle Status: 
+if (status){ 
+    pipeline.push({ 
+      $match: {
+        status
+      }
+   })
+}
+
+// ? Handle category: 
+if (status){ 
+    pipeline.push({ 
+      $match: {
+        category
+      }
+   })
+}
+
+// ? Handle organization: 
+pipeline.push({ 
+  $lookup: {
+    from: "organizations",
+    localField: "organization", 
+    foreignField: "_id", 
+    as: "organizationDetails",
+    pipeline: [
+          { 
+            $lookup: {
+              from: "auths",
+              localField: "auth", 
+              foreignField: "_id", 
+              as: "authDetails",
+              pipeline: [
+                { 
+                  $project: { 
+                    _id: 1, 
+                    email: 1, 
+                    isActive: 1, 
+                    isDeleted: 1,
+                  }
+                },              
+            ]
+         }
+      }, 
+      { 
+        $unwind: { 
+          path: '$authDetails', 
+          preserveNullAndEmptyArrays: true,
+
+        }
+      }
+    ],     
+  }
+})
+
+pipeline.push({ 
+  $unwind: { 
+    path: "$organizationDetails", 
+    preserveNullAndEmptyArrays: true
+  }
+})
+
+
+
+const searchableFields = ['name', "email", 'orgEmail', 'registeredCharityName', "serviceType", 'orgName', 'category' ]
+
+
+
+
+
+
+
+// ? Handle 
+pipeline.push({
+  $project:{ 
+    _id: "$_id", 
+    name: "$name", 
+    description: "$description",
+    category: "$category",
+    status: "$status",
+    orgName: "$organizationDetails.name", 
+    serviceType: "$organizationDetails.serviceType",
+    registeredCharityName:  "$organizationDetails.registeredCharityName", 
+    orgEmail: "$organizationDetails.authDetails.email",
+    isActive: "$organizationDetails.authDetails.isActive",
+    isDeleted: "$organizationDetails.authDetails.isDeleted", 
+    organization: {
+       _id: "$organizationDetails._id",
+       id: "$organizationDetails._id",
+       name: "$organizationDetails.name", 
+       serviceType: "$organizationDetails.serviceType",
+       coverImage: "$organizationDetails.coverImage", 
+       logoImage:  "$organizationDetails.logoImage", 
+       aboutUs:  "$organizationDetails.aboutUs", 
+       dateOfEstablishment:  "$organizationDetails.dateOfEstablishment", 
+       registeredCharityName:  "$organizationDetails.registeredCharityName", 
+       isProfileVisible:  "$organizationDetails.isProfileVisible", 
+    }, 
+    createdAt: "$createdAt", 
+    updatedAt: "$updatedAt", 
+  }
+   
+})
+
+
+pipeline.push({ 
+  $match: { 
+     isActive: true, 
+     isDeleted: { 
+      $ne: true
+     }
+  }
+})
+
+
+if ( searchTerm){ 
+  pipeline.push({ 
+     
+    $match: { 
+      $or: searchableFields.map((field) => { 
+        return {
+          [field]: { 
+            $regex: searchTerm, 
+            $options: 'i'
+          }
+        }
+      })
+
+    }
+  })
+}
+
+
+pipeline.push({ 
+  $facet: { 
+    data: [
+       {
+        $skip: skip
+       }, 
+       {
+         $limit: limitNum
+       } 
+    ], 
+    meta: [
+      { 
+        $count: "total"
+      }
+    ]
+  }
+})
+
+
+
+
+const causes = await Cause.aggregate(pipeline)
+
+// get data : 
+const result = causes?.[0].data
+const total = causes?.[0]?.meta?.[0]?.total
+const totalPages = Math.round(total / limitNum)
+ 
 
   // Get all cause IDs from result
-  const causeIds = result.map((cause) => cause._id);
+  const causeIds = result.map((cause : ICause) => cause._id);
 
   // Get donation statistics for all causes in one query
   const donationStats = await Donation.aggregate([
@@ -347,8 +536,8 @@ const getCausesFromDB = async (query: Record<string, unknown>) => {
 
 
   // Add stats and recent donors to each cause
-  const causesWithStats = result.map((cause) => {
-    const causeObject = cause.toObject();
+  const causesWithStats = result.map((cause: ICause) => {
+    const causeObject: any = cause;
     const stats = statsMap.get(cause._id.toString());
     const recentDonorList = recentDonorsMap.get(cause._id.toString());
 
@@ -360,7 +549,13 @@ const getCausesFromDB = async (query: Record<string, unknown>) => {
     return causeObject;
   });
 
-  return { causes: causesWithStats, meta };
+  return { causesWithStats, meta: { 
+     page: pageNum, 
+     limit: limitNum, 
+     total: total || 0,
+     totalPage: totalPages ?? 0
+
+  } }
 };
 
 // Get causes by organization with filters
