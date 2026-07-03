@@ -29,7 +29,7 @@ export const createTransaction = asyncHandler(
  */
 export const getUserBalance = asyncHandler(
   async (req: Request, res: Response): Promise<void> => {
-    const balance = await pointsServices.getUserBalance(req.params.userId);
+    const balance = await pointsServices.getUserBalance(req.params.userId as string);
 
     sendResponse(res, {
       statusCode: httpStatus.OK,
@@ -45,7 +45,7 @@ export const getUserBalance = asyncHandler(
 export const getUserTransactions = asyncHandler(
   async (req: Request, res: Response): Promise<void> => {
     const result = await pointsServices.getUserTransactions(
-      req.params.userId,
+      req.params.userId as string,
       req.query
     );
 
@@ -200,7 +200,7 @@ export const checkAffordability = asyncHandler(
     const { userId } = req.params;
     const { amount } = req.query;
 
-    const canAfford = await pointsServices.canUserAffordPoints(userId, Number(amount));
+    const canAfford = await pointsServices.canUserAffordPoints(userId as string, Number(amount));
 
     sendResponse(res, {
       statusCode: httpStatus.OK,
@@ -215,7 +215,7 @@ export const checkAffordability = asyncHandler(
  */
 export const getUserPointsSummary = asyncHandler(
   async (req: Request, res: Response): Promise<void> => {
-    const summary = await pointsServices.getUserPointsSummary(req.params.userId);
+    const summary = await pointsServices.getUserPointsSummary(req.params.userId as string);
 
     sendResponse(res, {
       statusCode: httpStatus.OK,

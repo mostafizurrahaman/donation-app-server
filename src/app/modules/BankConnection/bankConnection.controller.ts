@@ -60,7 +60,7 @@ const syncTransactions = catchAsync(async (req: Request, res: Response) => {
 
   // Validate that this bank connection belongs to the user
   const bankConnection = await bankConnectionService.getBankConnectionById(
-    bankConnectionId
+    bankConnectionId as string
   );
   if (!bankConnection || String(bankConnection.user) !== String(userId)) {
     return sendResponse(res, httpStatus.NOT_FOUND, {
@@ -71,7 +71,7 @@ const syncTransactions = catchAsync(async (req: Request, res: Response) => {
   }
 
   const syncResponse = await bankConnectionService.syncTransactions(
-    bankConnectionId,
+    bankConnectionId as string,
     req.body.cursor,
     req.body.count
   );
@@ -91,7 +91,7 @@ const getTransactions = catchAsync(async (req: Request, res: Response) => {
 
   // Validate that this bank connection belongs to the user
   const bankConnection = await bankConnectionService.getBankConnectionById(
-    bankConnectionId
+    bankConnectionId as string
   );
 
   if (!bankConnection || String(bankConnection.user) !== String(userId)) {
@@ -111,7 +111,7 @@ const getTransactions = catchAsync(async (req: Request, res: Response) => {
   }
 
   const transactions = await bankConnectionService.getTransactions(
-    bankConnectionId,
+    bankConnectionId as string,
     new Date(startDate as string),
     new Date(endDate as string)
   );
@@ -181,7 +181,7 @@ const updateBankConnection = catchAsync(async (req: Request, res: Response) => {
 
   // Validate that this bank connection belongs to the user
   const bankConnection = await bankConnectionService.getBankConnectionById(
-    bankConnectionId
+    bankConnectionId as string
   );
   if (!bankConnection || bankConnection.user !== userId) {
     return sendResponse(res, httpStatus.NOT_FOUND, {
@@ -192,7 +192,7 @@ const updateBankConnection = catchAsync(async (req: Request, res: Response) => {
   }
 
   const updatedConnection = await bankConnectionService.updateBankConnection(
-    bankConnectionId,
+    bankConnectionId as string,
     req.body
   );
 
@@ -210,7 +210,7 @@ const revokeConsent = catchAsync(async (req: Request, res: Response) => {
 
   // Validate that this bank connection belongs to the user
   const bankConnection = await bankConnectionService.getBankConnectionById(
-    bankConnectionId
+    bankConnectionId as string
   );
   if (!bankConnection || bankConnection.user !== userId) {
     return sendResponse(res, httpStatus.NOT_FOUND, {
@@ -221,7 +221,7 @@ const revokeConsent = catchAsync(async (req: Request, res: Response) => {
   }
 
   // Update the bank connection to mark as inactive
-  await bankConnectionService.updateBankConnection(bankConnectionId, {
+  await bankConnectionService.updateBankConnection(bankConnectionId as string, {
     isActive: false,
   });
 
@@ -241,7 +241,7 @@ const getStoredTransactions = catchAsync(
 
     // Validate that this bank connection belongs to the user
     const bankConnection = await bankConnectionService.getBankConnectionById(
-      bankConnectionId
+      bankConnectionId as string
     );
     if (!bankConnection || bankConnection.user !== userId) {
       return sendResponse(res, httpStatus.NOT_FOUND, {
@@ -252,7 +252,7 @@ const getStoredTransactions = catchAsync(
     }
 
     const transactions = await bankConnectionService.getStoredTransactions(
-      bankConnectionId,
+      bankConnectionId as string,
       startDate ? new Date(startDate as string) : undefined,
       endDate ? new Date(endDate as string) : undefined,
       status as string

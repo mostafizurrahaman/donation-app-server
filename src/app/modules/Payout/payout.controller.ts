@@ -4,7 +4,7 @@ import httpStatus from 'http-status';
 import { PayoutService } from './payout.service';
 import Organization from '../Organization/organization.model';
 import { ROLE } from '../Auth/auth.constant';
-import { Date } from 'mongoose';
+
 
 const requestPayout = asyncHandler(async (req: Request, res: Response) => {
   const userId = req.user?.id;
@@ -43,7 +43,7 @@ const cancelPayout = asyncHandler(async (req: Request, res: Response) => {
   const userId = req.user?.id;
   const { id } = req.params;
 
-  const result = await PayoutService.cancelPayout(id, userId);
+  const result = await PayoutService.cancelPayout(id as string, userId);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,

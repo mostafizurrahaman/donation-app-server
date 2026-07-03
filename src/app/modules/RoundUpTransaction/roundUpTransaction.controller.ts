@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { sendResponse } from '../../utils/ResponseHandler';
 import { catchAsync } from '../../errors';
 import { roundUpTransactionService } from './roundUpTransaction.service';
-import Types from 'mongoose';
+
 
 // Get transaction summary for a user
 const getTransactionSummary = catchAsync(
@@ -27,7 +27,7 @@ const getTransactions = catchAsync(async (req: Request, res: Response) => {
   const { page = 1, limit = 50 } = req.query;
 
   // Build filter from query params
-  const filter: any = {
+  const filter: Record<string,unknown> = {
     user: userId,
   };
 
@@ -88,7 +88,7 @@ const getTransactionDetails = catchAsync(
 
     // Get transaction with service helper
     const transaction = await roundUpTransactionService.getTransactionById(
-      transactionId,
+      transactionId as string,
       userId
     );
 

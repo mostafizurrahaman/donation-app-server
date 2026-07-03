@@ -62,7 +62,7 @@ const getExecutionHistory = asyncHandler(
     const hoursNum = hours ? parseInt(String(hours)) : undefined;
 
     const result = await CronJobsService.getExecutionHistory(
-      jobName,
+      jobName as string,
       limitNum,
       hoursNum
     );

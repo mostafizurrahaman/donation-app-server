@@ -63,7 +63,7 @@ const getScheduledDonationById = asyncHandler(
 
     const result = await ScheduledDonationService.getScheduledDonationById(
       userId,
-      id
+      id as string
     );
 
     sendResponse(res, {
@@ -87,7 +87,7 @@ const updateScheduledDonation = asyncHandler(
 
     const result = await ScheduledDonationService.updateScheduledDonation(
       userId,
-      id,
+      id as string,
       body
     );
 
@@ -111,7 +111,7 @@ const pauseScheduledDonation = asyncHandler(
 
     const result = await ScheduledDonationService.pauseScheduledDonation(
       userId,
-      id
+      id as string
     );
 
     sendResponse(res, {
@@ -134,7 +134,7 @@ const resumeScheduledDonation = asyncHandler(
 
     const result = await ScheduledDonationService.resumeScheduledDonation(
       userId,
-      id
+      id as string
     );
 
     sendResponse(res, {
@@ -155,7 +155,7 @@ const cancelScheduledDonation = asyncHandler(
 
     const { id } = req.params;
 
-    await ScheduledDonationService.cancelScheduledDonation(userId, id);
+    await ScheduledDonationService.cancelScheduledDonation(userId, id as string);
 
     sendResponse(res, {
       statusCode: httpStatus.OK,

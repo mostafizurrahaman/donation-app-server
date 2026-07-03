@@ -18,7 +18,7 @@ const claimReward = asyncHandler(
     }
 
     const result = await rewardRedemptionService.claimReward({
-      rewardId: req.params.id,
+      rewardId: req.params.id as string,
       userId,
     });
 
@@ -48,7 +48,7 @@ const cancelClaimedReward = asyncHandler(
     const { reason } = req.body;
 
     const result = await rewardRedemptionService.cancelClaimedReward({
-      redemptionId: req.params.redemptionId,
+      redemptionId: req.params.redemptionId as string,
       userId,
       reason,
     });
@@ -131,7 +131,7 @@ const getClaimedRewardById = asyncHandler(
     }
 
     const redemption = await rewardRedemptionService.getClaimedRewardById(
-      req.params.redemptionId,
+      req.params.redemptionId as string,
       client?._id?.toString()
     );
 

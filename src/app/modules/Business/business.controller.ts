@@ -43,7 +43,7 @@ const getBusinessProfileById = asyncHandler(async (req, res) => {
   }
 
   const result = await BusinessService.getBusinessProfileById(
-    businessId,
+    businessId as string,
     userId
   );
 
@@ -67,7 +67,7 @@ const increaseWebsiteCount = asyncHandler(async (req, res) => {
     throw new AppError(httpStatus.NOT_FOUND, 'BusinessId is missing!');
   }
 
-  const result = await BusinessService.increaseWebsiteCount(businessId, userId);
+  const result = await BusinessService.increaseWebsiteCount(businessId as string, userId);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,

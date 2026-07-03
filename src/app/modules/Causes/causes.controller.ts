@@ -64,7 +64,7 @@ const getCauses = asyncHandler(async (req, res) => {
 // Get cause by ID
 const getCauseById = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const result = await CauseService.getCauseByIdFromDB(id);
+  const result = await CauseService.getCauseByIdFromDB(id as string);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -77,7 +77,7 @@ const getCauseById = asyncHandler(async (req, res) => {
 const getCausesByOrganization = asyncHandler(async (req, res) => {
   const { organizationId } = req.params;
   const result = await CauseService.getCausesByOrganizationFromDB(
-    organizationId,
+    organizationId as string,
     req.query
   );
 
@@ -113,7 +113,7 @@ const getRaisedCausesByOrganization = asyncHandler(async (req, res) => {
   };
 
   const result = await CauseService.getRaisedCausesByOrganizationFromDB(
-    organizationId,
+    organizationId as string ,
     startMonth,
     endMonth,
     {
@@ -144,7 +144,7 @@ const updateCause = asyncHandler(async (req, res) => {
 
   // Check if user is authorized to update
   if (user.role === ROLE.ORGANIZATION) {
-    const cause = await CauseService.getCauseByIdFromDB(id);
+    const cause = await CauseService.getCauseByIdFromDB(id as string);
     const organization = await Organization.findOne({ auth: user._id });
 
     if (cause.organization?._id.toString() !== organization?._id.toString()) {
@@ -155,7 +155,7 @@ const updateCause = asyncHandler(async (req, res) => {
     }
   }
 
-  const result = await CauseService.updateCauseIntoDB(id, req.body);
+  const result = await CauseService.updateCauseIntoDB(id as string, req.body);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -171,7 +171,7 @@ const deleteCause = asyncHandler(async (req, res) => {
 
   // Check if user is authorized to delete
   if (user.role === ROLE.ORGANIZATION) {
-    const cause = await CauseService.getCauseByIdFromDB(id);
+    const cause = await CauseService.getCauseByIdFromDB(id as string);
     const organization = await Organization.findOne({ auth: user._id });
 
     if (cause.organization?._id.toString() !== organization?._id.toString()) {
@@ -182,7 +182,7 @@ const deleteCause = asyncHandler(async (req, res) => {
     }
   }
 
-  const result = await CauseService.deleteCauseFromDB(id);
+  const result = await CauseService.deleteCauseFromDB(id as string);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -207,7 +207,7 @@ const updateCauseStatus = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
 
-  const result = await CauseService.updateCauseStatusIntoDB(id, status);
+  const result = await CauseService.updateCauseStatusIntoDB(id as string, status);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,

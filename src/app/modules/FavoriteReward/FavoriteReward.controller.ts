@@ -19,7 +19,7 @@ const deleteFavoriteReward = asyncHandler(async (req, res) => {
   const userId = req.user?._id?.toString();
   const rewardId = req.params.rewardId;
 
-  const result = await favoriteRewardService.deleteFavorite(userId, rewardId);
+  const result = await favoriteRewardService.deleteFavorite(userId, rewardId as string);
 
   sendResponse(res, {
     data: result,

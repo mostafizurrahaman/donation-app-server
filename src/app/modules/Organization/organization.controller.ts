@@ -151,7 +151,7 @@ const getOrganizationDetails = asyncHandler(
   async (req: ExtendedRequest, res: Response) => {
     const organizationId = req.params.id;
     const result = await OrganizationService.getOrganizationDetailsById(
-      organizationId
+      organizationId as string
     );
 
     sendResponse(res, {

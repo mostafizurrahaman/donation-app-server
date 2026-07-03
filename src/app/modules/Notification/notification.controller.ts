@@ -19,7 +19,7 @@ const getNotifications = asyncHandler(async (req: Request, res: Response) => {
 
 const markAsSeen = asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params;
-  const data = await notificationService.markNotificationAsSeen(id);
+  const data = await notificationService.markNotificationAsSeen(id as string);
   sendResponse(res, {
     statusCode: httpStatus.OK,
     message: 'Notification seen successfully',

@@ -265,8 +265,8 @@ const getCausesFromDB = async (query: TGetAllCauses) => {
       organization,
       page,
       limit,
-      sort,
-  } = query;
+      // sort,
+  } = query as any;
 
   // 1. Handle the page and limit : 
   const limitNum = parseInt(limit) || 10

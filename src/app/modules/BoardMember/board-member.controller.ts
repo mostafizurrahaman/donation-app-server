@@ -34,7 +34,7 @@ const updateBoardMemberStatusById = asyncHandler(
 
     const result = await boardMemberService.updateBoardMemberStatusById(
       userId,
-      boareMemberId,
+      boareMemberId as string,
       req.body
     );
 

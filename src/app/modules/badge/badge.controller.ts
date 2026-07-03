@@ -18,7 +18,7 @@ const createBadge = asyncHandler(async (req: Request, res: Response) => {
 
 const updateBadge = asyncHandler(async (req: Request, res: Response) => {
   const files = req.files as Record<string, Express.Multer.File[]>;
-  const result = await badgeService.updateBadge(req.params.id, req.body, files);
+  const result = await badgeService.updateBadge(req.params.id as string, req.body, files);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -28,7 +28,7 @@ const updateBadge = asyncHandler(async (req: Request, res: Response) => {
 });
 
 const getBadgeById = asyncHandler(async (req: Request, res: Response) => {
-  const result = await badgeService.getBadgeById(req.params.id);
+  const result = await badgeService.getBadgeById(req.params.id as string);
   sendResponse(res, {
     statusCode: httpStatus.OK,
     message: 'Badge retrieved',
@@ -47,7 +47,7 @@ const getBadges = asyncHandler(async (req: Request, res: Response) => {
 });
 
 const deleteBadge = asyncHandler(async (req: Request, res: Response) => {
-  await badgeService.deleteBadge(req.params.id);
+  await badgeService.deleteBadge(req.params.id as string);
   sendResponse(res, {
     statusCode: httpStatus.OK,
     message: BADGE_MESSAGES.DELETED,
@@ -76,7 +76,7 @@ const getBadgeHistory = asyncHandler(
   async (req: ExtendedRequest, res: Response) => {
     const userId = req.user._id.toString();
     const { id } = req.params;
-    const result = await badgeService.getBadgeHistory(userId, id);
+    const result = await badgeService.getBadgeHistory(userId, id as string);
 
     sendResponse(res, {
       statusCode: httpStatus.OK,

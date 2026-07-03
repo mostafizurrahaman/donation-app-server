@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import httpStatus from 'http-status';
-import { asyncHandler, sendResponse, AppError } from '../../utils';
+import { asyncHandler, sendResponse } from '../../utils';
 
 import { RECEIPT_MESSAGES } from './receipt.constant';
 import { receiptServices } from './receipt.service';
@@ -26,7 +26,7 @@ export const generateReceipt = asyncHandler(
  */
 export const getReceiptById = asyncHandler(
   async (req: Request, res: Response) => {
-    const receipt = await receiptServices.getReceiptById(req.params.id);
+    const receipt = await receiptServices.getReceiptById(req.params.id as string);
 
     sendResponse(res, {
       statusCode: httpStatus.OK,
@@ -43,7 +43,7 @@ export const getReceiptById = asyncHandler(
 export const getReceiptsByDonor = asyncHandler(
   async (req: Request, res: Response) => {
     const result = await receiptServices.getReceiptsByDonor(
-      req.params.donorId,
+      req.params.donorId as string,
       req.query
     );
 
@@ -62,7 +62,7 @@ export const getReceiptsByDonor = asyncHandler(
 export const getReceiptsByOrganization = asyncHandler(
   async (req: Request, res: Response) => {
     const result = await receiptServices.getReceiptsByOrganization(
-      req.params.organizationId,
+      req.params.organizationId as string,
       req.query
     );
 
@@ -80,7 +80,7 @@ export const getReceiptsByOrganization = asyncHandler(
  */
 export const resendReceiptEmail = asyncHandler(
   async (req: Request, res: Response) => {
-    await receiptServices.resendReceiptEmail(req.params.id);
+    await receiptServices.resendReceiptEmail(req.params.id as string);
 
     sendResponse(res, {
       statusCode: httpStatus.OK,
@@ -112,13 +112,13 @@ export const resendReceiptEmail = asyncHandler(
  */
 export const downloadReceipt = asyncHandler(
   async (req: Request, res: Response) => {
-    const receipt = await receiptServices.getReceiptById(req.params.id);
+    const receipt = await receiptServices.getReceiptById(req.params.id as string);
 
     // Regenerate URL if expired
     let url = receipt.pdfUrl;
     if (!url || url.includes('Expires=')) {
       // Check if URL might be expired
-      url = await receiptServices.regenerateReceiptURL(req.params.id);
+      url = await receiptServices.regenerateReceiptURL(req.params.id as string);
     }
 
     sendResponse(res, {
@@ -148,7 +148,7 @@ export const downloadReceipt = asyncHandler(
  */
 export const regenerateReceiptURL = asyncHandler(
   async (req: Request, res: Response) => {
-    const url = await receiptServices.regenerateReceiptURL(req.params.id);
+    const url = await receiptServices.regenerateReceiptURL(req.params.id as string);
 
     sendResponse(res, {
       statusCode: httpStatus.OK,

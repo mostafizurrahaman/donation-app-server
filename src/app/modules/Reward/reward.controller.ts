@@ -65,7 +65,7 @@ const updateReward = asyncHandler(
     const codesFiles = files?.codesFiles;
 
     const reward = await rewardService.updateReward(
-      req.params.id,
+      req.params.id as string,
       req.body,
       userId,
       rewardImage,
@@ -96,7 +96,7 @@ const updateRewardImage = asyncHandler(
     }
 
     const reward = await rewardService.updateRewardImage(
-      req.params.id,
+      req.params.id as string,
       req.file
     );
 
@@ -113,7 +113,7 @@ const updateRewardImage = asyncHandler(
  */
 const getRewardById = asyncHandler(async (req: Request, res: Response) => {
   const userId = req.user._id?.toString();
-  const reward = await rewardService.getRewardById(req.params.id, userId);
+  const reward = await rewardService.getRewardById(req.params.id as string, userId);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -150,7 +150,7 @@ const toggleRewardStatus = asyncHandler(
     const { id } = req.params;
     const { isActive } = req.body;
 
-    const result = await rewardService.toggleRewardStatus(id, userId, isActive);
+    const result = await rewardService.toggleRewardStatus(id as string, userId, isActive);
 
     sendResponse(res, {
       statusCode: httpStatus.OK,
@@ -190,7 +190,7 @@ const getFeaturedRewards = asyncHandler(async (req: Request, res: Response) => {
 const getRewardsByBusiness = asyncHandler(
   async (req: Request, res: Response) => {
     const result = await rewardService.getRewardsByBusiness(
-      req.params.businessId,
+      req.params.businessId as string,
       req.query
     );
 
@@ -219,7 +219,7 @@ const deleteReward = asyncHandler(
       throw new AppError(httpStatus.UNAUTHORIZED, 'User not authenticated');
     }
 
-    const result = await rewardService.deleteReward(req.params.id, userId);
+    const result = await rewardService.deleteReward(req.params.id as string, userId);
 
     sendResponse(res, {
       statusCode: httpStatus.OK,
@@ -240,7 +240,7 @@ const deleteRewardImage = asyncHandler(
       throw new AppError(httpStatus.UNAUTHORIZED, 'User not authenticated');
     }
 
-    const result = await rewardService.deleteRewardImage(req.params.id, userId);
+    const result = await rewardService.deleteRewardImage(req.params.id as string, userId);
 
     sendResponse(res, {
       statusCode: httpStatus.OK,
@@ -255,7 +255,7 @@ const deleteRewardImage = asyncHandler(
  */
 const canDeleteReward = asyncHandler(
   async (req: ExtendedRequest, res: Response) => {
-    const result = await rewardService.canDeleteReward(req.params.id);
+    const result = await rewardService.canDeleteReward(req.params.id as string);
 
     sendResponse(res, {
       statusCode: httpStatus.OK,
@@ -275,7 +275,7 @@ const uploadCodes = asyncHandler(async (req: Request, res: Response) => {
     throw new AppError(httpStatus.BAD_REQUEST, 'No file(s) uploaded');
   }
 
-  const result = await rewardService.uploadCodesToReward(req.params.id, files);
+  const result = await rewardService.uploadCodesToReward(req.params.id as string, files);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -294,7 +294,7 @@ const uploadCodes = asyncHandler(async (req: Request, res: Response) => {
 const checkAvailability = asyncHandler(async (req: Request, res: Response) => {
   const userId = req.query.userId as string | undefined;
   const availability = await rewardService.checkAvailability(
-    req.params.id,
+    req.params.id as string,
     userId
   );
 
@@ -392,7 +392,7 @@ const getRewardDetailsForAdmin = asyncHandler(
   async (req: Request, res: Response) => {
     const rewardId = req.params.rewardId;
 
-    const result = await rewardService.getRewardDetailsForAdmin(rewardId);
+    const result = await rewardService.getRewardDetailsForAdmin(rewardId as string);
     sendResponse(res, {
       statusCode: httpStatus.OK,
       message: 'Reward details retrieved successfully',

@@ -1,53 +1,81 @@
 name: Crescent change api
 
 "on":
-    push:
-        branches: ["main"]
-    pull_request:
-        branches: ["main"]
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
 jobs:
-    # PRE BUILD:  Test Build before build inside actual machine
-    build-and-deploy:
-        runs-on: ubuntu-latest
-        steps:
-            - name: Checkout Code
-              uses: actions/checkout@v7
-            - name: Setup Node JS
-              uses: actions/setup-node@v6
-              with:
-                  node-version: "24.16.0"
-            - name: Install Dependencies
-              run: npm install  --frozen-lockfile
-            - name: Build Now
-              run: npm run build
-    # BUILD: Now Connect with SSH AND Build inside machain
-    deploy:
-        runs-on: ubuntu-latest
-        needs: build-and-deploy
-        steps:
-            - name: Checkout Code
-              uses: actions/checkout@v7
-            - name: Setup Node JS
-              uses: actions/setup-node@v6
-              with:
-                  node-version: "24.16.0"
-            - name: Install Dependencies
-              run: npm install  --frozen-lockfile
+  # PRE BUILD:  Test Build before build inside actual machine
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
+      - name: Setup Node JS
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24.16.0"
+      - name: Install Dependencies
+        run: npm install  --frozen-lockfile
+      - name: Build Now
+        run: npm run build
+  # BUILD: Now Connect with SSH AND Build inside machain
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build-and-deploy
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
+      - name: Setup Node JS
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24.16.0"
+      - name: Install Dependencies
+        run: npm ci
+      - name: Build the Code
+        run: npm run build
 
-            - name: Deploy to server via SSH
-              uses: appleboy/ssh-action@v1
-              env:
-                  SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-                  EC2_USER: ${{ secrets.EC2_USER }}
-                  EC2_HOST: ${{ secrets.EC2_HOST }}
-                  ENV_FILE: ${{ secrets.ENV_FILE }}
-              with:
-                  host: $SSH_PRIVATE_KEY
-                  username: $EC2_USER
-                  key: $EC2_HOST
-                  scripts: |
-                    cd ~/crecent-change-apis
-                    
+      - name: COPY FILE VIA SCP
+        uses: appleboy/ssh-action@v1
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          PROJECT_FOLDER: ${{ secrets.PROJECT_FOLDER }}
+        with:
+          envs: SSH_PRIVATE_KEY,EC2_USER,EC2_HOST,PROJECT_FOLDER
+          host: $EC2_HOST
+          username: $EC2_USER
+          key: $SSH_PRIVATE_KEY
+          source: "./*"
+          target: "~/$PROJECT_FOLDER"
+          rm: false
+          strip_components: 0
+          exclude: |
+            .git
+            .github
+            node_modules
 
+      - name: Deploy to server via SSH
+        uses: appleboy/ssh-action@v1
 
-             
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          ENV_FILE: ${{ secrets.ENV_FILE }}
+          PROJECT_FOLDER: ${{ secrets.PROJECT_FOLDER }}
+        with:
+          envs: SSH_PRIVATE_KEY,EC2_USER,EC2_HOST,ENV_FILE,PROJECT_FOLDER
+          host: $EC2_HOST
+          username: $EC2_USER
+          key: $SSH_PRIVATE_KEY
+          script: |
+            cd ~/$PROJECT_FOLDER
+
+            echo "$ENV_FILE" > .env
+
+            npm ci 
+
+            pm2 restart ecosystem.config.js

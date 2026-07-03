@@ -131,7 +131,7 @@ const getUsersReport = asyncHandler(async (req, res) => {
 
 const changeUserStatus = asyncHandler(async (req, res) => {
   const result = await AdminService.changeUserStatusInDb(
-    req.params.id,
+    req.params.id as string,
     req.body.status
   );
   sendResponse(res, {
@@ -143,7 +143,7 @@ const changeUserStatus = asyncHandler(async (req, res) => {
 
 const deleteUser = asyncHandler(async (req, res) => {
     const user = req.user;
-  const result = await AdminService.deleteUserFromDb(user, req.params.id);
+  const result = await AdminService.deleteUserFromDb(user, req.params.id as string);
   sendResponse(res, {
     statusCode: httpStatus.OK,
     message: 'User deleted successfully!',
@@ -346,7 +346,7 @@ const getBusinessesReport = asyncHandler(async (req, res) => {
 
 const updateAdminProfile = asyncHandler(async (req, res) => {
   const result = await AdminService.updateAdminProfileInDb(
-    req.params.id,
+    req.params.id as string,
     req.body
   );
   sendResponse(res, {

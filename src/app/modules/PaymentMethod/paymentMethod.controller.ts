@@ -59,7 +59,7 @@ const getPaymentMethodById = asyncHandler(async (req: ExtendedRequest, res: Resp
   const userId = req.user?._id.toString();
   const { id } = req.params;
 
-  const result = await PaymentMethodService.getPaymentMethodById(id, userId);
+  const result = await PaymentMethodService.getPaymentMethodById(id as string , userId);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -75,7 +75,7 @@ const setDefaultPaymentMethod = asyncHandler(
     const { id } = req.params;
 
     const result = await PaymentMethodService.setDefaultPaymentMethod(
-      id,
+      id as string,
       userId
     );
 
@@ -92,7 +92,7 @@ const deletePaymentMethod = asyncHandler(async (req: ExtendedRequest, res: Respo
   const userId = req.user?._id.toString();
   const { id } = req.params;
 
-  await PaymentMethodService.deletePaymentMethod(id, userId);
+  await PaymentMethodService.deletePaymentMethod(id as string, userId);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,

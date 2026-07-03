@@ -22,7 +22,7 @@ const revokeConsent = catchAsync(async (req: Request, res: Response) => {
   const userId = req.user._id?.toString();
   const { bankConnectionId } = req.params;
 
-  const result = await roundUpService.revokeConsent(userId, bankConnectionId);
+  const result = await roundUpService.revokeConsent(userId, bankConnectionId as string);
 
   return sendResponse(res, result.statusCode, {
     success: result.success,
@@ -38,7 +38,7 @@ const syncTransactions = catchAsync(async (req: Request, res: Response) => {
 
   const result = await roundUpService.syncTransactions(
     userId,
-    bankConnectionId,
+    bankConnectionId as string,
     payload
   );
 
@@ -53,7 +53,7 @@ const updateRoundUp = catchAsync(async (req: Request, res: Response) => {
   const userId = req.user._id?.toString();
   const { id } = req.params;
   
-  const result = await roundUpService.updateRoundUp(userId, id, req.body);
+  const result = await roundUpService.updateRoundUp(userId, id as string, req.body);
 
   return sendResponse(res, 200, {
     success: true,
@@ -66,7 +66,7 @@ const cancelRoundUp = catchAsync(async (req: Request, res: Response) => {
   const userId = req.user._id?.toString();
   const { id } = req.params;
   const { reason } = req.body;
-  const result = await roundUpService.cancelRoundUp(userId, id, reason);
+  const result = await roundUpService.cancelRoundUp(userId, id as string, reason);
 
   return sendResponse(res, 200, {
     success: true,
@@ -142,7 +142,7 @@ const getActiveRoundup = catchAsync(async (req: Request, res: Response) => {
 
   const result = await roundUpService.getActiveRoundup(
     userId?.toString(),
-    roundupId
+    roundupId as string
   );
 
   return sendResponse(res, httpStatus.OK, {

@@ -87,7 +87,7 @@ const getDonationById = asyncHandler(
     const { id } = req.params;
 
     // Call service layer
-    const donation = await DonationService.getDonationById(id);
+    const donation = await DonationService.getDonationById(id as string);
 
     // Check if donation has donor information
     if (!donation.donor) {
@@ -147,7 +147,7 @@ const getOrganizationDonations = asyncHandler(
 
     // Call service layer with full query object for QueryBuilder
     const result = await DonationService.getDonationsByOrganization(
-      organizationId,
+      organizationId as string,
       query
     );
 
@@ -196,7 +196,7 @@ const getOrganizationCauseStats = asyncHandler(
     const targetYear = year ? Number(year) : new Date().getUTCFullYear();
 
     const stats = await DonationService.getOrganizationCauseMonthlyStats(
-      organizationId,
+      organizationId as string,
       causeId,
       targetYear
     );
@@ -232,7 +232,7 @@ const getDonationFullStatus = asyncHandler(
     const { id } = req.params;
 
     // Call service layer
-    const result = await DonationService.getDonationFullStatus(id);
+    const result = await DonationService.getDonationFullStatus(id as string);
 
     // Verify donation and donor exist
     if (!result?.donation) {
@@ -297,7 +297,7 @@ const cancelDonation = asyncHandler(
     const { id } = req.params;
 
     // Call service layer
-    const donation = await DonationService.cancelDonation(id, userId);
+    const donation = await DonationService.cancelDonation(id as string, userId);
 
     // Send standardized response
     sendResponse(res, {
@@ -322,7 +322,7 @@ const refundDonation = asyncHandler(
     const { reason } = req.body;
 
     // Call service layer
-    const donation = await DonationService.refundDonation(id, userId, reason);
+    const donation = await DonationService.refundDonation(id as string, userId, reason);
 
     // Send standardized response
     sendResponse(res, {
